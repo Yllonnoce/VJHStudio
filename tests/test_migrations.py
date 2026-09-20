@@ -2,11 +2,11 @@ import sqlite3
 from pathlib import Path
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
-from runwarestudio import db, models
-from runwarestudio.services import migrate
+from vjhstudio import db, models
+from vjhstudio.services import migrate
 
 def test_fresh_db_upgrades_to_head(tmp_path):
-    p = tmp_path / "studio.db"
+    p = tmp_path / "vjh.db"
     assert migrate.current(p) is None
     assert migrate.needs_upgrade(p)
     migrate.upgrade(p)
@@ -18,7 +18,7 @@ def test_fresh_db_upgrades_to_head(tmp_path):
             "settings", "app_meta", "usage_entries", "alembic_version"} <= names
 
 def test_models_match_migrations(tmp_path):
-    p = tmp_path / "studio.db"
+    p = tmp_path / "vjh.db"
     migrate.upgrade(p)
     engine = db.make_engine(p)
     with engine.connect() as conn:
@@ -27,7 +27,7 @@ def test_models_match_migrations(tmp_path):
     assert diff == [], diff
 
 def test_engine_has_wal_and_fk(tmp_path):
-    p = tmp_path / "studio.db"
+    p = tmp_path / "vjh.db"
     migrate.upgrade(p)
     engine = db.make_engine(p)
     with engine.connect() as conn:
@@ -35,7 +35,7 @@ def test_engine_has_wal_and_fk(tmp_path):
         assert conn.exec_driver_sql("pragma foreign_keys").scalar() == 1
 
 def test_session_scope_commits_and_rolls_back(tmp_path):
-    p = tmp_path / "studio.db"
+    p = tmp_path / "vjh.db"
     migrate.upgrade(p)
     factory = db.make_session_factory(db.make_engine(p))
     with db.session_scope(factory) as s:

@@ -10,7 +10,7 @@ RESTART_EXIT_CODE = 75
 MIGRATION_FAIL_EXIT_CODE = 3
 DEFAULT_PORT = 8080
 DEFAULT_HOST = "127.0.0.1"
-ENV_PREFIX = "RUNWARESTUDIO_"
+ENV_PREFIX = "VJHSTUDIO_"
 
 
 @dataclass(frozen=True)
@@ -30,7 +30,7 @@ def resolve_paths(env: Mapping[str, str] | None = None) -> Paths:
     data = Path(raw).expanduser().resolve() if raw else REPO_ROOT / "data"
     secrets = data / "secrets"
     return Paths(
-        data=data, db=data / "studio.db", backups=data / "backups",
+        data=data, db=data / "vjh.db", backups=data / "backups",
         uploads=data / "uploads", outputs=data / "outputs",
         secrets=secrets, api_key_file=secrets / "api_key",
     )

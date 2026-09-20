@@ -1,9 +1,9 @@
 import stat, sys, pytest
-from runwarestudio import config, secrets
+from vjhstudio import config, secrets
 
 @pytest.fixture
 def paths(tmp_path):
-    p = config.resolve_paths(env={"RUNWARESTUDIO_DATA_DIR": str(tmp_path)})
+    p = config.resolve_paths(env={"VJHSTUDIO_DATA_DIR": str(tmp_path)})
     config.ensure_dirs(p)
     return p
 

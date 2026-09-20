@@ -1,11 +1,11 @@
 import pytest
-from runwarestudio import boot, config, db, models
-from runwarestudio.services import backup, migrate
+from vjhstudio import boot, config, db, models
+from vjhstudio.services import backup, migrate
 
 
 @pytest.fixture
 def paths(tmp_path):
-    return config.resolve_paths(env={"RUNWARESTUDIO_DATA_DIR": str(tmp_path)})
+    return config.resolve_paths(env={"VJHSTUDIO_DATA_DIR": str(tmp_path)})
 
 
 def test_first_boot_creates_schema_default_project_and_meta(paths):

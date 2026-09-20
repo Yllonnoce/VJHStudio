@@ -1,6 +1,6 @@
 import pytest
-from runwarestudio import db, models
-from runwarestudio.services import migrate, settings, meta
+from vjhstudio import db, models
+from vjhstudio.services import migrate, settings, meta
 
 @pytest.fixture
 def session(tmp_path):
@@ -25,7 +25,7 @@ def test_invalid_values_rejected(session):
 
 def test_env_precedence(session):
     settings.set_many(session, {"runware.transport": "websocket"})
-    assert settings.get(session, "runware.transport", env={"RUNWARESTUDIO_TRANSPORT": "rest"}) == "rest"
+    assert settings.get(session, "runware.transport", env={"VJHSTUDIO_TRANSPORT": "rest"}) == "rest"
 
 def test_meta_round_trip(session):
     assert meta.get(session, "x") is None

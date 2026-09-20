@@ -15,7 +15,7 @@ class CommitInfo:
 
 
 def git_bin() -> str:
-    return os.environ.get("RUNWARESTUDIO_GIT") or "git"
+    return os.environ.get("VJHSTUDIO_GIT") or "git"
 
 
 def run_git(args: list[str], timeout: int = 30) -> subprocess.CompletedProcess[str]:

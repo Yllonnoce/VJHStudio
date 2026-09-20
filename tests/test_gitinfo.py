@@ -1,4 +1,4 @@
-from runwarestudio.services import gitinfo
+from vjhstudio.services import gitinfo
 
 def test_git_install_detected():
     assert gitinfo.is_git_install() is True

@@ -1,7 +1,7 @@
 import pytest
 from runware import RunwareError
-from runwarestudio import db
-from runwarestudio.services import account, migrate
+from vjhstudio import db
+from vjhstudio.services import account, migrate
 from tests.fakes.fake_runware import FakeRunware, fake_factory
 
 @pytest.fixture

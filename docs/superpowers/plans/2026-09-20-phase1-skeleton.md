@@ -1,5 +1,7 @@
 # RunwareStudio Phase 1 (Skeleton) Implementation Plan
 
+> Renamed to **VJHStudio** on 2026-09-20 (package `vjhstudio`, env prefix `VJHSTUDIO_`, repo github.com/yllonnoce/VJHStudio).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A bootable RunwareStudio: uv project, config + key stash, full SQLite schema under Alembic, boot sequence with backups, FastAPI app with health endpoint and a Settings page that saves the RunWare key and shows the account balance, CLI, and launcher scripts.

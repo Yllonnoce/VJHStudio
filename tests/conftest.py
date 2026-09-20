@@ -1,11 +1,11 @@
 import pytest, httpx
-from runwarestudio import config
-from runwarestudio.web.app import create_app
+from vjhstudio import config
+from vjhstudio.web.app import create_app
 from tests.fakes.fake_runware import FakeRunware, fake_factory
 
 @pytest.fixture
 def paths(tmp_path):
-    return config.resolve_paths(env={"RUNWARESTUDIO_DATA_DIR": str(tmp_path / "data")})
+    return config.resolve_paths(env={"VJHSTUDIO_DATA_DIR": str(tmp_path / "data")})
 
 @pytest.fixture
 def fake():

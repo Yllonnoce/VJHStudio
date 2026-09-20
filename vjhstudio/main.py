@@ -5,13 +5,13 @@ import httpx
 from . import __version__, config, secrets
 from .services import gitinfo, migrate
 
-log = logging.getLogger("runwarestudio")
+log = logging.getLogger("vjhstudio")
 
 
 def is_ours(host: str, port: int) -> bool:
     try:
         r = httpx.get(f"http://{host}:{port}/api/health", timeout=1.5)
-        return r.status_code == 200 and r.json().get("app") == "RunwareStudio"
+        return r.status_code == 200 and r.json().get("app") == "VJHStudio"
     except Exception:  # noqa: BLE001
         return False
 
@@ -27,7 +27,7 @@ def _port_free(host: str, port: int) -> bool:
 
 
 def pick_port(host: str, port: int, tries: int = 10) -> tuple[int, bool]:
-    """Return (port, already_ours). If the requested port runs RunwareStudio, report it.
+    """Return (port, already_ours). If the requested port runs VJHStudio, report it.
     Otherwise walk forward until a free port is found."""
     if _port_free(host, port):
         return port, False
@@ -44,12 +44,12 @@ def cmd_serve(args: argparse.Namespace) -> int:
     from . import boot
     from .web.app import create_app
     paths = config.resolve_paths()
-    host = args.host or config.env_str(os.environ, "RUNWARESTUDIO_HOST", config.DEFAULT_HOST)
-    want = args.port or config.env_int(os.environ, "RUNWARESTUDIO_PORT", config.DEFAULT_PORT)
+    host = args.host or config.env_str(os.environ, "VJHSTUDIO_HOST", config.DEFAULT_HOST)
+    want = args.port or config.env_int(os.environ, "VJHSTUDIO_PORT", config.DEFAULT_PORT)
     port, ours = pick_port(host, want)
     url = f"http://{host}:{port}/"
     if ours:
-        print(f"RunwareStudio is already running at {url}")
+        print(f"VJHStudio is already running at {url}")
         if args.open:
             webbrowser.open(url)
         return 0
@@ -63,8 +63,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
     app = create_app(paths, port=port, boot_info=info)
     if args.open:
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
-    print(f"RunwareStudio {__version__} on {url}  (data: {paths.data})")
-    uvicorn.run(app, host=host, port=port, log_level=os.environ.get("RUNWARESTUDIO_LOG_LEVEL", "info").lower())
+    print(f"VJHStudio {__version__} on {url}  (data: {paths.data})")
+    uvicorn.run(app, host=host, port=port, log_level=os.environ.get("VJHSTUDIO_LOG_LEVEL", "info").lower())
     return 0
 
 
@@ -83,13 +83,13 @@ def cmd_migrate(_args: argparse.Namespace) -> int:
 
 def cmd_version(_args: argparse.Namespace) -> int:
     c = gitinfo.current_commit()
-    print(f"RunwareStudio {__version__}" + (f" ({c.short} {c.subject})" if c else ""))
+    print(f"VJHStudio {__version__}" + (f" ({c.short} {c.subject})" if c else ""))
     return 0
 
 
 def cmd_doctor(_args: argparse.Namespace) -> int:
     paths = config.resolve_paths()
-    port = config.env_int(os.environ, "RUNWARESTUDIO_PORT", config.DEFAULT_PORT)
+    port = config.env_int(os.environ, "VJHSTUDIO_PORT", config.DEFAULT_PORT)
     print(f"version    : {__version__}")
     print(f"python     : {sys.version.split()[0]} ({sys.executable})")
     print(f"data dir   : {paths.data} ({'exists' if paths.data.exists() else 'missing'})")
@@ -97,9 +97,9 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
     print(f"api key    : {secrets.key_source(paths)}")
     print(f"git        : {'checkout' if gitinfo.is_git_install() else 'not a git checkout'} "
           f"{(gitinfo.current_commit() or gitinfo.CommitInfo('', '-', '')).short}")
-    print(f"uv         : {os.environ.get('RUNWARESTUDIO_UV') or shutil.which('uv') or 'not found'}")
-    print(f"git binary : {os.environ.get('RUNWARESTUDIO_GIT') or shutil.which('git') or 'not found'}")
-    print(f"launcher   : {'yes' if os.environ.get('RUNWARESTUDIO_LAUNCHER') == '1' else 'no'}")
+    print(f"uv         : {os.environ.get('VJHSTUDIO_UV') or shutil.which('uv') or 'not found'}")
+    print(f"git binary : {os.environ.get('VJHSTUDIO_GIT') or shutil.which('git') or 'not found'}")
+    print(f"launcher   : {'yes' if os.environ.get('VJHSTUDIO_LAUNCHER') == '1' else 'no'}")
     if sys.platform == "darwin":
         print("macOS notes:")
         print(f'  - Open the app at http://127.0.0.1:{port}/ (not "localhost": Safari may try IPv6 first).')
@@ -111,7 +111,7 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="runwarestudio")
+    p = argparse.ArgumentParser(prog="vjhstudio")
     sub = p.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("serve", help="run the web app")
     s.add_argument("--host")
@@ -127,7 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    logging.basicConfig(level=os.environ.get("RUNWARESTUDIO_LOG_LEVEL", "INFO"))
+    logging.basicConfig(level=os.environ.get("VJHSTUDIO_LOG_LEVEL", "INFO"))
     args = build_parser().parse_args(argv)
     return int(args.func(args))
 

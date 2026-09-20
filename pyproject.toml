@@ -1,5 +1,5 @@
 [project]
-name = "runwarestudio"
+name = "vjhstudio"
 dynamic = ["version"]
 description = "Local image and video generation studio for RunWare.AI"
 requires-python = ">=3.11"
@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [project.scripts]
-runwarestudio = "runwarestudio.main:main"
+vjhstudio = "vjhstudio.main:main"
 
 [dependency-groups]
 dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.5"]
@@ -29,10 +29,10 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.version]
-path = "runwarestudio/__init__.py"
+path = "vjhstudio/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["runwarestudio"]
+packages = ["vjhstudio"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

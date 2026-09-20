@@ -1,6 +1,6 @@
 import httpx
 
-from runwarestudio.web.routes import system as system_routes
+from vjhstudio.web.routes import system as system_routes
 
 
 async def test_restart_endpoint(client, monkeypatch):

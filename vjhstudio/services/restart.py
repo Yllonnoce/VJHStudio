@@ -41,7 +41,7 @@ def _pending_join() -> None:
 
 
 def request_restart(delay: float = 1.5) -> str:
-    if os.environ.get("RUNWARESTUDIO_LAUNCHER") == "1":
+    if os.environ.get("VJHSTUDIO_LAUNCHER") == "1":
         _schedule(delay, lambda: _exit(RESTART_EXIT_CODE))
         return "launcher"
     if _is_windows():

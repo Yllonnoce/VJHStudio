@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from ..config import Paths
 
-_NAME = re.compile(r"^studio-(\d{8}-\d{6})-(.+)\.db$")
+_NAME = re.compile(r"^vjh-(\d{8}-\d{6})-(.+)\.db$")
 
 
 @dataclass(frozen=True)
@@ -22,7 +22,7 @@ def backup_db(paths: Paths, label: str) -> Path:
         raise FileNotFoundError(paths.db)
     paths.backups.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    dest = paths.backups / f"studio-{stamp}-{label}.db"
+    dest = paths.backups / f"vjh-{stamp}-{label}.db"
     src = sqlite3.connect(paths.db)
     dst = sqlite3.connect(dest)
     try:
@@ -36,7 +36,7 @@ def list_backups(paths: Paths) -> list[BackupInfo]:
     out: list[BackupInfo] = []
     if not paths.backups.exists():
         return out
-    for f in paths.backups.glob("studio-*.db"):
+    for f in paths.backups.glob("vjh-*.db"):
         m = _NAME.match(f.name)
         if not m:
             continue

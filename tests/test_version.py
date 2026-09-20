@@ -1,5 +1,5 @@
 import re
-import runwarestudio
+import vjhstudio
 
 def test_version_is_semver():
-    assert re.fullmatch(r"\d+\.\d+\.\d+", runwarestudio.__version__)
+    assert re.fullmatch(r"\d+\.\d+\.\d+", vjhstudio.__version__)

@@ -1,5 +1,5 @@
 from runware import RunwareError
-from runwarestudio import secrets
+from vjhstudio import secrets
 
 async def test_settings_page_lists_fields(client):
     r = await client.get("/settings")

@@ -28,7 +28,7 @@ def create_app(paths: config.Paths, client_factory=open_client, env: Mapping[str
         yield
         app.state.boot.engine.dispose()
 
-    app = FastAPI(title="RunwareStudio", lifespan=lifespan, docs_url=None, redoc_url=None)
+    app = FastAPI(title="VJHStudio", lifespan=lifespan, docs_url=None, redoc_url=None)
     app.state.paths = paths
     app.state.client_factory = client_factory
     app.state.env = env

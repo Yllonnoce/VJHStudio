@@ -1,4 +1,6 @@
-# RunwareStudio — Design and Implementation Plan
+# VJHStudio — Design and Implementation Plan
+
+> Renamed to **VJHStudio** on 2026-09-20 (package `vjhstudio`, env prefix `VJHSTUDIO_`, repo github.com/yllonnoce/VJHStudio).
 
 ## Context
 
@@ -17,7 +19,7 @@ DungeonCrawler had text/TTS) with a standalone tool that:
 
 | Topic | Decision |
 |---|---|
-| Name / repo | **RunwareStudio**, `github.com/yllonnoce/RunwareStudio`, branch `main` |
+| Name / repo | **VJHStudio**, `github.com/yllonnoce/VJHStudio`, branch `main` |
 | Prior art | Start fresh. Borrow *patterns* only: ScenePlay `ops/app_update.py` (updater), `core/db_migrate.py` (boot migration), DungeonCrawler async poll/backoff |
 | RunWare client | New official **`runware-sdk`** package (`from runware import Runware`, `await client.run({...task dict})`) |
 | Providers | RunWare only, for both image and video (no Gemini Veo) |
@@ -56,12 +58,12 @@ Single FastAPI process, sync SQLAlchemy over SQLite (WAL), asyncio job runner in
 ### Package layout
 
 ```
-RunwareStudio/
+VJHStudio/
   pyproject.toml, uv.lock, alembic.ini, version.py, run.py, README.md, .gitignore
   start.sh, start.bat, install.sh, install.bat, uninstall.sh, uninstall.bat
   scripts/restart_helper.bat
   migrations/ (env.py bound to models.Base.metadata, render_as_batch=True; versions/0001_initial.py)
-  runwarestudio/
+  vjhstudio/
     main.py        CLI entry (host/port from env, boot(), uvicorn.run)
     config.py      env vars, Paths (data dir resolution), RESTART_EXIT_CODE=75
     secrets.py     api key file read/write (0600), effective_api_key() (env overrides)
@@ -136,7 +138,7 @@ Files: `/files/outputs/{slug}/{filename}`, `/files/uploads/{filename}` via FileR
 
 ### Migrations, backups, versioning
 
-- Alembic at repo root; `migrations/env.py` uses `Base.metadata`, batch mode for SQLite. No `create_all`; `0001_initial` creates everything. CLI `python -m runwarestudio.migrate upgrade|current|head`.
+- Alembic at repo root; `migrations/env.py` uses `Base.metadata`, batch mode for SQLite. No `create_all`; `0001_initial` creates everything. CLI `python -m vjhstudio.migrate upgrade|current|head`.
 - Boot: if `current != head` and DB exists → `backup_db("pre-migrate")` → upgrade; failure → exit code 3 (launcher loop stops, message names the backup).
 - Backups via `sqlite3 .backup()` API into `data/backups/studio-YYYYMMDD-HHMMSS-<label>.db`; rotation keeps 10 per label (pre-migrate, pre-update, manual).
 - `app_meta` mirrors schema revision, app version and git commit per boot; `/system` and footer show them.
@@ -144,15 +146,15 @@ Files: `/files/outputs/{slug}/{filename}`, `/files/uploads/{filename}` via FileR
 
 ### Self-update and restart
 
-`services/update.py` (runs in a thread, step log polled by the UI): git-install check → record old SHA → `backup_db("pre-update")` (mandatory) → `git stash` if dirty → `git pull --ff-only` → `uv sync --frozen` (fail ⇒ `git reset --hard old`, re-sync) → `uv run python -m runwarestudio.migrate upgrade` (fail ⇒ reset code, re-sync, restore DB from the pre-update backup) → `git stash pop` → restart. Git is forced non-interactive (`GIT_TERMINAL_PROMPT=0`, ssh BatchMode); auth failures get a "sign in once with git pull in a terminal" message.
+`services/update.py` (runs in a thread, step log polled by the UI): git-install check → record old SHA → `backup_db("pre-update")` (mandatory) → `git stash` if dirty → `git pull --ff-only` → `uv sync --frozen` (fail ⇒ `git reset --hard old`, re-sync) → `uv run python -m vjhstudio.migrate upgrade` (fail ⇒ reset code, re-sync, restore DB from the pre-update backup) → `git stash pop` → restart. Git is forced non-interactive (`GIT_TERMINAL_PROMPT=0`, ssh BatchMode); auth failures get a "sign in once with git pull in a terminal" message.
 
 **Update notice (manual update, never automatic)**: a background task runs `check_updates()` 60 s after boot and every 6 h (skipped when offline or not a git install) and stores `{behind, commits, checked_at}` in `app_meta`. When `behind > 0` the header shows an "Update available (N)" badge linking to Settings → Updates, where the commit list and the **Update now** button are; Check for updates runs the same check on demand. Nothing is pulled until the user clicks Update now.
 
-`services/restart.py`: if `RUNWARESTUDIO_LAUNCHER=1` → `os._exit(75)` and the launcher loop relaunches (both OS). Windows without launcher → detached `scripts/restart_helper.bat <pid>` (waits via `tasklist`, then `start start.bat`). POSIX without launcher → `os.execv`. `/restarting` page polls `/api/health` until the commit changes.
+`services/restart.py`: if `VJHSTUDIO_LAUNCHER=1` → `os._exit(75)` and the launcher loop relaunches (both OS). Windows without launcher → detached `scripts/restart_helper.bat <pid>` (waits via `tasklist`, then `start start.bat`). POSIX without launcher → `os.execv`. `/restarting` page polls `/api/health` until the commit changes.
 
 ### Configuration
 
-Env: `RUNWARE_API_KEY` (overrides stash), `RUNWARESTUDIO_DATA_DIR` (default sibling `../RunwareStudio-data` next to the checkout), `RUNWARESTUDIO_HOST` (127.0.0.1), `RUNWARESTUDIO_PORT` (**8080**), `RUNWARESTUDIO_LOG_LEVEL`, `RUNWARESTUDIO_LAUNCHER`, `UV_BIN`. Data dir: `studio.db`, `backups/`, `uploads/`, `outputs/`, `secrets/api_key` (0600; dir 700). Precedence: env > settings table > defaults.
+Env: `RUNWARE_API_KEY` (overrides stash), `VJHSTUDIO_DATA_DIR` (default sibling `../VJHStudio-data` next to the checkout), `VJHSTUDIO_HOST` (127.0.0.1), `VJHSTUDIO_PORT` (**8080**), `VJHSTUDIO_LOG_LEVEL`, `VJHSTUDIO_LAUNCHER`, `UV_BIN`. Data dir: `vjh.db`, `backups/`, `uploads/`, `outputs/`, `secrets/api_key` (0600; dir 700). Precedence: env > settings table > defaults.
 
 Deps: fastapi, uvicorn[standard], jinja2, python-multipart, sqlalchemy≥2, alembic, pydantic≥2, httpx, runware-sdk, pillow, python-slugify. Dev: pytest, pytest-asyncio, ruff.
 
@@ -162,13 +164,13 @@ Deps: fastapi, uvicorn[standard], jinja2, python-multipart, sqlalchemy≥2, alem
 
 ### Backup, restore and merge (`services/archive.py`, Settings → Backups, CLI `backup`/`restore`)
 
-Archive = zip `runwarestudio-backup-YYYYMMDD-HHMMSS.zip` in `data/backups/`:
+Archive = zip `vjhstudio-backup-YYYYMMDD-HHMMSS.zip` in `data/backups/`:
 - `manifest.json` {app_version, schema_revision, created_at, includes: [db, uploads, outputs], counts per table, host}
-- `studio.db` always (consistent snapshot via sqlite backup API)
+- `vjh.db` always (consistent snapshot via sqlite backup API)
 - `uploads/…` and `outputs/<slug>/…` (+ sidecars) only when the checkboxes are ticked (outputs can be GBs)
 - Streamed with `zipfile` (ZIP64, stored for media, deflated for db) to avoid RAM blow-up.
 
-**Restore (replace)**: safety backup → pause JobRunner (refuse if jobs running) → replace `studio.db` (remove `-wal/-shm`) → extract files (overwrite) → `alembic upgrade head` (archive may be older schema) → restart. A db-only archive marks outputs/assets whose files are absent as `is_missing`.
+**Restore (replace)**: safety backup → pause JobRunner (refuse if jobs running) → replace `vjh.db` (remove `-wal/-shm`) → extract files (overwrite) → `alembic upgrade head` (archive may be older schema) → restart. A db-only archive marks outputs/assets whose files are absent as `is_missing`.
 
 **Merge (additive union by natural keys)**: extract archive db to temp → `alembic upgrade head` on the temp copy → import in dependency order inside one transaction, with id remapping:
 | table | natural key | on match | on new |
@@ -183,14 +185,14 @@ Archive = zip `runwarestudio-backup-YYYYMMDD-HHMMSS.zip` in `data/backups/`:
 | settings / app_meta / secrets | never merged | | |
 Dry-run first: `preview_merge(zip)` returns per-table {new, existing, missing_files}; UI shows the table and asks to confirm. Safety backup before the real merge. Import from any zip (upload through the UI or a path via CLI).
 
-UI: Settings → Backups: Create (checkboxes db/uploads/outputs), list with size/date/contents, Download, Restore, Merge (preview → confirm), Import file, Delete. CLI: `runwarestudio backup [--uploads] [--outputs]`, `runwarestudio restore <zip> [--merge] [--yes]`.
+UI: Settings → Backups: Create (checkboxes db/uploads/outputs), list with size/date/contents, Download, Restore, Merge (preview → confirm), Import file, Delete. CLI: `vjhstudio backup [--uploads] [--outputs]`, `vjhstudio restore <zip> [--merge] [--yes]`.
 
 ## UI design (Jinja2 + HTMX + Alpine, Pico CSS, dark default)
 
 **Theme requirement (user, 2026-09-20)**: modern look with *colour binding* like the ScenePlay_Flask project: CSS design tokens on `:root` (background, surface, text, accent, border, radius, shadow), a user-selectable palette/accent stored as the `ui.theme`/`ui.accent` settings and applied via `data-theme`/`data-accent` attributes on `<html>` before first paint, mirrored for light and dark. Ported from ScenePlay_Flask's stylesheet and theme JS (see Phase 1 Task 12).
 
 
-Vendored under `runwarestudio/web/static/vendor/`: htmx 2.0.x, Alpine 3.x (+ focus plugin), Pico CSS 2.x; `css/app.css` (≤300 lines), `js/app.js` (composePrompt, generateForm, restartWatcher, dropzone, htmx error→toast). Icons: `icon.ico`, `icon.png`, `favicon.svg`. No CDN.
+Vendored under `vjhstudio/web/static/vendor/`: htmx 2.0.x, Alpine 3.x (+ focus plugin), Pico CSS 2.x; `css/app.css` (≤300 lines), `js/app.js` (composePrompt, generateForm, restartWatcher, dropzone, htmx error→toast). Icons: `icon.ico`, `icon.png`, `favicon.svg`. No CDN.
 
 Conventions: pages extend `base.html`; partials start with `_` and are included on first paint and returned by HTMX later (one source of truth). 422 re-renders the partial with inline errors (`HX-Retarget` when needed); other errors → JSON `{"error"}` → toast. Any response may append an OOB toast. `HX-Trigger: jobs-changed` after job create/cancel/retry.
 
@@ -221,25 +223,25 @@ Empty/error states: no API key banner + disabled Generate; offline chip; failed 
 
 ## Installers and launchers (Windows = .bat only; Linux/macOS = .sh)
 
-Shared: install dir `~/RunwareStudio` / `%USERPROFILE%\RunwareStudio` (override `RUNWARESTUDIO_HOME`); `data/` inside it (git-ignored); tools live where upstream installers put them (uv `~/.local/bin/uv`, `%USERPROFILE%\.local\bin\uv.exe`; Windows fallback MinGit at `%LOCALAPPDATA%\Programs\MinGit`); Python is uv-managed (no system Python needed); scripts export `RUNWARESTUDIO_UV`/`RUNWARESTUDIO_GIT` so the in-app updater uses the same binaries; port default **8080** (`RUNWARESTUDIO_PORT` or first arg); the server opens the browser (`serve --open`), restarts pass `--no-browser`; if 8080 is busy and answers as RunwareStudio, just open the browser; otherwise try the next 10 ports and print.
+Shared: install dir `~/VJHStudio` / `%USERPROFILE%\VJHStudio` (override `VJHSTUDIO_HOME`); `data/` inside it (git-ignored); tools live where upstream installers put them (uv `~/.local/bin/uv`, `%USERPROFILE%\.local\bin\uv.exe`; Windows fallback MinGit at `%LOCALAPPDATA%\Programs\MinGit`); Python is uv-managed (no system Python needed); scripts export `VJHSTUDIO_UV`/`VJHSTUDIO_GIT` so the in-app updater uses the same binaries; port default **8080** (`VJHSTUDIO_PORT` or first arg); the server opens the browser (`serve --open`), restarts pass `--no-browser`; if 8080 is busy and answers as VJHStudio, just open the browser; otherwise try the next 10 ports and print.
 
-CLI (`runwarestudio` console script): `serve [--port] [--open|--no-browser]`, `migrate`, `backup`, `restore`, `version`, `doctor`.
+CLI (`vjhstudio` console script): `serve [--port] [--open|--no-browser]`, `migrate`, `backup`, `restore`, `version`, `doctor`.
 
-- **install.sh** (`curl -fsSL https://raw.githubusercontent.com/yllonnoce/RunwareStudio/main/install.sh | bash`): `main(){…}; main "$@"` wrapper; git (macOS → `xcode-select --install` then re-run; Linux → apt/dnf/pacman/zypper via sudo), uv (`astral.sh/uv/install.sh --no-modify-path`), clone or `pull --ff-only`, `uv sync --frozen`, `runwarestudio migrate`, shortcut (Linux `~/.local/share/applications/runwarestudio.desktop` + Desktop copy; macOS `~/Desktop/RunwareStudio.command`), then `exec start.sh` unless `--no-start`. Flags `--no-start --branch --dir`.
+- **install.sh** (`curl -fsSL https://raw.githubusercontent.com/yllonnoce/VJHStudio/main/install.sh | bash`): `main(){…}; main "$@"` wrapper; git (macOS → `xcode-select --install` then re-run; Linux → apt/dnf/pacman/zypper via sudo), uv (`astral.sh/uv/install.sh --no-modify-path`), clone or `pull --ff-only`, `uv sync --frozen`, `vjhstudio migrate`, shortcut (Linux `~/.local/share/applications/vjhstudio.desktop` + Desktop copy; macOS `~/Desktop/VJHStudio.command`), then `exec start.sh` unless `--no-start`. Flags `--no-start --branch --dir`.
 - **install.bat** (`curl.exe -fsSLo %TEMP%\install.bat …/install.bat && %TEMP%\install.bat`): cmd + `curl.exe` + `tar.exe` (+ `winget` if present, `cscript` optional). git via winget or portable MinGit (release JSON parsed with `findstr`/`for /f`, extracted with tar); uv via winget or `uv-x86_64-pc-windows-msvc.zip` (ARM64 variant when `%PROCESSOR_ARCHITECTURE%`==ARM64); clone/pull; `uv sync --frozen`; migrate; Desktop shortcut via a generated `.vbs` (`WScript.Shell.CreateShortcut`, icon, minimised) with `.url` fallback; `start "" start.bat` unless `/nostart`. Runs from `%TEMP%`, never from the checkout.
-- **start.sh**: resolve uv/git, export env incl. `RUNWARESTUDIO_LAUNCHER=1`, loop: `uv run --frozen runwarestudio serve --port $PORT $OPEN`; exit 75 → `OPEN=--no-browser`, sleep 1, continue; else exit with code. Wrapped in `main()` so git pull cannot corrupt a running script.
+- **start.sh**: resolve uv/git, export env incl. `VJHSTUDIO_LAUNCHER=1`, loop: `uv run --frozen vjhstudio serve --port $PORT $OPEN`; exit 75 → `OPEN=--no-browser`, sleep 1, continue; else exit with code. Wrapped in `main()` so git pull cannot corrupt a running script.
 - **start.bat**: copies itself to `%TEMP%\rs_start_%RANDOM%.bat` and `call`s the copy (the running file is never the one git rewrites); the copy resolves uv/git, sets env, and loops with labels on `errorlevel 75`; other codes print and `pause`.
 - **scripts/restart_helper.bat**: fallback when the server was not started by a launcher: waits for the PID to exit (`tasklist`), then `start "" /min start.bat --no-browser`.
 - **uninstall.sh / uninstall.bat**: POST `/api/shutdown` (localhost only), wait, remove `.venv`, remove shortcuts (.desktop, .command, .lnk/.url on Desktop and OneDrive Desktop), keep `data/` unless `--purge` / `/purge` with a typed `DELETE` confirmation, print that the checkout folder and uv/git are left for the user to delete.
-- **Install choices (added 2026-09-20)**: the installer asks two plain yes/no questions: (1) "Start RunwareStudio automatically when you log in (run as a service)?" and (2) "Create a desktop link?". Either, both or neither. Service = Linux `~/.config/systemd/user/runwarestudio.service` (`systemctl --user enable --now`), macOS `~/Library/LaunchAgents/com.yllonnoce.runwarestudio.plist` (`launchctl load`), Windows `schtasks /Create /SC ONLOGON /TN RunwareStudio /TR "<home>\start.bat --no-browser"` (no PowerShell). The choice is written to `data/install.json` so the uninstaller knows exactly what to remove. Service mode runs `start.sh --no-browser` / `start.bat --no-browser`; the desktop link opens the browser.
+- **Install choices (added 2026-09-20)**: the installer asks two plain yes/no questions: (1) "Start VJHStudio automatically when you log in (run as a service)?" and (2) "Create a desktop link?". Either, both or neither. Service = Linux `~/.config/systemd/user/vjhstudio.service` (`systemctl --user enable --now`), macOS `~/Library/LaunchAgents/com.yllonnoce.vjhstudio.plist` (`launchctl load`), Windows `schtasks /Create /SC ONLOGON /TN VJHStudio /TR "<home>\start.bat --no-browser"` (no PowerShell). The choice is written to `data/install.json` so the uninstaller knows exactly what to remove. Service mode runs `start.sh --no-browser` / `start.bat --no-browser`; the desktop link opens the browser.
 - **Simplicity rule (user, 2026-09-20)**: installation files and their descriptions must be very simple: one obvious path per OS, short scripts with plain-English comments, README install section as 3-5 numbered steps.
 - **Uninstall** removes the service (disable + delete unit/plist/task), the desktop link, `.venv`, and `data/install.json`; keeps `data/` unless the user opts in.
-- **macOS notes (added 2026-09-20)**: Apple TN3179 states the "Local Network" privacy permission covers only broadcast-capable interfaces (Wi-Fi/Ethernet), never loopback, and command-line tools started from Terminal are exempt. So the app always opens and prints `http://127.0.0.1:<port>/` (never `localhost`, which Safari may resolve to `::1` while uvicorn listens on IPv4). `runwarestudio doctor` on macOS prints: the 127.0.0.1 note; "if macOS asks to allow Local Network access: System Settings > Privacy & Security > Local Network"; and the Gatekeeper step for a downloaded launcher (right-click > Open once, or `xattr -d com.apple.quarantine <file>`). The README macOS section repeats these three lines.
+- **macOS notes (added 2026-09-20)**: Apple TN3179 states the "Local Network" privacy permission covers only broadcast-capable interfaces (Wi-Fi/Ethernet), never loopback, and command-line tools started from Terminal are exempt. So the app always opens and prints `http://127.0.0.1:<port>/` (never `localhost`, which Safari may resolve to `::1` while uvicorn listens on IPv4). `vjhstudio doctor` on macOS prints: the 127.0.0.1 note; "if macOS asks to allow Local Network access: System Settings > Privacy & Security > Local Network"; and the Gatekeeper step for a downloaded launcher (right-click > Open once, or `xattr -d com.apple.quarantine <file>`). The README macOS section repeats these three lines.
 - Bootstrap docs in README: one-liners, SmartScreen "Run anyway" note, Gatekeeper right-click→Open note, OneDrive Desktop note.
 
 ## How implementation will proceed
 
-After approval: `git init` in `/mnt/Transfer/5FD1E1415AC80F29/dev/RunWare`, commit this design as `docs/superpowers/specs/2026-09-20-runwarestudio-design.md`, then use the superpowers writing-plans skill to produce a step-by-step plan for Phase 1 and execute it with TDD; each later phase gets its own plan. First coding step in Phase 1 is a 20-line probe against the real `runware-sdk` (run one cheap `promptEnhance`, one `content.get_model_pricing`) to confirm return shapes before the adapter is written.
+After approval: `git init` in `/mnt/Transfer/5FD1E1415AC80F29/dev/RunWare`, commit this design as `docs/superpowers/specs/2026-09-20-vjhstudio-design.md`, then use the superpowers writing-plans skill to produce a step-by-step plan for Phase 1 and execute it with TDD; each later phase gets its own plan. First coding step in Phase 1 is a 20-line probe against the real `runware-sdk` (run one cheap `promptEnhance`, one `content.get_model_pricing`) to confirm return shapes before the adapter is written.
 
 ## Implementation phases (each a separate implementation-plan chunk)
 
