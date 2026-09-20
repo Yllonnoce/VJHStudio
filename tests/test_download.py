@@ -1,5 +1,6 @@
 import json
 import re
+from datetime import datetime
 
 import httpx
 import pytest
@@ -33,6 +34,11 @@ def test_stem_format():
     assert re.fullmatch(r"\d{8}-\d{6}-[0-9a-f]{6}", download.new_stem())
 
 
+def test_stem_uses_local_time():
+    stem = download.new_stem(datetime(2026, 9, 20, 15, 4, 5))
+    assert stem.startswith("20260920-150405-")
+
+
 async def test_download_writes_file_and_retries(tmp_path):
     t, calls = _transport(fail_first=1)
     items = [ResultItem("http://x/a.png", 1, 0.01, "u", False, {})]
@@ -50,6 +56,18 @@ async def test_download_gives_up(tmp_path):
             "png",
             transport=t,
         )
+
+
+async def test_download_cleans_up_part_on_failure(tmp_path):
+    t, _ = _transport(fail_first=10)
+    with pytest.raises(download.DownloadError):
+        await download.download_items(
+            [ResultItem("http://x/a.png", None, None, None, False, {})],
+            tmp_path,
+            "png",
+            transport=t,
+        )
+    assert not list(tmp_path.glob("*.part"))
 
 
 def test_sidecar_and_thumbnail(tmp_path):

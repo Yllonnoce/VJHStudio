@@ -7,7 +7,7 @@ import os
 import secrets
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 import httpx
@@ -28,7 +28,9 @@ class SavedFile:
 
 
 def new_stem(now: datetime | None = None) -> str:
-    return f"{(now or datetime.now(UTC)).strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(3)}"
+    return (
+        f"{(now or datetime.now().astimezone()).strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(3)}"
+    )
 
 
 async def _fetch(client: httpx.AsyncClient, url: str, dest: Path) -> int:
@@ -61,6 +63,7 @@ async def download_items(
     ) as client:
         for n, item in enumerate(items, 1):
             dest = dest_dir / f"{new_stem()}.{ext.lower()}"
+            part = dest.with_name(dest.name + ".part")
             last: Exception | None = None
             for _ in range(retries + 1):
                 try:
@@ -71,6 +74,7 @@ async def download_items(
                 except httpx.HTTPError as e:
                     last = e
             if last is not None:
+                part.unlink(missing_ok=True)
                 raise DownloadError(f"could not download {item.url}: {last}") from last
             if on_progress:
                 on_progress(n, len(items))
