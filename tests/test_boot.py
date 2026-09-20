@@ -46,3 +46,13 @@ def test_migration_failure_propagates(paths, monkeypatch):
     monkeypatch.setattr(migrate, "upgrade", bad)
     with pytest.raises(migrate.MigrationFailed):
         boot.boot(paths)
+
+
+def test_outputs_default_ensured_on_every_boot(paths):
+    boot.boot(paths)
+    default_dir = paths.outputs / "default"
+    assert default_dir.is_dir()
+    default_dir.rmdir()
+    assert not default_dir.exists()
+    boot.boot(paths)
+    assert default_dir.is_dir()

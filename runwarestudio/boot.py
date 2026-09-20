@@ -51,8 +51,9 @@ def boot(paths: config.Paths) -> BootInfo:
     factory = db.make_session_factory(engine)
     commit = gitinfo.current_commit()
     now = utcnow()
+    schema_revision = migrate.head()
     with db.session_scope(factory) as s:
-        meta.set(s, "schema_revision", migrate.head())
+        meta.set(s, "schema_revision", schema_revision)
         meta.set(s, "app_version_last_boot", __version__)
         meta.set(s, "git_commit_last_boot", commit.sha if commit else "")
         meta.set(s, "last_boot_at", now.isoformat())
@@ -60,7 +61,7 @@ def boot(paths: config.Paths) -> BootInfo:
             meta.set(s, "first_boot_at", now.isoformat())
         if not s.query(Project).filter_by(slug="default").first():
             s.add(Project(name="Default", slug="default"))
-            (paths.outputs / "default").mkdir(parents=True, exist_ok=True)
+        (paths.outputs / "default").mkdir(parents=True, exist_ok=True)
         orphaned, requeued = orphan_jobs(s)
-    return BootInfo(paths, engine, factory, migrate.head(), __version__, commit,
+    return BootInfo(paths, engine, factory, schema_revision, __version__, commit,
                     uuid.uuid4().hex, now, orphaned, requeued)
