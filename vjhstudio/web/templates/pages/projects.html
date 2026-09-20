@@ -6,7 +6,7 @@
   <thead><tr><th>Name</th><th>Slug</th><th>Outputs</th><th>Cost</th><th>Folder</th><th></th></tr></thead>
   <tbody id="projects-body">
     {% for row in rows %}
-      {% with p=row.p, totals=row.totals, folder=row.folder, show_archived=row.show_archived %}
+      {% with p=row.p, totals=row.totals, folder=row.folder, show_archived=row.show_archived, toast=None %}
         {% include "projects/_row.html" %}
       {% endwith %}
     {% else %}

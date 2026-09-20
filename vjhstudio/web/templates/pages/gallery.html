@@ -2,8 +2,9 @@
 {% block title %}Gallery · VJHStudio{% endblock %}
 {% block content %}
 <h1>Gallery</h1>
-<form id="gallery-filters" class="gallery-filters-grid" hx-get="/hx/gallery" hx-target="#gallery-grid"
-      hx-swap="outerHTML" hx-trigger="change, submit, keyup changed delay:400ms from:[name=q]" hx-push-url="true">
+<form id="gallery-filters" class="gallery-filters-grid" hx-get="/gallery" hx-select="#gallery-grid"
+      hx-target="#gallery-grid" hx-swap="outerHTML"
+      hx-trigger="change, submit, keyup changed delay:400ms from:[name=q]" hx-push-url="true">
   <label>Project
     <select name="project_id">
       <option value="">All projects</option>

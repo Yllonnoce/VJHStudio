@@ -65,3 +65,18 @@ async def test_gallery_malformed_filters_dont_500(client):
     assert r.status_code == 200
     r = await client.get("/hx/gallery?project_id=nope&date_from=not-a-date")
     assert r.status_code == 200
+
+
+async def test_gallery_filters_push_the_page_url_not_a_fragment(client, fake, app):
+    """hx-push-url must land on /gallery?... (bookmarkable, GET renders the same filters),
+    never on /hx/gallery?... (a fragment route with no filter form of its own)."""
+    await _make(client, fake, app)
+    oid = (await client.get("/api/jobs")).json()[0]["outputs"][0]["id"]
+    await client.post(f"/outputs/{oid}/favourite")
+    r = await client.get("/gallery?q=castle&favourite=1")
+    assert r.status_code == 200
+    assert 'value="castle"' in r.text
+    assert 'name="favourite" value="1" checked' in r.text
+    assert r.text.count("/files/thumbs/") == 1
+    assert 'hx-get="/gallery"' in r.text and 'hx-select="#gallery-grid"' in r.text
+    assert 'hx-get="/hx/gallery"' not in r.text.split("</form>")[0]

@@ -8,7 +8,7 @@
   <div class="new-project">
     <input type="text" name="new_project_name" placeholder="New project name" aria-label="New project name">
     <button type="button" class="secondary outline"
-            hx-post="/projects" hx-include="closest .new-project"
+            hx-post="/projects?return=select" hx-include="closest .new-project"
             hx-target="#project-select-wrap" hx-swap="outerHTML">Add</button>
   </div>
 </div>

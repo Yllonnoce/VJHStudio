@@ -42,3 +42,15 @@ async def test_unknown_project_404s(client):
 async def test_hx_projects_select(client):
     r = await client.get("/hx/projects/select")
     assert "<select" in r.text and "Default" in r.text
+
+
+async def test_project_select_add_returns_select_wrap(client):
+    """The Generate page's inline "Add" button must get back the select wrap, not a
+    table <tr> — that only happens when it posts with ?return=select."""
+    r = await client.post("/projects?return=select", data={"new_project_name": "Quick Add"})
+    assert 'id="project-select-wrap"' in r.text and "<select" in r.text and "Quick Add" in r.text
+
+
+async def test_generate_page_project_add_posts_return_select(client):
+    r = await client.get("/generate")
+    assert 'hx-post="/projects?return=select"' in r.text
