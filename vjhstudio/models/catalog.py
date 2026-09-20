@@ -23,7 +23,9 @@ class CatalogModel(TimestampMixin, Base):
     default_steps: Mapped[int | None] = mapped_column(Integer)
     default_cfg: Mapped[float | None] = mapped_column(Float)
     hero_image_url: Mapped[str | None] = mapped_column(String(500))
-    price_unit: Mapped[str | None] = mapped_column(String(16))  # per_image | per_second | per_1m_tokens
+    price_unit: Mapped[str | None] = mapped_column(
+        String(16)
+    )  # per_image | per_second | per_1m_tokens
     price_primary: Mapped[float | None] = mapped_column(Float)
     price_in: Mapped[float | None] = mapped_column(Float)
     price_out: Mapped[float | None] = mapped_column(Float)

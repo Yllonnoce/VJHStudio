@@ -31,8 +31,10 @@ class Output(Base):
     is_favourite: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_missing: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
-    __table_args__ = (Index("ix_outputs_project_created", "project_id", "created_at"),
-                      Index("ix_outputs_model", "model_air"),
-                      Index("ix_outputs_fav", "is_favourite"),
-                      Index("ix_outputs_job", "job_id"),
-                      Index("ux_outputs_project_filename", "project_id", "filename", unique=True))
+    __table_args__ = (
+        Index("ix_outputs_project_created", "project_id", "created_at"),
+        Index("ix_outputs_model", "model_air"),
+        Index("ix_outputs_fav", "is_favourite"),
+        Index("ix_outputs_job", "job_id"),
+        Index("ux_outputs_project_filename", "project_id", "filename", unique=True),
+    )

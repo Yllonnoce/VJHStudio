@@ -24,8 +24,26 @@ def test_orphan_and_requeue(paths):
     info = boot.boot(paths)
     with db.session_scope(info.session_factory) as s:
         pid = s.query(models.Project).filter_by(slug="default").one().id
-        s.add(models.Job(id="run1", project_id=pid, kind="image", status="running", model_air="m", request_json={}))
-        s.add(models.Job(id="q1", project_id=pid, kind="image", status="queued", model_air="m", request_json={}))
+        s.add(
+            models.Job(
+                id="run1",
+                project_id=pid,
+                kind="image",
+                status="running",
+                model_air="m",
+                request_json={},
+            )
+        )
+        s.add(
+            models.Job(
+                id="q1",
+                project_id=pid,
+                kind="image",
+                status="queued",
+                model_air="m",
+                request_json={},
+            )
+        )
     info2 = boot.boot(paths)
     assert info2.orphaned_jobs == 1 and info2.requeued_jobs == ["q1"]
     with db.session_scope(info2.session_factory) as s:
@@ -44,6 +62,7 @@ def test_backup_taken_when_schema_behind(paths, monkeypatch):
 def test_migration_failure_propagates(paths, monkeypatch):
     def bad(p, revision="head"):
         raise migrate.MigrationFailed("nope")
+
     monkeypatch.setattr(migrate, "upgrade", bad)
     with pytest.raises(migrate.MigrationFailed):
         boot.boot(paths)

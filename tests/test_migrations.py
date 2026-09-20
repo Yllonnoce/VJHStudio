@@ -14,10 +14,23 @@ def test_fresh_db_upgrades_to_head(tmp_path):
     migrate.upgrade(p)
     assert migrate.current(p) == migrate.head()
     assert not migrate.needs_upgrade(p)
-    names = {r[0] for r in sqlite3.connect(p).execute(
-        "select name from sqlite_master where type='table'")}
-    assert {"projects", "prompts", "catalog_models", "assets", "jobs", "outputs",
-            "settings", "app_meta", "usage_entries", "alembic_version"} <= names
+    names = {
+        r[0]
+        for r in sqlite3.connect(p).execute("select name from sqlite_master where type='table'")
+    }
+    assert {
+        "projects",
+        "prompts",
+        "catalog_models",
+        "assets",
+        "jobs",
+        "outputs",
+        "settings",
+        "app_meta",
+        "usage_entries",
+        "alembic_version",
+    } <= names
+
 
 def test_models_match_migrations(tmp_path):
     p = tmp_path / "vjh.db"
@@ -28,6 +41,7 @@ def test_models_match_migrations(tmp_path):
         diff = compare_metadata(ctx, models.Base.metadata)
     assert diff == [], diff
 
+
 def test_engine_has_wal_and_fk(tmp_path):
     p = tmp_path / "vjh.db"
     migrate.upgrade(p)
@@ -35,6 +49,7 @@ def test_engine_has_wal_and_fk(tmp_path):
     with engine.connect() as conn:
         assert conn.exec_driver_sql("pragma journal_mode").scalar() == "wal"
         assert conn.exec_driver_sql("pragma foreign_keys").scalar() == 1
+
 
 def test_session_scope_commits_and_rolls_back(tmp_path):
     p = tmp_path / "vjh.db"
@@ -66,7 +81,8 @@ def test_current_closes_its_connection_on_the_error_path(tmp_path, monkeypatch):
             closed.append(True)
             super().close()
 
-    monkeypatch.setattr(migrate.sqlite3, "connect",
-                        lambda p, **kw: real_connect(p, factory=Tracked, **kw))
+    monkeypatch.setattr(
+        migrate.sqlite3, "connect", lambda p, **kw: real_connect(p, factory=Tracked, **kw)
+    )
     assert migrate.current(db) is None
     assert closed == [True]

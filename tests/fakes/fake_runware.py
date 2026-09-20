@@ -1,5 +1,6 @@
 """Scripted stand-in for runware.Runware. Each method pops the next scripted reply for its
 name; a reply that is an Exception is raised instead of returned."""
+
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
@@ -39,4 +40,5 @@ def fake_factory(fake: FakeRunware):
     async def _open(api_key: str, transport: str = "rest"):
         fake.calls.append(("open", {"api_key_len": len(api_key), "transport": transport}))
         yield fake
+
     return _open

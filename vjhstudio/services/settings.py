@@ -1,4 +1,5 @@
 """Typed key/value settings. Precedence: env > settings table > SPEC default."""
+
 from __future__ import annotations
 
 import logging
@@ -34,8 +35,23 @@ SPEC: dict[str, Spec] = {
     "defaults.output_format_video": Spec(str, "MP4", ("MP4", "WEBM")),
     "defaults.negative_prompt": Spec(str, "blurry, low quality, watermark, text, deformed"),
     "prompt.polish_mode": Spec(str, "promptEnhance", ("promptEnhance", "textInference")),
-    "ui.theme": Spec(str, "midnight", ("daylight", "classic", "forest", "ocean", "frost", "parchment",
-                                        "midnight", "crimson", "ember", "royal", "steel")),
+    "ui.theme": Spec(
+        str,
+        "midnight",
+        (
+            "daylight",
+            "classic",
+            "forest",
+            "ocean",
+            "frost",
+            "parchment",
+            "midnight",
+            "crimson",
+            "ember",
+            "royal",
+            "steel",
+        ),
+    ),
     "uploads.max_mb": Spec(int, 200),
 }
 

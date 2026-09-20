@@ -24,6 +24,8 @@ class Asset(TimestampMixin, Base):
     media_uuid: Mapped[str | None] = mapped_column(String(64))
     media_url: Mapped[str | None] = mapped_column(String(500))
     media_uploaded_at: Mapped[datetime | None] = mapped_column(DateTime)
-    __table_args__ = (Index("ux_assets_sha256", "sha256", unique=True),
-                      Index("ux_assets_filename", "filename", unique=True),
-                      Index("ix_assets_kind", "kind"))
+    __table_args__ = (
+        Index("ux_assets_sha256", "sha256", unique=True),
+        Index("ux_assets_filename", "filename", unique=True),
+        Index("ix_assets_kind", "kind"),
+    )

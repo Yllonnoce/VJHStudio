@@ -14,6 +14,7 @@ Both headers are absent from curl, from the launcher's own requests and from
 very old browsers, so a *missing* header is allowed: this closes the
 browser-driven hole without breaking local scripting.
 """
+
 from __future__ import annotations
 
 from urllib.parse import urlsplit

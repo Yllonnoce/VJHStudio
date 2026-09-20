@@ -1,4 +1,5 @@
 """Entry used by launchers: `uv run python run.py serve ...`."""
+
 import sys
 
 from vjhstudio.main import main

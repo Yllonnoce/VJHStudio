@@ -1,4 +1,5 @@
 """SQLite engine/session helpers. Sync SQLAlchemy; sessions are short-lived."""
+
 from __future__ import annotations
 
 from contextlib import contextmanager

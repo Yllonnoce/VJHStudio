@@ -1,4 +1,5 @@
 """Process restart/shutdown. The exit happens on a timer so the HTTP reply gets out first."""
+
 from __future__ import annotations
 
 import os
@@ -26,11 +27,19 @@ def _execv(argv: list[str]) -> None:
 
 def _spawn_helper(pid: int) -> None:
     helper = REPO_ROOT / "scripts" / "restart_helper.bat"
-    flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(
+        subprocess, "CREATE_NEW_PROCESS_GROUP", 0
+    )
     # Fixed argv; cmd.exe is resolved from PATH because Windows always has it there.
-    subprocess.Popen(["cmd.exe", "/c", str(helper), str(pid)], cwd=REPO_ROOT, creationflags=flags,  # noqa: S603, S607
-                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                     close_fds=True)
+    subprocess.Popen(
+        ["cmd.exe", "/c", str(helper), str(pid)],
+        cwd=REPO_ROOT,
+        creationflags=flags,  # noqa: S603, S607
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+    )
 
 
 def _schedule(delay: float, fn) -> None:
@@ -57,6 +66,7 @@ def request_restart(delay: float = 1.5) -> str:
         def _go():
             _spawn_helper(pid)
             _exit(0)
+
         _schedule(delay, _go)
         return "windows-helper"
     argv = [sys.executable, *sys.argv]

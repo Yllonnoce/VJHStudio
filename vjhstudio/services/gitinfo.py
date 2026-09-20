@@ -1,4 +1,5 @@
 """Read-only git facts about the checkout. Never prompts, never fails loudly."""
+
 from __future__ import annotations
 
 import os
@@ -23,8 +24,15 @@ def git_bin() -> str:
 
 def run_git(args: list[str], timeout: int = 30) -> subprocess.CompletedProcess[str]:
     # Fixed argv, no shell; args are built by this module, never by a user.
-    return subprocess.run([git_bin(), *args], cwd=REPO_ROOT, capture_output=True, text=True,  # noqa: S603
-                          timeout=timeout, env=GIT_ENV, check=False)
+    return subprocess.run(
+        [git_bin(), *args],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,  # noqa: S603
+        timeout=timeout,
+        env=GIT_ENV,
+        check=False,
+    )
 
 
 def is_git_install() -> bool:

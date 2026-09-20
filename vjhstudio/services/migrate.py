@@ -1,4 +1,5 @@
 """Alembic driver. A failed upgrade raises; refusing to start beats a half-migrated DB."""
+
 from __future__ import annotations
 
 import contextlib
@@ -12,8 +13,10 @@ from alembic.script import ScriptDirectory
 from ..config import REPO_ROOT
 
 MIGRATIONS_DIR = REPO_ROOT / "migrations"
-SCHEMA_FAIL_MSG = ("Database schema migration failed. VJHStudio will not start on an "
-                   "inconsistent database. Restore the pre-migrate backup from data/backups/ if needed.")
+SCHEMA_FAIL_MSG = (
+    "Database schema migration failed. VJHStudio will not start on an "
+    "inconsistent database. Restore the pre-migrate backup from data/backups/ if needed."
+)
 
 
 class MigrationFailed(RuntimeError):

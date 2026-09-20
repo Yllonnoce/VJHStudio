@@ -22,7 +22,11 @@ def test_start_sh_loops_on_75_and_is_executable():
 
 def test_start_bat_runs_from_temp_copy():
     text = (REPO_ROOT / "start.bat").read_text()
-    assert "%TEMP%" in text and "errorlevel 75" in text.replace("ERRORLEVEL", "errorlevel") and "VJHSTUDIO_LAUNCHER=1" in text
+    assert (
+        "%TEMP%" in text
+        and "errorlevel 75" in text.replace("ERRORLEVEL", "errorlevel")
+        and "VJHSTUDIO_LAUNCHER=1" in text
+    )
 
 
 def test_launchers_bootstrap_uv_if_missing():

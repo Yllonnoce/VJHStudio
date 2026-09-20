@@ -79,6 +79,7 @@ tests/test_*.py                one per module above
 import re
 import runwarestudio
 
+
 def test_version_is_semver():
     assert re.fullmatch(r"\d+\.\d+\.\d+", runwarestudio.__version__)
 ```
@@ -135,6 +136,7 @@ target-version = "py311"
 ```python
 # runwarestudio/__init__.py
 """RunwareStudio: local image and video generation studio for RunWare.AI."""
+
 __version__ = "0.1.0"
 ```
 
@@ -177,16 +179,19 @@ import os, stat, sys
 from pathlib import Path
 from runwarestudio import config
 
+
 def test_default_data_dir_is_repo_data():
     p = config.resolve_paths(env={})
     assert p.data == config.REPO_ROOT / "data"
     assert p.db == p.data / "studio.db"
     assert p.api_key_file == p.data / "secrets" / "api_key"
 
+
 def test_env_overrides_data_dir(tmp_path):
     p = config.resolve_paths(env={"RUNWARESTUDIO_DATA_DIR": str(tmp_path / "d")})
     assert p.data == tmp_path / "d"
     assert p.outputs == tmp_path / "d" / "outputs"
+
 
 def test_ensure_dirs_creates_layout(tmp_path):
     p = config.resolve_paths(env={"RUNWARESTUDIO_DATA_DIR": str(tmp_path)})
@@ -195,6 +200,7 @@ def test_ensure_dirs_creates_layout(tmp_path):
         assert d.is_dir()
     if sys.platform != "win32":
         assert stat.S_IMODE(p.secrets.stat().st_mode) == 0o700
+
 
 def test_env_int_falls_back_on_garbage():
     assert config.env_int({"RUNWARESTUDIO_PORT": "abc"}, "RUNWARESTUDIO_PORT", 8080) == 8080
@@ -211,6 +217,7 @@ Expected: FAIL with `ModuleNotFoundError: runwarestudio.config`.
 ```python
 # runwarestudio/config.py
 """Environment and filesystem configuration. No I/O beyond mkdir."""
+
 from __future__ import annotations
 import os, sys
 from dataclasses import dataclass
@@ -242,9 +249,13 @@ def resolve_paths(env: Mapping[str, str] | None = None) -> Paths:
     data = Path(raw).expanduser().resolve() if raw else REPO_ROOT / "data"
     secrets = data / "secrets"
     return Paths(
-        data=data, db=data / "studio.db", backups=data / "backups",
-        uploads=data / "uploads", outputs=data / "outputs",
-        secrets=secrets, api_key_file=secrets / "api_key",
+        data=data,
+        db=data / "studio.db",
+        backups=data / "backups",
+        uploads=data / "uploads",
+        outputs=data / "outputs",
+        secrets=secrets,
+        api_key_file=secrets / "api_key",
     )
 
 
@@ -303,11 +314,13 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 import stat, sys, pytest
 from runwarestudio import config, secrets
 
+
 @pytest.fixture
 def paths(tmp_path):
     p = config.resolve_paths(env={"RUNWARESTUDIO_DATA_DIR": str(tmp_path)})
     config.ensure_dirs(p)
     return p
+
 
 def test_round_trip_and_mode(paths):
     secrets.write_api_key(paths, "  abcdef1234  ")
@@ -315,16 +328,19 @@ def test_round_trip_and_mode(paths):
     if sys.platform != "win32":
         assert stat.S_IMODE(paths.api_key_file.stat().st_mode) == 0o600
 
+
 def test_env_overrides_file(paths):
     secrets.write_api_key(paths, "filekey")
     assert secrets.effective_api_key(paths, env={"RUNWARE_API_KEY": "envkey"}) == "envkey"
     assert secrets.key_source(paths, env={"RUNWARE_API_KEY": "envkey"}) == "env"
     assert secrets.key_source(paths, env={}) == "file"
 
+
 def test_missing_key(paths):
     assert secrets.read_api_key(paths) is None
     assert secrets.effective_api_key(paths, env={}) is None
     assert secrets.key_source(paths, env={}) == "none"
+
 
 def test_clear_and_empty_rejected(paths):
     secrets.write_api_key(paths, "k")
@@ -332,6 +348,7 @@ def test_clear_and_empty_rejected(paths):
     assert secrets.read_api_key(paths) is None
     with pytest.raises(ValueError):
         secrets.write_api_key(paths, "   ")
+
 
 def test_mask():
     assert secrets.mask("abcdef1234") == "••••••••1234"
@@ -348,6 +365,7 @@ Run: `uv run pytest tests/test_secrets.py -q` → Expected: `ModuleNotFoundError
 ```python
 # runwarestudio/secrets.py
 """Plain-file API key stash with owner-only permissions. Env var wins."""
+
 from __future__ import annotations
 import os, sys
 from typing import Literal, Mapping
@@ -389,7 +407,9 @@ def effective_api_key(paths: Paths, env: Mapping[str, str] | None = None) -> str
     return v or read_api_key(paths)
 
 
-def key_source(paths: Paths, env: Mapping[str, str] | None = None) -> Literal["env", "file", "none"]:
+def key_source(
+    paths: Paths, env: Mapping[str, str] | None = None
+) -> Literal["env", "file", "none"]:
     env = os.environ if env is None else env
     if (env.get(ENV_KEY) or "").strip():
         return "env"
@@ -440,6 +460,7 @@ from alembic.migration import MigrationContext
 from runwarestudio import db, models
 from runwarestudio.services import migrate
 
+
 def test_fresh_db_upgrades_to_head(tmp_path):
     p = tmp_path / "studio.db"
     assert migrate.current(p) is None
@@ -447,10 +468,23 @@ def test_fresh_db_upgrades_to_head(tmp_path):
     migrate.upgrade(p)
     assert migrate.current(p) == migrate.head()
     assert not migrate.needs_upgrade(p)
-    names = {r[0] for r in sqlite3.connect(p).execute(
-        "select name from sqlite_master where type='table'")}
-    assert {"projects", "prompts", "catalog_models", "assets", "jobs", "outputs",
-            "settings", "app_meta", "usage_entries", "alembic_version"} <= names
+    names = {
+        r[0]
+        for r in sqlite3.connect(p).execute("select name from sqlite_master where type='table'")
+    }
+    assert {
+        "projects",
+        "prompts",
+        "catalog_models",
+        "assets",
+        "jobs",
+        "outputs",
+        "settings",
+        "app_meta",
+        "usage_entries",
+        "alembic_version",
+    } <= names
+
 
 def test_models_match_migrations(tmp_path):
     p = tmp_path / "studio.db"
@@ -461,6 +495,7 @@ def test_models_match_migrations(tmp_path):
         diff = compare_metadata(ctx, models.Base.metadata)
     assert diff == [], diff
 
+
 def test_engine_has_wal_and_fk(tmp_path):
     p = tmp_path / "studio.db"
     migrate.upgrade(p)
@@ -468,6 +503,7 @@ def test_engine_has_wal_and_fk(tmp_path):
     with engine.connect() as conn:
         assert conn.exec_driver_sql("pragma journal_mode").scalar() == "wal"
         assert conn.exec_driver_sql("pragma foreign_keys").scalar() == 1
+
 
 def test_session_scope_commits_and_rolls_back(tmp_path):
     p = tmp_path / "studio.db"
@@ -492,6 +528,7 @@ def test_session_scope_commits_and_rolls_back(tmp_path):
 ```python
 # runwarestudio/db.py
 """SQLite engine/session helpers. Sync SQLAlchemy; sessions are short-lived."""
+
 from __future__ import annotations
 from contextlib import contextmanager
 from pathlib import Path
@@ -552,7 +589,9 @@ class Base(DeclarativeBase):
 
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utcnow, onupdate=utcnow, nullable=False
+    )
 ```
 
 ```python
@@ -599,7 +638,10 @@ class Prompt(TimestampMixin, Base):
     is_favourite: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     use_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime)
-    __table_args__ = (Index("ix_prompts_project", "project_id"), Index("ix_prompts_fav", "is_favourite"))
+    __table_args__ = (
+        Index("ix_prompts_project", "project_id"),
+        Index("ix_prompts_fav", "is_favourite"),
+    )
 ```
 
 ```python
@@ -626,7 +668,9 @@ class CatalogModel(TimestampMixin, Base):
     default_steps: Mapped[int | None] = mapped_column(Integer)
     default_cfg: Mapped[float | None] = mapped_column(Float)
     hero_image_url: Mapped[str | None] = mapped_column(String(500))
-    price_unit: Mapped[str | None] = mapped_column(String(16))  # per_image | per_second | per_1m_tokens
+    price_unit: Mapped[str | None] = mapped_column(
+        String(16)
+    )  # per_image | per_second | per_1m_tokens
     price_primary: Mapped[float | None] = mapped_column(Float)
     price_in: Mapped[float | None] = mapped_column(Float)
     price_out: Mapped[float | None] = mapped_column(Float)
@@ -667,9 +711,11 @@ class Asset(TimestampMixin, Base):
     media_uuid: Mapped[str | None] = mapped_column(String(64))
     media_url: Mapped[str | None] = mapped_column(String(500))
     media_uploaded_at: Mapped[datetime | None] = mapped_column(DateTime)
-    __table_args__ = (Index("ux_assets_sha256", "sha256", unique=True),
-                      Index("ux_assets_filename", "filename", unique=True),
-                      Index("ix_assets_kind", "kind"))
+    __table_args__ = (
+        Index("ux_assets_sha256", "sha256", unique=True),
+        Index("ux_assets_filename", "filename", unique=True),
+        Index("ix_assets_kind", "kind"),
+    )
 ```
 
 ```python
@@ -712,9 +758,11 @@ class Job(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime)
-    __table_args__ = (Index("ix_jobs_status", "status"),
-                      Index("ix_jobs_project_created", "project_id", "created_at"),
-                      Index("ix_jobs_model", "model_air"))
+    __table_args__ = (
+        Index("ix_jobs_status", "status"),
+        Index("ix_jobs_project_created", "project_id", "created_at"),
+        Index("ix_jobs_model", "model_air"),
+    )
 ```
 
 ```python
@@ -749,11 +797,13 @@ class Output(Base):
     is_favourite: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_missing: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
-    __table_args__ = (Index("ix_outputs_project_created", "project_id", "created_at"),
-                      Index("ix_outputs_model", "model_air"),
-                      Index("ix_outputs_fav", "is_favourite"),
-                      Index("ix_outputs_job", "job_id"),
-                      Index("ux_outputs_project_filename", "project_id", "filename", unique=True))
+    __table_args__ = (
+        Index("ix_outputs_project_created", "project_id", "created_at"),
+        Index("ix_outputs_model", "model_air"),
+        Index("ix_outputs_fav", "is_favourite"),
+        Index("ix_outputs_job", "job_id"),
+        Index("ux_outputs_project_filename", "project_id", "filename", unique=True),
+    )
 ```
 
 ```python
@@ -769,14 +819,18 @@ class Setting(Base):
     __tablename__ = "settings"
     key: Mapped[str] = mapped_column(String(80), primary_key=True)
     value: Mapped[str] = mapped_column(Text, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utcnow, onupdate=utcnow, nullable=False
+    )
 
 
 class AppMeta(Base):
     __tablename__ = "app_meta"
     key: Mapped[str] = mapped_column(String(80), primary_key=True)
     value: Mapped[str] = mapped_column(Text, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utcnow, onupdate=utcnow, nullable=False
+    )
 ```
 
 ```python
@@ -798,12 +852,16 @@ class UsageEntry(Base):
     cost: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     day: Mapped[date] = mapped_column(Date, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
-    __table_args__ = (Index("ix_usage_project_day", "project_id", "day"), Index("ix_usage_day", "day"))
+    __table_args__ = (
+        Index("ix_usage_project_day", "project_id", "day"),
+        Index("ix_usage_day", "day"),
+    )
 ```
 
 ```python
 # runwarestudio/models/__init__.py
 """Import every model so Base.metadata is complete for Alembic."""
+
 from .base import Base, utcnow
 from .project import Project
 from .prompt import Prompt
@@ -814,8 +872,20 @@ from .output import Output
 from .setting import AppMeta, Setting
 from .usage import UsageEntry
 
-__all__ = ["Base", "utcnow", "Project", "Prompt", "CatalogModel", "Asset", "Job", "JobStatus",
-           "Output", "AppMeta", "Setting", "UsageEntry"]
+__all__ = [
+    "Base",
+    "utcnow",
+    "Project",
+    "Prompt",
+    "CatalogModel",
+    "Asset",
+    "Job",
+    "JobStatus",
+    "Output",
+    "AppMeta",
+    "Setting",
+    "UsageEntry",
+]
 ```
 
 - [ ] **Step 5: Alembic wiring**
@@ -868,18 +938,30 @@ target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
-    context.configure(url=config.get_main_option("sqlalchemy.url"), target_metadata=target_metadata,
-                      literal_binds=True, render_as_batch=True, compare_type=True)
+    context.configure(
+        url=config.get_main_option("sqlalchemy.url"),
+        target_metadata=target_metadata,
+        literal_binds=True,
+        render_as_batch=True,
+        compare_type=True,
+    )
     with context.begin_transaction():
         context.run_migrations()
 
 
 def run_migrations_online() -> None:
-    connectable = engine_from_config(config.get_section(config.config_ini_section, {}),
-                                     prefix="sqlalchemy.", poolclass=pool.NullPool)
+    connectable = engine_from_config(
+        config.get_section(config.config_ini_section, {}),
+        prefix="sqlalchemy.",
+        poolclass=pool.NullPool,
+    )
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata,
-                          render_as_batch=True, compare_type=True)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            render_as_batch=True,
+            compare_type=True,
+        )
         with context.begin_transaction():
             context.run_migrations()
 
@@ -895,6 +977,7 @@ else:
 ```python
 # runwarestudio/services/migrate.py
 """Alembic driver. A failed upgrade raises; refusing to start beats a half-migrated DB."""
+
 from __future__ import annotations
 from pathlib import Path
 import sqlite3
@@ -904,8 +987,10 @@ from alembic.script import ScriptDirectory
 from ..config import REPO_ROOT
 
 MIGRATIONS_DIR = REPO_ROOT / "migrations"
-SCHEMA_FAIL_MSG = ("Database schema migration failed. RunwareStudio will not start on an "
-                   "inconsistent database. Restore the pre-migrate backup from data/backups/ if needed.")
+SCHEMA_FAIL_MSG = (
+    "Database schema migration failed. RunwareStudio will not start on an "
+    "inconsistent database. Restore the pre-migrate backup from data/backups/ if needed."
+)
 
 
 class MigrationFailed(RuntimeError):
@@ -993,6 +1078,7 @@ import sqlite3, time, pytest
 from runwarestudio import config
 from runwarestudio.services import backup, migrate
 
+
 @pytest.fixture
 def paths(tmp_path):
     p = config.resolve_paths(env={"RUNWARESTUDIO_DATA_DIR": str(tmp_path)})
@@ -1000,12 +1086,20 @@ def paths(tmp_path):
     migrate.upgrade(p.db)
     return p
 
+
 def test_backup_is_consistent_copy(paths):
-    sqlite3.connect(paths.db).execute("insert into projects(name,slug,is_archived,created_at,updated_at) "
-                                      "values('A','a',0,'2026-01-01','2026-01-01')").connection.commit()
+    sqlite3.connect(paths.db).execute(
+        "insert into projects(name,slug,is_archived,created_at,updated_at) "
+        "values('A','a',0,'2026-01-01','2026-01-01')"
+    ).connection.commit()
     out = backup.backup_db(paths, "manual")
-    assert out.parent == paths.backups and out.name.startswith("studio-") and out.name.endswith("-manual.db")
+    assert (
+        out.parent == paths.backups
+        and out.name.startswith("studio-")
+        and out.name.endswith("-manual.db")
+    )
     assert sqlite3.connect(out).execute("select count(*) from projects").fetchone()[0] == 1
+
 
 def test_backup_without_db_raises(tmp_path):
     p = config.resolve_paths(env={"RUNWARESTUDIO_DATA_DIR": str(tmp_path / "x")})
@@ -1013,11 +1107,13 @@ def test_backup_without_db_raises(tmp_path):
     with pytest.raises(FileNotFoundError):
         backup.backup_db(p, "manual")
 
+
 def test_rotate_keeps_newest_per_label(paths):
     made = []
     for i in range(4):
         f = paths.backups / f"studio-2026010{i}-000000-manual.db"
-        f.write_bytes(b"x"); made.append(f)
+        f.write_bytes(b"x")
+        made.append(f)
     (paths.backups / "studio-20260101-000000-pre-update.db").write_bytes(b"y")
     deleted = backup.rotate(paths, "manual", keep=2)
     assert sorted(d.name for d in deleted) == [made[0].name, made[1].name]
@@ -1033,6 +1129,7 @@ def test_rotate_keeps_newest_per_label(paths):
 ```python
 # runwarestudio/services/backup.py
 """SQLite backups via the online backup API (safe under WAL)."""
+
 from __future__ import annotations
 import re, sqlite3
 from dataclasses import dataclass
@@ -1062,7 +1159,8 @@ def backup_db(paths: Paths, label: str) -> Path:
     try:
         src.backup(dst)
     finally:
-        dst.close(); src.close()
+        dst.close()
+        src.close()
     return dest
 
 
@@ -1074,7 +1172,11 @@ def list_backups(paths: Paths) -> list[BackupInfo]:
         m = _NAME.match(f.name)
         if not m:
             continue
-        out.append(BackupInfo(f, m.group(2), datetime.strptime(m.group(1), "%Y%m%d-%H%M%S"), f.stat().st_size))
+        out.append(
+            BackupInfo(
+                f, m.group(2), datetime.strptime(m.group(1), "%Y%m%d-%H%M%S"), f.stat().st_size
+            )
+        )
     return sorted(out, key=lambda b: b.created_at, reverse=True)
 
 
@@ -1112,40 +1214,55 @@ import pytest
 from runwarestudio import db, models
 from runwarestudio.services import migrate, settings, meta
 
+
 @pytest.fixture
 def session(tmp_path):
-    p = tmp_path / "s.db"; migrate.upgrade(p)
+    p = tmp_path / "s.db"
+    migrate.upgrade(p)
     factory = db.make_session_factory(db.make_engine(p))
     with db.session_scope(factory) as s:
         yield s
 
+
 def test_defaults(session):
     assert settings.get(session, "jobs.concurrency") == 3
     assert settings.get(session, "ui.theme") == "dark"
+
 
 def test_set_and_get_casts(session):
     settings.set_many(session, {"jobs.concurrency": "5", "ui.theme": "light"})
     assert settings.get(session, "jobs.concurrency") == 5
     assert settings.get(session, "ui.theme") == "light"
 
+
 def test_invalid_values_rejected(session):
-    with pytest.raises(ValueError): settings.set_many(session, {"jobs.concurrency": "x"})
-    with pytest.raises(ValueError): settings.set_many(session, {"ui.theme": "sepia"})
-    with pytest.raises(ValueError): settings.set_many(session, {"nope": "1"})
+    with pytest.raises(ValueError):
+        settings.set_many(session, {"jobs.concurrency": "x"})
+    with pytest.raises(ValueError):
+        settings.set_many(session, {"ui.theme": "sepia"})
+    with pytest.raises(ValueError):
+        settings.set_many(session, {"nope": "1"})
+
 
 def test_env_precedence(session):
     settings.set_many(session, {"runware.transport": "websocket"})
-    assert settings.get(session, "runware.transport", env={"RUNWARESTUDIO_TRANSPORT": "rest"}) == "rest"
+    assert (
+        settings.get(session, "runware.transport", env={"RUNWARESTUDIO_TRANSPORT": "rest"})
+        == "rest"
+    )
+
 
 def test_meta_round_trip(session):
     assert meta.get(session, "x") is None
-    meta.set(session, "x", "1"); meta.set(session, "x", "2")
+    meta.set(session, "x", "1")
+    meta.set(session, "x", "2")
     assert meta.get(session, "x") == "2"
 ```
 
 ```python
 # tests/test_gitinfo.py
 from runwarestudio.services import gitinfo
+
 
 def test_git_install_detected():
     assert gitinfo.is_git_install() is True
@@ -1160,6 +1277,7 @@ def test_git_install_detected():
 ```python
 # runwarestudio/services/settings.py
 """Typed key/value settings. Precedence: env > settings table > SPEC default."""
+
 from __future__ import annotations
 import os
 from dataclasses import dataclass
@@ -1258,6 +1376,7 @@ def set(session: Session, key: str, value: str) -> None:  # noqa: A001
 ```python
 # runwarestudio/services/gitinfo.py
 """Read-only git facts about the checkout. Never prompts, never fails loudly."""
+
 from __future__ import annotations
 import os, subprocess
 from dataclasses import dataclass
@@ -1278,8 +1397,15 @@ def git_bin() -> str:
 
 
 def run_git(args: list[str], timeout: int = 30) -> subprocess.CompletedProcess[str]:
-    return subprocess.run([git_bin(), *args], cwd=REPO_ROOT, capture_output=True, text=True,
-                          timeout=timeout, env=GIT_ENV, check=False)
+    return subprocess.run(
+        [git_bin(), *args],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env=GIT_ENV,
+        check=False,
+    )
 
 
 def is_git_install() -> bool:
@@ -1321,9 +1447,11 @@ import pytest
 from runwarestudio import boot, config, db, models
 from runwarestudio.services import backup, migrate
 
+
 @pytest.fixture
 def paths(tmp_path):
     return config.resolve_paths(env={"RUNWARESTUDIO_DATA_DIR": str(tmp_path)})
+
 
 def test_first_boot_creates_schema_default_project_and_meta(paths):
     info = boot.boot(paths)
@@ -1335,17 +1463,37 @@ def test_first_boot_creates_schema_default_project_and_meta(paths):
         assert s.get(models.AppMeta, "first_boot_at") is not None
     assert backup.list_backups(paths) == []  # fresh DB: nothing to back up
 
+
 def test_orphan_and_requeue(paths):
     info = boot.boot(paths)
     with db.session_scope(info.session_factory) as s:
         pid = s.query(models.Project).filter_by(slug="default").one().id
-        s.add(models.Job(id="run1", project_id=pid, kind="image", status="running", model_air="m", request_json={}))
-        s.add(models.Job(id="q1", project_id=pid, kind="image", status="queued", model_air="m", request_json={}))
+        s.add(
+            models.Job(
+                id="run1",
+                project_id=pid,
+                kind="image",
+                status="running",
+                model_air="m",
+                request_json={},
+            )
+        )
+        s.add(
+            models.Job(
+                id="q1",
+                project_id=pid,
+                kind="image",
+                status="queued",
+                model_air="m",
+                request_json={},
+            )
+        )
     info2 = boot.boot(paths)
     assert info2.orphaned_jobs == 1 and info2.requeued_jobs == ["q1"]
     with db.session_scope(info2.session_factory) as s:
         j = s.get(models.Job, "run1")
         assert j.status == "failed" and j.error_code == "orphaned"
+
 
 def test_backup_taken_when_schema_behind(paths, monkeypatch):
     boot.boot(paths)
@@ -1354,9 +1502,11 @@ def test_backup_taken_when_schema_behind(paths, monkeypatch):
     boot.boot(paths)
     assert [b.label for b in backup.list_backups(paths)] == ["pre-migrate"]
 
+
 def test_migration_failure_propagates(paths, monkeypatch):
     def bad(p, revision="head"):
         raise migrate.MigrationFailed("nope")
+
     monkeypatch.setattr(migrate, "upgrade", bad)
     with pytest.raises(migrate.MigrationFailed):
         boot.boot(paths)
@@ -1369,6 +1519,7 @@ def test_migration_failure_propagates(paths, monkeypatch):
 ```python
 # runwarestudio/boot.py
 """Boot: dirs -> backup-if-migrating -> upgrade -> meta -> default project -> orphan jobs."""
+
 from __future__ import annotations
 import logging, uuid
 from dataclasses import dataclass
@@ -1404,8 +1555,13 @@ def orphan_jobs(session: Session) -> tuple[int, list[str]]:
         j.error_code = "orphaned"
         j.error_message = "Server restarted while this job was running."
         j.finished_at = utcnow()
-    queued = [j.id for j in session.query(Job).filter(Job.status == JobStatus.queued.value)
-              .order_by(Job.created_at).all()]
+    queued = [
+        j.id
+        for j in session.query(Job)
+        .filter(Job.status == JobStatus.queued.value)
+        .order_by(Job.created_at)
+        .all()
+    ]
     session.flush()
     return len(running), queued
 
@@ -1432,8 +1588,18 @@ def boot(paths: config.Paths) -> BootInfo:
             s.add(Project(name="Default", slug="default"))
             (paths.outputs / "default").mkdir(parents=True, exist_ok=True)
         orphaned, requeued = orphan_jobs(s)
-    return BootInfo(paths, engine, factory, migrate.head(), __version__, commit,
-                    uuid.uuid4().hex, now, orphaned, requeued)
+    return BootInfo(
+        paths,
+        engine,
+        factory,
+        migrate.head(),
+        __version__,
+        commit,
+        uuid.uuid4().hex,
+        now,
+        orphaned,
+        requeued,
+    )
 ```
 
 - [ ] **Step 4: Run tests** → `uv run pytest tests/test_boot.py -q` → `4 passed`.
@@ -1459,6 +1625,7 @@ def boot(paths: config.Paths) -> BootInfo:
 # tests/fakes/fake_runware.py
 """Scripted stand-in for runware.Runware. Each method pops the next scripted reply for its
 name; a reply that is an Exception is raised instead of returned."""
+
 from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import Any
@@ -1497,6 +1664,7 @@ def fake_factory(fake: FakeRunware):
     async def _open(api_key: str, transport: str = "rest"):
         fake.calls.append(("open", {"api_key_len": len(api_key), "transport": transport}))
         yield fake
+
     return _open
 ```
 
@@ -1505,13 +1673,16 @@ def fake_factory(fake: FakeRunware):
 from runware import RunwareError
 from runwarestudio.runware import errors
 
+
 def test_known_code_maps_to_message():
     e = errors.classify(RunwareError("invalidApiKey", "Invalid API key"))
     assert e.code == "auth" and "Settings" in e.message and e.retryable is False
 
+
 def test_rate_limit_is_retryable():
     e = errors.classify(RunwareError("rateLimitExceeded", "slow down"))
     assert e.code == "rateLimit" and e.retryable is True
+
 
 def test_unknown_exception():
     e = errors.classify(ValueError("boom"))
@@ -1526,13 +1697,22 @@ from runwarestudio import db
 from runwarestudio.services import account, migrate
 from tests.fakes.fake_runware import FakeRunware, fake_factory
 
+
 @pytest.fixture
 def factory(tmp_path):
-    p = tmp_path / "s.db"; migrate.upgrade(p)
+    p = tmp_path / "s.db"
+    migrate.upgrade(p)
     return db.make_session_factory(db.make_engine(p))
 
+
 async def test_refresh_balance_stores_meta(factory):
-    fake = FakeRunware({"account_management": [[{"balance": {"amount": 12.5, "freeBalance": 0.0, "currency": "USD"}}]]})
+    fake = FakeRunware(
+        {
+            "account_management": [
+                [{"balance": {"amount": 12.5, "freeBalance": 0.0, "currency": "USD"}}]
+            ]
+        }
+    )
     info = await account.refresh_balance(fake_factory(fake), "key", "rest", factory)
     assert info.amount == 12.5 and info.currency == "USD"
     assert fake.calls[-1] == ("account_management", {"operation": "getDetails"})
@@ -1540,11 +1720,13 @@ async def test_refresh_balance_stores_meta(factory):
         cached = account.cached_balance(s)
     assert cached is not None and cached.amount == 12.5
 
+
 async def test_refresh_balance_raises_user_facing(factory):
     fake = FakeRunware({"account_management": [RunwareError("invalidApiKey", "bad")]})
     with pytest.raises(account.BalanceError) as ei:
         await account.refresh_balance(fake_factory(fake), "key", "rest", factory)
     assert ei.value.error.code == "auth"
+
 
 def test_cached_balance_none_when_unset(factory):
     with db.session_scope(factory) as s:
@@ -1614,8 +1796,9 @@ def classify(exc: BaseException) -> UserFacingError:
     if isinstance(exc, RunwareError):
         code = exc.code if exc.code in _MESSAGES else "unknown"
         tmpl, retry = _MESSAGES[code]
-        return UserFacingError(code, tmpl.format(detail=exc.message), retry,
-                               getattr(exc, "parameter", None))
+        return UserFacingError(
+            code, tmpl.format(detail=exc.message), retry, getattr(exc, "parameter", None)
+        )
     tmpl, retry = _MESSAGES["unknown"]
     return UserFacingError("unknown", tmpl.format(detail=str(exc) or exc.__class__.__name__), retry)
 ```
@@ -1646,16 +1829,21 @@ class BalanceError(Exception):
         self.error = error
 
 
-async def refresh_balance(client_factory, api_key: str, transport: str,
-                          session_factory: sessionmaker[Session]) -> BalanceInfo:
+async def refresh_balance(
+    client_factory, api_key: str, transport: str, session_factory: sessionmaker[Session]
+) -> BalanceInfo:
     try:
         async with client_factory(api_key, transport) as client:
             rows = await client.account_management({"operation": "getDetails"})
     except Exception as e:  # noqa: BLE001
         raise BalanceError(classify(e)) from e
     bal = (rows[0] if rows else {}).get("balance") or {}
-    info = BalanceInfo(float(bal.get("amount", 0.0)), str(bal.get("currency", "USD")),
-                       float(bal.get("freeBalance", 0.0)), utcnow())
+    info = BalanceInfo(
+        float(bal.get("amount", 0.0)),
+        str(bal.get("currency", "USD")),
+        float(bal.get("freeBalance", 0.0)),
+        utcnow(),
+    )
     with db.session_scope(session_factory) as s:
         meta.set(s, "account.balance", repr(info.amount))
         meta.set(s, "account.free", repr(info.free))
@@ -1668,8 +1856,12 @@ def cached_balance(session: Session) -> BalanceInfo | None:
     amount, at = meta.get(session, "account.balance"), meta.get(session, "account.balance_at")
     if amount is None or at is None:
         return None
-    return BalanceInfo(float(amount), meta.get(session, "account.currency") or "USD",
-                       float(meta.get(session, "account.free") or 0.0), datetime.fromisoformat(at))
+    return BalanceInfo(
+        float(amount),
+        meta.get(session, "account.currency") or "USD",
+        float(meta.get(session, "account.free") or 0.0),
+        datetime.fromisoformat(at),
+    )
 ```
 
 `tests/fakes/__init__.py` is empty.
@@ -1709,22 +1901,28 @@ from runwarestudio import config
 from runwarestudio.web.app import create_app
 from tests.fakes.fake_runware import FakeRunware, fake_factory
 
+
 @pytest.fixture
 def paths(tmp_path):
     return config.resolve_paths(env={"RUNWARESTUDIO_DATA_DIR": str(tmp_path / "data")})
+
 
 @pytest.fixture
 def fake():
     return FakeRunware()
 
+
 @pytest.fixture
 def app(paths, fake):
     return create_app(paths, client_factory=fake_factory(fake), env={})
 
+
 @pytest.fixture
 async def client(app):
     async with app.router.lifespan_context(app):
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as c:
             yield c
 ```
 
@@ -1732,12 +1930,14 @@ async def client(app):
 # tests/test_web_health.py
 from runwarestudio import __version__
 
+
 async def test_health(client):
     r = await client.get("/api/health")
     assert r.status_code == 200
     body = r.json()
     assert body["ok"] is True and body["app"] == "RunwareStudio" and body["version"] == __version__
     assert body["schema"] and body["boot_id"] and "port" in body
+
 
 async def test_index_renders(client):
     r = await client.get("/")
@@ -1749,22 +1949,28 @@ async def test_index_renders(client):
 from runware import RunwareError
 from runwarestudio import secrets
 
+
 async def test_settings_page_lists_fields(client):
     r = await client.get("/settings")
     assert r.status_code == 200
     for key in ("jobs.concurrency", "ui.theme", "runware.transport"):
         assert f'name="{key}"' in r.text
 
+
 async def test_save_settings(client):
-    r = await client.post("/settings", data={"jobs.concurrency": "4", "ui.theme": "light",
-                                              "runware.transport": "rest"})
+    r = await client.post(
+        "/settings",
+        data={"jobs.concurrency": "4", "ui.theme": "light", "runware.transport": "rest"},
+    )
     assert r.status_code == 200 and "Saved" in r.text
     r = await client.get("/settings")
     assert 'value="4"' in r.text
 
+
 async def test_save_invalid_setting_422(client):
     r = await client.post("/settings", data={"jobs.concurrency": "many"})
     assert r.status_code == 422 and "integer" in r.text
+
 
 async def test_api_key_save_masks_and_never_echoes(client, paths):
     r = await client.post("/settings/api-key", data={"api_key": "abcdefgh1234"})
@@ -1773,19 +1979,24 @@ async def test_api_key_save_masks_and_never_echoes(client, paths):
     r = await client.post("/settings/api-key/clear")
     assert r.status_code == 200 and secrets.read_api_key(paths) is None
 
+
 async def test_api_key_test_shows_balance(client, fake):
     await client.post("/settings/api-key", data={"api_key": "abcdefgh1234"})
-    fake.script["account_management"] = [[{"balance": {"amount": 7.25, "currency": "USD", "freeBalance": 0}}]]
+    fake.script["account_management"] = [
+        [{"balance": {"amount": 7.25, "currency": "USD", "freeBalance": 0}}]
+    ]
     r = await client.post("/settings/api-key/test")
     assert r.status_code == 200 and "$7.25" in r.text
     r = await client.get("/hx/header/balance")
     assert "$7.25" in r.text
+
 
 async def test_api_key_test_failure_422(client, fake):
     await client.post("/settings/api-key", data={"api_key": "abcdefgh1234"})
     fake.script["account_management"] = [RunwareError("invalidApiKey", "bad")]
     r = await client.post("/settings/api-key/test")
     assert r.status_code == 422 and "rejected the API key" in r.text
+
 
 async def test_api_key_test_without_key_422(client):
     r = await client.post("/settings/api-key/test")
@@ -1846,8 +2057,12 @@ from .deps import STATIC_DIR
 from .routes import pages, settings as settings_routes, system
 
 
-def create_app(paths: config.Paths, client_factory=open_client, env: Mapping[str, str] | None = None,
-               port: int = config.DEFAULT_PORT) -> FastAPI:
+def create_app(
+    paths: config.Paths,
+    client_factory=open_client,
+    env: Mapping[str, str] | None = None,
+    port: int = config.DEFAULT_PORT,
+) -> FastAPI:
     env = os.environ if env is None else env
 
     @asynccontextmanager
@@ -1899,10 +2114,17 @@ router = APIRouter()
 @router.get("/api/health")
 async def health(request: Request):
     b = request.app.state.boot
-    return {"ok": True, "app": "RunwareStudio", "version": b.version,
-            "commit": b.commit.sha if b.commit else "", "schema": b.schema_revision,
-            "boot_id": b.boot_id, "started_at": b.started_at.isoformat(), "pid": os.getpid(),
-            "port": request.app.state.port}
+    return {
+        "ok": True,
+        "app": "RunwareStudio",
+        "version": b.version,
+        "commit": b.commit.sha if b.commit else "",
+        "schema": b.schema_revision,
+        "boot_id": b.boot_id,
+        "started_at": b.started_at.isoformat(),
+        "pid": os.getpid(),
+        "port": request.app.state.port,
+    }
 ```
 
 ```python
@@ -1936,20 +2158,32 @@ def _general_ctx(request: Request, saved: bool = False, error: str | None = None
     return {"spec": settings_svc.SPEC, "values": values, "saved": saved, "error": error}
 
 
-def _key_ctx(request: Request, message: str | None = None, error: str | None = None,
-             balance: account.BalanceInfo | None = None) -> dict:
+def _key_ctx(
+    request: Request,
+    message: str | None = None,
+    error: str | None = None,
+    balance: account.BalanceInfo | None = None,
+) -> dict:
     paths = request.app.state.paths
     key = request.app.state.api_key()
-    return {"masked": secrets.mask(key), "source": request.app.state.key_source(),
-            "message": message, "error": error, "balance": balance,
-            "env_locked": request.app.state.key_source() == "env", "paths": paths}
+    return {
+        "masked": secrets.mask(key),
+        "source": request.app.state.key_source(),
+        "message": message,
+        "error": error,
+        "balance": balance,
+        "env_locked": request.app.state.key_source() == "env",
+        "paths": paths,
+    }
 
 
 @router.get("/settings")
 async def settings_page(request: Request):
     with db.session_scope(request.app.state.boot.session_factory) as s:
         bal = account.cached_balance(s)
-    return deps.render(request, "pages/settings.html", {**_general_ctx(request), **_key_ctx(request, balance=bal)})
+    return deps.render(
+        request, "pages/settings.html", {**_general_ctx(request), **_key_ctx(request, balance=bal)}
+    )
 
 
 @router.post("/settings")
@@ -1960,7 +2194,9 @@ async def save_settings(request: Request):
         with db.session_scope(request.app.state.boot.session_factory) as s:
             settings_svc.set_many(s, values)
     except ValueError as e:
-        return deps.render(request, "settings/_general_form.html", _general_ctx(request, error=str(e)), 422)
+        return deps.render(
+            request, "settings/_general_form.html", _general_ctx(request, error=str(e)), 422
+        )
     return deps.render(request, "settings/_general_form.html", _general_ctx(request, saved=True))
 
 
@@ -1968,34 +2204,54 @@ async def save_settings(request: Request):
 async def save_api_key(request: Request):
     form = await request.form()
     if request.app.state.key_source() == "env":
-        return deps.render(request, "settings/_api_key_form.html",
-                           _key_ctx(request, error="RUNWARE_API_KEY is set in the environment; the file is ignored."), 422)
+        return deps.render(
+            request,
+            "settings/_api_key_form.html",
+            _key_ctx(
+                request, error="RUNWARE_API_KEY is set in the environment; the file is ignored."
+            ),
+            422,
+        )
     try:
         secrets.write_api_key(request.app.state.paths, str(form.get("api_key", "")))
     except ValueError:
-        return deps.render(request, "settings/_api_key_form.html", _key_ctx(request, error="Enter a key."), 422)
-    return deps.render(request, "settings/_api_key_form.html", _key_ctx(request, message="Key saved."))
+        return deps.render(
+            request, "settings/_api_key_form.html", _key_ctx(request, error="Enter a key."), 422
+        )
+    return deps.render(
+        request, "settings/_api_key_form.html", _key_ctx(request, message="Key saved.")
+    )
 
 
 @router.post("/settings/api-key/clear")
 async def clear_api_key(request: Request):
     secrets.clear_api_key(request.app.state.paths)
-    return deps.render(request, "settings/_api_key_form.html", _key_ctx(request, message="Key removed."))
+    return deps.render(
+        request, "settings/_api_key_form.html", _key_ctx(request, message="Key removed.")
+    )
 
 
 @router.post("/settings/api-key/test")
 async def test_api_key(request: Request):
     key = request.app.state.api_key()
     if not key:
-        return deps.render(request, "settings/_api_key_form.html", _key_ctx(request, error="No API key set."), 422)
+        return deps.render(
+            request, "settings/_api_key_form.html", _key_ctx(request, error="No API key set."), 422
+        )
     try:
-        bal = await account.refresh_balance(request.app.state.client_factory, key,
-                                            request.app.state.setting("runware.transport"),
-                                            request.app.state.boot.session_factory)
+        bal = await account.refresh_balance(
+            request.app.state.client_factory,
+            key,
+            request.app.state.setting("runware.transport"),
+            request.app.state.boot.session_factory,
+        )
     except account.BalanceError as e:
-        return deps.render(request, "settings/_api_key_form.html", _key_ctx(request, error=e.error.message), 422)
-    return deps.render(request, "settings/_api_key_form.html",
-                       _key_ctx(request, message="Key works.", balance=bal))
+        return deps.render(
+            request, "settings/_api_key_form.html", _key_ctx(request, error=e.error.message), 422
+        )
+    return deps.render(
+        request, "settings/_api_key_form.html", _key_ctx(request, message="Key works.", balance=bal)
+    )
 
 
 @router.get("/hx/header/balance")
@@ -2175,6 +2431,7 @@ document.addEventListener('htmx:responseError', (e) => {
 import sys
 from runwarestudio.services import restart
 
+
 def test_launcher_strategy(monkeypatch):
     called = {}
     monkeypatch.setenv("RUNWARESTUDIO_LAUNCHER", "1")
@@ -2182,6 +2439,7 @@ def test_launcher_strategy(monkeypatch):
     assert restart.request_restart(delay=0) == "launcher"
     restart._pending_join()
     assert called["code"] == 75
+
 
 def test_windows_helper_strategy(monkeypatch):
     monkeypatch.delenv("RUNWARESTUDIO_LAUNCHER", raising=False)
@@ -2192,6 +2450,7 @@ def test_windows_helper_strategy(monkeypatch):
     assert restart.request_restart(delay=0) == "windows-helper"
     restart._pending_join()
     assert spawned and exits == [0]
+
 
 def test_execv_strategy(monkeypatch):
     monkeypatch.delenv("RUNWARESTUDIO_LAUNCHER", raising=False)
@@ -2208,9 +2467,11 @@ def test_execv_strategy(monkeypatch):
 import socket
 from runwarestudio import __version__, main
 
+
 def test_version_command(capsys):
     assert main.main(["version"]) == 0
     assert __version__ in capsys.readouterr().out
+
 
 def test_migrate_command(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("RUNWARESTUDIO_DATA_DIR", str(tmp_path))
@@ -2218,14 +2479,18 @@ def test_migrate_command(tmp_path, monkeypatch, capsys):
     assert (tmp_path / "studio.db").exists()
     assert "schema" in capsys.readouterr().out
 
+
 def test_doctor_command(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("RUNWARESTUDIO_DATA_DIR", str(tmp_path))
     assert main.main(["doctor"]) == 0
     out = capsys.readouterr().out
     assert "data dir" in out and "api key" in out and "git" in out
 
+
 def test_pick_port_skips_busy_foreign_port():
-    s = socket.socket(); s.bind(("127.0.0.1", 0)); s.listen(1)
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    s.listen(1)
     busy = s.getsockname()[1]
     try:
         port, ours = main.pick_port("127.0.0.1", busy, tries=3)
@@ -2233,8 +2498,12 @@ def test_pick_port_skips_busy_foreign_port():
     finally:
         s.close()
 
+
 def test_pick_port_returns_free_port():
-    s = socket.socket(); s.bind(("127.0.0.1", 0)); free = s.getsockname()[1]; s.close()
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    free = s.getsockname()[1]
+    s.close()
     assert main.pick_port("127.0.0.1", free) == (free, False)
 ```
 
@@ -2245,6 +2514,7 @@ def test_pick_port_returns_free_port():
 ```python
 # runwarestudio/services/restart.py
 """Process restart/shutdown. The exit happens on a timer so the HTTP reply gets out first."""
+
 from __future__ import annotations
 import os, subprocess, sys, threading
 from ..config import REPO_ROOT, RESTART_EXIT_CODE
@@ -2266,10 +2536,18 @@ def _execv(argv: list[str]) -> None:
 
 def _spawn_helper(pid: int) -> None:
     helper = REPO_ROOT / "scripts" / "restart_helper.bat"
-    flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-    subprocess.Popen(["cmd.exe", "/c", str(helper), str(pid)], cwd=REPO_ROOT, creationflags=flags,
-                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                     close_fds=True)
+    flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(
+        subprocess, "CREATE_NEW_PROCESS_GROUP", 0
+    )
+    subprocess.Popen(
+        ["cmd.exe", "/c", str(helper), str(pid)],
+        cwd=REPO_ROOT,
+        creationflags=flags,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+    )
 
 
 def _schedule(delay: float, fn) -> None:
@@ -2296,6 +2574,7 @@ def request_restart(delay: float = 1.5) -> str:
         def _go():
             _spawn_helper(pid)
             _exit(0)
+
         _schedule(delay, _go)
         return "windows-helper"
     argv = [sys.executable, *sys.argv]
@@ -2314,6 +2593,7 @@ Add to `runwarestudio/web/routes/system.py`:
 ```python
 from fastapi import HTTPException
 from ...services import restart as restart_svc
+
 
 def _local_only(request: Request) -> None:
     host = request.client.host if request.client else ""
@@ -2339,6 +2619,7 @@ async def api_shutdown(request: Request):
 ```python
 # runwarestudio/main.py
 """CLI entry point: serve | migrate | version | doctor."""
+
 from __future__ import annotations
 import argparse, logging, os, shutil, socket, sys, threading, webbrowser
 import httpx
@@ -2382,6 +2663,7 @@ def pick_port(host: str, port: int, tries: int = 10) -> tuple[int, bool]:
 def cmd_serve(args: argparse.Namespace) -> int:
     import uvicorn
     from .web.app import create_app
+
     paths = config.resolve_paths()
     host = args.host or config.env_str(os.environ, "RUNWARESTUDIO_HOST", config.DEFAULT_HOST)
     want = args.port or config.env_int(os.environ, "RUNWARESTUDIO_PORT", config.DEFAULT_PORT)
@@ -2403,7 +2685,12 @@ def cmd_serve(args: argparse.Namespace) -> int:
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     print(f"RunwareStudio {__version__} on {url}  (data: {paths.data})")
     try:
-        uvicorn.run(app, host=host, port=port, log_level=os.environ.get("RUNWARESTUDIO_LOG_LEVEL", "info").lower())
+        uvicorn.run(
+            app,
+            host=host,
+            port=port,
+            log_level=os.environ.get("RUNWARESTUDIO_LOG_LEVEL", "info").lower(),
+        )
     except migrate.MigrationFailed as e:  # raised from lifespan
         print(str(e), file=sys.stderr)
         return config.MIGRATION_FAIL_EXIT_CODE
@@ -2415,6 +2702,7 @@ def cmd_migrate(_args: argparse.Namespace) -> int:
     config.ensure_dirs(paths)
     try:
         from . import boot
+
         info = boot.boot(paths)
     except migrate.MigrationFailed as e:
         print(str(e), file=sys.stderr)
@@ -2436,10 +2724,14 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
     print(f"data dir   : {paths.data} ({'exists' if paths.data.exists() else 'missing'})")
     print(f"database   : {paths.db} schema={migrate.current(paths.db)} head={migrate.head()}")
     print(f"api key    : {secrets.key_source(paths)}")
-    print(f"git        : {'checkout' if gitinfo.is_git_install() else 'not a git checkout'} "
-          f"{(gitinfo.current_commit() or gitinfo.CommitInfo('', '-', '')).short}")
+    print(
+        f"git        : {'checkout' if gitinfo.is_git_install() else 'not a git checkout'} "
+        f"{(gitinfo.current_commit() or gitinfo.CommitInfo('', '-', '')).short}"
+    )
     print(f"uv         : {os.environ.get('RUNWARESTUDIO_UV') or shutil.which('uv') or 'not found'}")
-    print(f"git binary : {os.environ.get('RUNWARESTUDIO_GIT') or shutil.which('git') or 'not found'}")
+    print(
+        f"git binary : {os.environ.get('RUNWARESTUDIO_GIT') or shutil.which('git') or 'not found'}"
+    )
     print(f"launcher   : {'yes' if os.environ.get('RUNWARESTUDIO_LAUNCHER') == '1' else 'no'}")
     return 0
 
@@ -2491,12 +2783,14 @@ if __name__ == "__main__":
 import os, stat, sys
 from runwarestudio.config import REPO_ROOT
 
+
 def test_scripts_exist_and_have_no_powershell():
     for name in ("start.sh", "start.bat", "scripts/restart_helper.bat", "run.py"):
         p = REPO_ROOT / name
         assert p.exists(), name
         text = p.read_text(encoding="utf-8", errors="replace").lower()
         assert "powershell" not in text and ".ps1" not in text, name
+
 
 def test_start_sh_loops_on_75_and_is_executable():
     p = REPO_ROOT / "start.sh"
@@ -2505,9 +2799,14 @@ def test_start_sh_loops_on_75_and_is_executable():
     if sys.platform != "win32":
         assert stat.S_IMODE(p.stat().st_mode) & stat.S_IXUSR
 
+
 def test_start_bat_runs_from_temp_copy():
     text = (REPO_ROOT / "start.bat").read_text()
-    assert "%TEMP%" in text and "errorlevel 75" in text.replace("ERRORLEVEL", "errorlevel") and "RUNWARESTUDIO_LAUNCHER=1" in text
+    assert (
+        "%TEMP%" in text
+        and "errorlevel 75" in text.replace("ERRORLEVEL", "errorlevel")
+        and "RUNWARESTUDIO_LAUNCHER=1" in text
+    )
 ```
 
 - [ ] **Step 2: Run to verify failure** → assertions fail (files missing).
@@ -2517,6 +2816,7 @@ def test_start_bat_runs_from_temp_copy():
 ```python
 # run.py
 """Entry used by launchers: `uv run python run.py serve ...`."""
+
 import sys
 from runwarestudio.main import main
 

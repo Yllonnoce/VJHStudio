@@ -32,7 +32,8 @@ def classify(exc: BaseException) -> UserFacingError:
     if isinstance(exc, RunwareError):
         code = exc.code if exc.code in _MESSAGES else "unknown"
         tmpl, retry = _MESSAGES[code]
-        return UserFacingError(code, tmpl.format(detail=exc.message), retry,
-                               getattr(exc, "parameter", None))
+        return UserFacingError(
+            code, tmpl.format(detail=exc.message), retry, getattr(exc, "parameter", None)
+        )
     tmpl, retry = _MESSAGES["unknown"]
     return UserFacingError("unknown", tmpl.format(detail=str(exc) or exc.__class__.__name__), retry)

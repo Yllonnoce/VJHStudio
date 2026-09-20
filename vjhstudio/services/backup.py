@@ -1,4 +1,5 @@
 """SQLite backups via the online backup API (safe under WAL)."""
+
 from __future__ import annotations
 
 import re
@@ -34,7 +35,8 @@ def backup_db(paths: Paths, label: str) -> Path:
     try:
         src.backup(dst)
     finally:
-        dst.close(); src.close()
+        dst.close()
+        src.close()
     return dest
 
 

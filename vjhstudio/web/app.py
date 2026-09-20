@@ -21,8 +21,13 @@ from .routes import settings as settings_routes
 log = logging.getLogger(__name__)
 
 
-def create_app(paths: config.Paths, client_factory=open_client, env: Mapping[str, str] | None = None,
-               port: int = config.DEFAULT_PORT, boot_info: _boot.BootInfo | None = None) -> FastAPI:
+def create_app(
+    paths: config.Paths,
+    client_factory=open_client,
+    env: Mapping[str, str] | None = None,
+    port: int = config.DEFAULT_PORT,
+    boot_info: _boot.BootInfo | None = None,
+) -> FastAPI:
     env = os.environ if env is None else env
 
     @asynccontextmanager

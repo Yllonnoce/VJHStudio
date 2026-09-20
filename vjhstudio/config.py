@@ -1,4 +1,5 @@
 """Environment and filesystem configuration. No I/O beyond mkdir."""
+
 from __future__ import annotations
 
 import os
@@ -32,9 +33,13 @@ def resolve_paths(env: Mapping[str, str] | None = None) -> Paths:
     data = Path(raw).expanduser().resolve() if raw else REPO_ROOT / "data"
     secrets = data / "secrets"
     return Paths(
-        data=data, db=data / "vjh.db", backups=data / "backups",
-        uploads=data / "uploads", outputs=data / "outputs",
-        secrets=secrets, api_key_file=secrets / "api_key",
+        data=data,
+        db=data / "vjh.db",
+        backups=data / "backups",
+        uploads=data / "uploads",
+        outputs=data / "outputs",
+        secrets=secrets,
+        api_key_file=secrets / "api_key",
     )
 
 

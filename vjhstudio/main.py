@@ -1,4 +1,5 @@
 """CLI entry point: serve | migrate | version | doctor."""
+
 from __future__ import annotations
 
 import argparse
@@ -77,6 +78,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
     from . import boot
     from .web.app import create_app
+
     paths = config.resolve_paths()
     host = args.host or config.env_str(os.environ, "VJHSTUDIO_HOST", config.DEFAULT_HOST)
     want = args.port or config.env_int(os.environ, "VJHSTUDIO_PORT", config.DEFAULT_PORT)
@@ -107,6 +109,7 @@ def cmd_migrate(_args: argparse.Namespace) -> int:
     config.ensure_dirs(paths)
     try:
         from . import boot
+
         info = boot.boot(paths)
     except migrate.MigrationFailed as e:
         print(str(e), file=sys.stderr)
@@ -129,18 +132,26 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
     print(f"data dir   : {paths.data} ({'exists' if paths.data.exists() else 'missing'})")
     print(f"database   : {paths.db} schema={migrate.current(paths.db)} head={migrate.head()}")
     print(f"api key    : {secrets.key_source(paths)}")
-    print(f"git        : {'checkout' if gitinfo.is_git_install() else 'not a git checkout'} "
-          f"{(gitinfo.current_commit() or gitinfo.CommitInfo('', '-', '')).short}")
+    print(
+        f"git        : {'checkout' if gitinfo.is_git_install() else 'not a git checkout'} "
+        f"{(gitinfo.current_commit() or gitinfo.CommitInfo('', '-', '')).short}"
+    )
     print(f"uv         : {os.environ.get('VJHSTUDIO_UV') or shutil.which('uv') or 'not found'}")
     print(f"git binary : {os.environ.get('VJHSTUDIO_GIT') or shutil.which('git') or 'not found'}")
     print(f"launcher   : {'yes' if os.environ.get('VJHSTUDIO_LAUNCHER') == '1' else 'no'}")
     if sys.platform == "darwin":
         print("macOS notes:")
-        print(f'  - Open the app at http://127.0.0.1:{port}/ (not "localhost": Safari may try IPv6 first).')
-        print('  - If macOS asks to allow "Local Network" access, allow it: '
-              "System Settings > Privacy & Security > Local Network.")
-        print("  - If a downloaded launcher will not open, right-click it and choose Open once, "
-              "or run: xattr -d com.apple.quarantine <file>")
+        print(
+            f'  - Open the app at http://127.0.0.1:{port}/ (not "localhost": Safari may try IPv6 first).'
+        )
+        print(
+            '  - If macOS asks to allow "Local Network" access, allow it: '
+            "System Settings > Privacy & Security > Local Network."
+        )
+        print(
+            "  - If a downloaded launcher will not open, right-click it and choose Open once, "
+            "or run: xattr -d com.apple.quarantine <file>"
+        )
     return 0
 
 

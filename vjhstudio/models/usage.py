@@ -18,4 +18,7 @@ class UsageEntry(Base):
     cost: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     day: Mapped[date] = mapped_column(Date, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
-    __table_args__ = (Index("ix_usage_project_day", "project_id", "day"), Index("ix_usage_day", "day"))
+    __table_args__ = (
+        Index("ix_usage_project_day", "project_id", "day"),
+        Index("ix_usage_day", "day"),
+    )

@@ -1,4 +1,5 @@
 """Boot: dirs -> backup-if-migrating -> upgrade -> meta -> default project -> orphan jobs."""
+
 from __future__ import annotations
 
 import logging
@@ -38,8 +39,13 @@ def orphan_jobs(session: Session) -> tuple[int, list[str]]:
         j.error_code = "orphaned"
         j.error_message = "Server restarted while this job was running."
         j.finished_at = utcnow()
-    queued = [j.id for j in session.query(Job).filter(Job.status == JobStatus.queued.value)
-              .order_by(Job.created_at).all()]
+    queued = [
+        j.id
+        for j in session.query(Job)
+        .filter(Job.status == JobStatus.queued.value)
+        .order_by(Job.created_at)
+        .all()
+    ]
     session.flush()
     return len(running), queued
 
@@ -67,5 +73,15 @@ def boot(paths: config.Paths) -> BootInfo:
             s.add(Project(name="Default", slug="default"))
         (paths.outputs / "default").mkdir(parents=True, exist_ok=True)
         orphaned, requeued = orphan_jobs(s)
-    return BootInfo(paths, engine, factory, schema_revision, __version__, commit,
-                    uuid.uuid4().hex, now, orphaned, requeued)
+    return BootInfo(
+        paths,
+        engine,
+        factory,
+        schema_revision,
+        __version__,
+        commit,
+        uuid.uuid4().hex,
+        now,
+        orphaned,
+        requeued,
+    )

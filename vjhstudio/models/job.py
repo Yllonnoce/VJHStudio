@@ -39,6 +39,8 @@ class Job(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime)
-    __table_args__ = (Index("ix_jobs_status", "status"),
-                      Index("ix_jobs_project_created", "project_id", "created_at"),
-                      Index("ix_jobs_model", "model_air"))
+    __table_args__ = (
+        Index("ix_jobs_status", "status"),
+        Index("ix_jobs_project_created", "project_id", "created_at"),
+        Index("ix_jobs_model", "model_air"),
+    )

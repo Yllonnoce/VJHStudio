@@ -15,11 +15,13 @@ def test_version_command(capsys):
     assert main.main(["version"]) == 0
     assert __version__ in capsys.readouterr().out
 
+
 def test_migrate_command(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("VJHSTUDIO_DATA_DIR", str(tmp_path))
     assert main.main(["migrate"]) == 0
     assert (tmp_path / "vjh.db").exists()
     assert "schema" in capsys.readouterr().out
+
 
 def test_doctor_command(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("VJHSTUDIO_DATA_DIR", str(tmp_path))
@@ -27,9 +29,12 @@ def test_doctor_command(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "data dir" in out and "api key" in out and "git" in out
 
+
 def test_pick_port_skips_busy_foreign_port(monkeypatch):
     monkeypatch.setattr(main, "is_ours", lambda h, p: False)
-    s = socket.socket(); s.bind(("127.0.0.1", 0)); s.listen(1)
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    s.listen(1)
     busy = s.getsockname()[1]
     try:
         port, ours = main.pick_port("127.0.0.1", busy, tries=3)
@@ -37,10 +42,15 @@ def test_pick_port_skips_busy_foreign_port(monkeypatch):
     finally:
         s.close()
 
+
 def test_pick_port_returns_free_port(monkeypatch):
     monkeypatch.setattr(main, "is_ours", lambda h, p: False)
-    s = socket.socket(); s.bind(("127.0.0.1", 0)); free = s.getsockname()[1]; s.close()
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    free = s.getsockname()[1]
+    s.close()
     assert main.pick_port("127.0.0.1", free) == (free, False)
+
 
 def test_pick_port_asks_is_ours_before_binding(monkeypatch):
     """On Windows a bind test can succeed on a listening port, so is_ours goes first."""
@@ -50,9 +60,11 @@ def test_pick_port_asks_is_ours_before_binding(monkeypatch):
     assert main.pick_port("127.0.0.1", 8080) == (8080, True)
     assert calls == []
 
+
 def test_port_free_does_not_relax_address_reuse():
     """SO_REUSEADDR would let the bind succeed on a listening port on Windows."""
     assert "setsockopt" not in inspect.getsource(main._port_free)
+
 
 def test_serve_boots_before_uvicorn_and_reports_migration_failure(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("VJHSTUDIO_DATA_DIR", str(tmp_path))
@@ -66,10 +78,14 @@ def test_serve_boots_before_uvicorn_and_reports_migration_failure(tmp_path, monk
     monkeypatch.setattr(boot_mod, "boot", fail_boot)
     monkeypatch.setattr(uvicorn, "run", fail_run)
 
-    s = socket.socket(); s.bind(("127.0.0.1", 0)); free = s.getsockname()[1]; s.close()
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    free = s.getsockname()[1]
+    s.close()
     rc = main.main(["serve", "--port", str(free), "--no-browser"])
     assert rc == config.MIGRATION_FAIL_EXIT_CODE
     assert "x" in capsys.readouterr().err
+
 
 async def test_create_app_with_boot_info_skips_reboot_in_lifespan(tmp_path, monkeypatch):
     paths = config.resolve_paths(env={"VJHSTUDIO_DATA_DIR": str(tmp_path)})
@@ -83,11 +99,13 @@ async def test_create_app_with_boot_info_skips_reboot_in_lifespan(tmp_path, monk
     async with app.router.lifespan_context(app):
         assert app.state.boot is info
 
+
 def test_doctor_macos_notes(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("VJHSTUDIO_DATA_DIR", str(tmp_path))
     monkeypatch.setattr(sys, "platform", "darwin")
     assert main.main(["doctor"]) == 0
     assert "Local Network" in capsys.readouterr().out
+
 
 def test_doctor_no_macos_notes_on_linux(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("VJHSTUDIO_DATA_DIR", str(tmp_path))
@@ -95,10 +113,12 @@ def test_doctor_no_macos_notes_on_linux(tmp_path, monkeypatch, capsys):
     assert main.main(["doctor"]) == 0
     assert "Local Network" not in capsys.readouterr().out
 
+
 def test_lowercase_log_level_does_not_crash(monkeypatch, capsys):
     monkeypatch.setenv("VJHSTUDIO_LOG_LEVEL", "debug")
     assert main.main(["version"]) == 0
     assert __version__ in capsys.readouterr().out
+
 
 def test_log_level_normalises_and_falls_back():
     assert main.log_level({"VJHSTUDIO_LOG_LEVEL": "debug"}) == "DEBUG"

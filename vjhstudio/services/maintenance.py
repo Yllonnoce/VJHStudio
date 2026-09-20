@@ -4,6 +4,7 @@ Deletes every table except `settings` (user preferences survive a clear),
 then re-creates the Default project and re-seeds the app_meta bookkeeping
 rows so the app keeps working without a restart.
 """
+
 from __future__ import annotations
 
 import logging
@@ -27,8 +28,9 @@ class ClearResult:
     rows_deleted: dict[str, int]
 
 
-def clear_database(session_factory: sessionmaker[Session], paths: Paths, *,
-                    backup_first: bool) -> ClearResult:
+def clear_database(
+    session_factory: sessionmaker[Session], paths: Paths, *, backup_first: bool
+) -> ClearResult:
     backup_path: Path | None = None
     if backup_first:
         backup_path = backup.backup_db(paths, "pre-clear")
@@ -41,7 +43,8 @@ def clear_database(session_factory: sessionmaker[Session], paths: Paths, *,
                 continue
             # Table names come from Base.metadata, never from user input.
             rows_deleted[table.name] = s.execute(
-                text(f"SELECT COUNT(*) FROM {table.name}")).scalar_one()  # noqa: S608
+                text(f"SELECT COUNT(*) FROM {table.name}")
+            ).scalar_one()  # noqa: S608
             s.execute(text(f"DELETE FROM {table.name}"))  # noqa: S608
 
         s.add(Project(name="Default", slug="default"))

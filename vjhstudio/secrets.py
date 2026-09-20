@@ -1,4 +1,5 @@
 """Plain-file API key stash with owner-only permissions. Env var wins."""
+
 from __future__ import annotations
 
 import os
@@ -45,7 +46,9 @@ def effective_api_key(paths: Paths, env: Mapping[str, str] | None = None) -> str
     return v or read_api_key(paths)
 
 
-def key_source(paths: Paths, env: Mapping[str, str] | None = None) -> Literal["env", "file", "none"]:
+def key_source(
+    paths: Paths, env: Mapping[str, str] | None = None
+) -> Literal["env", "file", "none"]:
     env = os.environ if env is None else env
     if (env.get(ENV_KEY) or "").strip():
         return "env"
