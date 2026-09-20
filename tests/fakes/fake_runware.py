@@ -23,7 +23,20 @@ class FakeRunware:
         return r
 
     async def run(self, params: dict, options: Any = None) -> list[dict]:
-        return self._reply("run", params)
+        cancel_event = getattr(options, "cancel_event", None) if options is not None else None
+        if cancel_event is not None and cancel_event.is_set():
+            from runware import RunwareError
+
+            raise RunwareError("aborted", "Request aborted")
+        reply = self._reply("run", params)
+        if isinstance(reply, tuple) and len(reply) == 3 and reply[0] == "progress":
+            _, progress_values, result = reply
+            on_progress = getattr(options, "on_progress", None) if options is not None else None
+            for p in progress_values:
+                if on_progress is not None:
+                    on_progress({"progress": p})
+            return result
+        return reply
 
     async def account_management(self, params: dict, options: Any = None) -> list[dict]:
         return self._reply("account_management", params)
