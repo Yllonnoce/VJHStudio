@@ -1,0 +1,82 @@
+from __future__ import annotations
+from fastapi import APIRouter, Request
+from ... import db, secrets
+from ...services import account, settings as settings_svc
+from .. import deps
+
+router = APIRouter()
+
+
+def _general_ctx(request: Request, saved: bool = False, error: str | None = None) -> dict:
+    with db.session_scope(request.app.state.boot.session_factory) as s:
+        values = settings_svc.all_values(s, request.app.state.env)
+    return {"spec": settings_svc.SPEC, "values": values, "saved": saved, "error": error}
+
+
+def _key_ctx(request: Request, message: str | None = None, error: str | None = None,
+             balance: account.BalanceInfo | None = None) -> dict:
+    paths = request.app.state.paths
+    key = request.app.state.api_key()
+    return {"masked": secrets.mask(key), "source": request.app.state.key_source(),
+            "message": message, "error": error, "balance": balance,
+            "env_locked": request.app.state.key_source() == "env", "paths": paths}
+
+
+@router.get("/settings")
+async def settings_page(request: Request):
+    with db.session_scope(request.app.state.boot.session_factory) as s:
+        bal = account.cached_balance(s)
+    return deps.render(request, "pages/settings.html", {**_general_ctx(request), **_key_ctx(request, balance=bal)})
+
+
+@router.post("/settings")
+async def save_settings(request: Request):
+    form = await request.form()
+    values = {k: str(v) for k, v in form.items() if k in settings_svc.SPEC}
+    try:
+        with db.session_scope(request.app.state.boot.session_factory) as s:
+            settings_svc.set_many(s, values)
+    except ValueError as e:
+        return deps.render(request, "settings/_general_form.html", _general_ctx(request, error=str(e)), 422)
+    return deps.render(request, "settings/_general_form.html", _general_ctx(request, saved=True))
+
+
+@router.post("/settings/api-key")
+async def save_api_key(request: Request):
+    form = await request.form()
+    if request.app.state.key_source() == "env":
+        return deps.render(request, "settings/_api_key_form.html",
+                           _key_ctx(request, error="RUNWARE_API_KEY is set in the environment; the file is ignored."), 422)
+    try:
+        secrets.write_api_key(request.app.state.paths, str(form.get("api_key", "")))
+    except ValueError:
+        return deps.render(request, "settings/_api_key_form.html", _key_ctx(request, error="Enter a key."), 422)
+    return deps.render(request, "settings/_api_key_form.html", _key_ctx(request, message="Key saved."))
+
+
+@router.post("/settings/api-key/clear")
+async def clear_api_key(request: Request):
+    secrets.clear_api_key(request.app.state.paths)
+    return deps.render(request, "settings/_api_key_form.html", _key_ctx(request, message="Key removed."))
+
+
+@router.post("/settings/api-key/test")
+async def test_api_key(request: Request):
+    key = request.app.state.api_key()
+    if not key:
+        return deps.render(request, "settings/_api_key_form.html", _key_ctx(request, error="No API key set."), 422)
+    try:
+        bal = await account.refresh_balance(request.app.state.client_factory, key,
+                                            request.app.state.setting("runware.transport"),
+                                            request.app.state.boot.session_factory)
+    except account.BalanceError as e:
+        return deps.render(request, "settings/_api_key_form.html", _key_ctx(request, error=e.error.message), 422)
+    return deps.render(request, "settings/_api_key_form.html",
+                       _key_ctx(request, message="Key works.", balance=bal))
+
+
+@router.get("/hx/header/balance")
+async def header_balance(request: Request):
+    with db.session_scope(request.app.state.boot.session_factory) as s:
+        bal = account.cached_balance(s)
+    return deps.render(request, "partials/_balance_chip.html", {"balance": bal})

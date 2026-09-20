@@ -1,0 +1,14 @@
+<form id="general-form" hx-post="/settings" hx-swap="outerHTML" hx-target="this">
+  {% for key, sp in spec.items() %}
+    <label>{{ key }}
+      {% if sp.choices %}
+        <select name="{{ key }}">{% for c in sp.choices %}<option value="{{ c }}" {% if values[key] == c %}selected{% endif %}>{{ c }}</option>{% endfor %}</select>
+      {% else %}
+        <input name="{{ key }}" value="{{ values[key] }}" {% if sp.type.__name__ == 'int' %}type="number"{% endif %}>
+      {% endif %}
+    </label>
+  {% endfor %}
+  <button type="submit">Save</button>
+  {% if saved %}<p class="ok">Saved.</p>{% endif %}
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+</form>

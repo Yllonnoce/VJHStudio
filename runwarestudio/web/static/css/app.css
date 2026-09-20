@@ -1,0 +1,7 @@
+.chip{padding:.15rem .6rem;border-radius:1rem;background:var(--pico-secondary-background);font-size:.85rem}
+.chip.warn{background:#a35}
+.ok{color:var(--pico-ins-color)} .error{color:var(--pico-del-color)}
+article.warn{border-left:4px solid #a35}
+#toasts{position:fixed;right:1rem;bottom:1rem;display:flex;flex-direction:column;gap:.5rem;z-index:50}
+.toast{padding:.6rem 1rem;border-radius:.5rem;background:var(--pico-card-background-color);box-shadow:0 2px 8px rgba(0,0,0,.4)}
+.htmx-indicator{opacity:0}.htmx-request .htmx-indicator,.htmx-request.htmx-indicator{opacity:1}

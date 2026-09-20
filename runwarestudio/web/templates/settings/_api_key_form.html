@@ -1,0 +1,15 @@
+<form id="api-key-form" hx-post="/settings/api-key" hx-swap="outerHTML" hx-target="this">
+  <label>API key
+    <input type="password" name="api_key" placeholder="{{ masked or 'paste your RunWare key' }}" autocomplete="off" {% if env_locked %}disabled{% endif %}>
+  </label>
+  <small>Source: {{ source }}{% if masked %} · {{ masked }}{% endif %}. Stored in {{ paths.api_key_file }} (owner-only).</small>
+  <div class="grid">
+    <button type="submit" {% if env_locked %}disabled{% endif %}>Save</button>
+    <button type="button" class="secondary" hx-post="/settings/api-key/test" hx-target="#api-key-form" hx-swap="outerHTML">Test</button>
+    <button type="button" class="contrast outline" hx-post="/settings/api-key/clear" hx-target="#api-key-form" hx-swap="outerHTML" hx-confirm="Remove the stored key?" {% if env_locked %}disabled{% endif %}>Clear</button>
+  </div>
+  {% if message %}<p class="ok">{{ message }}</p>{% endif %}
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  {% if balance %}<p>Balance: <strong>${{ '%.2f'|format(balance.amount) }}</strong> {{ balance.currency }}</p>
+    {% with has_api_key=True, oob=True %}{% include "partials/_balance_chip.html" %}{% endwith %}{% endif %}
+</form>

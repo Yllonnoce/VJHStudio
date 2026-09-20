@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en" data-theme="{{ theme }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}RunwareStudio{% endblock %}</title>
+  <link rel="icon" href="/static/img/favicon.svg">
+  <link rel="stylesheet" href="/static/vendor/pico.min.css">
+  <link rel="stylesheet" href="/static/css/app.css">
+  <script src="/static/vendor/htmx.min.js" defer></script>
+  <script src="/static/js/app.js" defer></script>
+  <script src="/static/vendor/alpine-focus.min.js" defer></script>
+  <script src="/static/vendor/alpine.min.js" defer></script>
+</head>
+<body hx-boost="false">
+  {% include "_header.html" %}
+  <main class="container">{% block content %}{% endblock %}</main>
+  <div id="toasts" role="status" aria-live="polite"></div>
+  <footer class="container"><small>RunwareStudio v{{ app_version }}{% if commit_short %} · {{ commit_short }}{% endif %}</small></footer>
+</body>
+</html>

@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>RunwareStudio</h1>
+{% if not has_api_key %}<article class="warn">No API key set. <a href="/settings#api">Add your RunWare key</a> to start generating.</article>{% endif %}
+<p>Generate, Gallery, Prompts and Assets arrive in the next phases.</p>
+{% endblock %}
