@@ -58,6 +58,7 @@ class _Plan:
 class _Live:
     stage: str = "submitting"
     progress: int = 0
+    real: bool = False  # True once RunWare has reported an actual percentage
     started_at: object = None
     expected_ms: int = 20000
     t0: float = field(default_factory=time.monotonic)
@@ -172,6 +173,7 @@ class JobRunner:
             out[job_id] = {
                 "progress": max(live.progress, estimate_progress(elapsed_ms, live.expected_ms)),
                 "stage": live.stage,
+                "real": live.real,
                 "started_at": live.started_at,
             }
         return out
@@ -350,6 +352,7 @@ class JobRunner:
         if live is None:
             return
         live.progress = max(live.progress, min(99, int(pct)))
+        live.real = True  # the bar is now measured, not modelled: the card drops its ETA
         live.stage = "rendering"
         self._write_live(job_id, force=False)
 
