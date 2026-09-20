@@ -235,15 +235,17 @@ class JobRunner:
             )
 
     async def _execute(self, job_id: str) -> None:
-        plan = self._begin(job_id)
-        if plan is None:
-            return
-        ev = asyncio.Event()
-        self._events[job_id] = ev
-        self._live[job_id] = _Live(started_at=utcnow(), expected_ms=plan.expected_ms)
-        if job_id in self._cancelled:
-            ev.set()
         try:
+            # inside the try: a row whose request_json no longer validates must end up
+            # failed with a message, not stuck in `running` behind a swallowed traceback.
+            plan = self._begin(job_id)
+            if plan is None:
+                return
+            ev = asyncio.Event()
+            self._events[job_id] = ev
+            self._live[job_id] = _Live(started_at=utcnow(), expected_ms=plan.expected_ms)
+            if job_id in self._cancelled:
+                ev.set()
             task = build_image_task(plan.req, job_id, {}, plan.family, plan.negative)
             self._save_task(job_id, task, [])
             t0 = time.monotonic()

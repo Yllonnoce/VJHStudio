@@ -173,7 +173,7 @@ def delete(session: Session, paths: Paths, output_id: int) -> bool:
             continue
         try:
             p.unlink(missing_ok=True)
-        except OSError as e:  # noqa: PERF203 - a locked file must not block the row deletion
+        except OSError as e:  # a locked file must not block deleting the row
             log.warning("could not delete %s: %s", p, e)
     session.delete(o)
     session.flush()

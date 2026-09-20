@@ -192,6 +192,22 @@ async def test_progress_updates_reach_the_db(env):
         assert j.status == "succeeded" and j.progress == 100 and j.attempts == 1
 
 
+async def test_unparseable_request_row_fails_cleanly(env):
+    """A row whose request_json no longer validates must fail, not hang in `running`."""
+    paths, f, _ = env
+    r = _runner(env, FakeRunware({}))
+    await r.start()
+    job = generate.enqueue_image(f, paths, _req(f), default_negative="")
+    with db.session_scope(f) as s:
+        s.get(models.Job, job.id).request_json = {"nonsense": True}
+    r.submit(job.id)
+    await r.wait_idle()
+    await r.stop()
+    with db.session_scope(f) as s:
+        j = s.get(models.Job, job.id)
+        assert j.status == "failed" and j.error_code == "unknown"
+
+
 def test_estimate_progress():
     assert jobs.estimate_progress(0, 10000) == 0
     assert 55 <= jobs.estimate_progress(10000, 10000) <= 65
