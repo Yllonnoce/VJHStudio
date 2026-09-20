@@ -35,9 +35,7 @@ async def test_api_key_save_masks_and_never_echoes(client, paths):
 
 async def test_api_key_test_shows_balance(client, fake):
     await client.post("/settings/api-key", data={"api_key": "abcdefgh1234"})
-    fake.script["account_management"] = [
-        [{"balance": {"amount": 7.25, "currency": "USD", "freeBalance": 0}}]
-    ]
+    fake.script["account_management"] = [[{"balance": 7.25, "usage": {}}]]  # live API shape
     r = await client.post("/settings/api-key/test")
     assert r.status_code == 200 and "$7.25" in r.text
     r = await client.get("/hx/header/balance")

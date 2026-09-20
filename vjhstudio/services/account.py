@@ -25,6 +25,29 @@ class BalanceError(Exception):
         self.error = error
 
 
+def parse_balance(row: dict) -> tuple[float, str, float]:
+    """Read (amount, currency, free) from a getDetails row.
+
+    The live API returns ``"balance": 37.09`` (a bare number); the docs describe
+    ``"balance": {"amount": ..., "currency": ..., "freeBalance": ...}``. Accept both.
+    """
+    bal = row.get("balance")
+    if isinstance(bal, dict):
+        return (
+            _num(bal.get("amount")),
+            str(bal.get("currency") or "USD"),
+            _num(bal.get("freeBalance")),
+        )
+    return _num(bal), str(row.get("currency") or "USD"), _num(row.get("freeBalance"))
+
+
+def _num(value: object) -> float:
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0.0
+
+
 async def refresh_balance(
     client_factory, api_key: str, transport: str, session_factory: sessionmaker[Session]
 ) -> BalanceInfo:
@@ -33,13 +56,8 @@ async def refresh_balance(
             rows = await client.account_management({"operation": "getDetails"})
     except Exception as e:  # noqa: BLE001
         raise BalanceError(classify(e)) from e
-    bal = (rows[0] if rows else {}).get("balance") or {}
-    info = BalanceInfo(
-        float(bal.get("amount", 0.0)),
-        str(bal.get("currency", "USD")),
-        float(bal.get("freeBalance", 0.0)),
-        utcnow(),
-    )
+    amount, currency, free = parse_balance(rows[0] if rows else {})
+    info = BalanceInfo(amount, currency, free, utcnow())
     with db.session_scope(session_factory) as s:
         meta.set(s, "account.balance", repr(info.amount))
         meta.set(s, "account.free", repr(info.free))

@@ -39,3 +39,16 @@ async def test_refresh_balance_raises_user_facing(factory):
 def test_cached_balance_none_when_unset(factory):
     with db.session_scope(factory) as s:
         assert account.cached_balance(s) is None
+
+
+async def test_refresh_balance_accepts_numeric_balance(factory):
+    """RunWare's live getDetails returns `balance` as a bare number, not an object."""
+    fake = FakeRunware({"account_management": [[{"balance": 37.09632, "usage": {}}]]})
+    info = await account.refresh_balance(fake_factory(fake), "key", "rest", factory)
+    assert info.amount == 37.09632 and info.currency == "USD" and info.free == 0.0
+
+
+async def test_refresh_balance_tolerates_missing_balance(factory):
+    fake = FakeRunware({"account_management": [[{"organizationName": "x"}]]})
+    info = await account.refresh_balance(fake_factory(fake), "key", "rest", factory)
+    assert info.amount == 0.0
