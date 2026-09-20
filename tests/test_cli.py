@@ -61,9 +61,29 @@ def test_pick_port_asks_is_ours_before_binding(monkeypatch):
     assert calls == []
 
 
-def test_port_free_does_not_relax_address_reuse():
-    """SO_REUSEADDR would let the bind succeed on a listening port on Windows."""
-    assert "setsockopt" not in inspect.getsource(main._port_free)
+def test_port_free_never_relaxes_address_reuse_on_windows(monkeypatch):
+    """On Windows SO_REUSEADDR would let the bind succeed on a listening port, so the
+    Windows branch must not set it (it may set SO_EXCLUSIVEADDRUSE instead)."""
+    calls = []
+
+    class FakeSock:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def setsockopt(self, level, opt, value):
+            calls.append(opt)
+
+        def bind(self, addr):
+            pass
+
+    monkeypatch.setattr(main.sys, "platform", "win32")
+    monkeypatch.setattr(main.socket, "socket", lambda *a, **k: FakeSock())
+    monkeypatch.setattr(main.socket, "SO_EXCLUSIVEADDRUSE", 12345, raising=False)
+    assert main._port_free("127.0.0.1", 8080) is True
+    assert socket.SO_REUSEADDR not in calls and 12345 in calls
 
 
 def test_serve_boots_before_uvicorn_and_reports_migration_failure(tmp_path, monkeypatch, capsys):
