@@ -7,6 +7,23 @@ from .services import gitinfo, migrate
 
 log = logging.getLogger("vjhstudio")
 
+LOG_LEVELS = ("CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG")
+
+
+def log_level(env=None) -> str:
+    """VJHSTUDIO_LOG_LEVEL normalised to an upper-case level name.
+
+    Accepts any casing (``debug`` as well as ``DEBUG``) and falls back to INFO
+    for an unknown name rather than letting logging raise before the CLI runs.
+    """
+    env = os.environ if env is None else env
+    name = (env.get("VJHSTUDIO_LOG_LEVEL") or "INFO").strip().upper()
+    if name == "WARN":
+        name = "WARNING"
+    if name not in LOG_LEVELS:
+        return "INFO"
+    return name
+
 
 def is_ours(host: str, port: int) -> bool:
     try:
@@ -64,7 +81,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
     if args.open:
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     print(f"VJHStudio {__version__} on {url}  (data: {paths.data})")
-    uvicorn.run(app, host=host, port=port, log_level=os.environ.get("VJHSTUDIO_LOG_LEVEL", "info").lower())
+    uvicorn.run(app, host=host, port=port, log_level=log_level().lower())
     return 0
 
 
@@ -127,7 +144,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    logging.basicConfig(level=os.environ.get("VJHSTUDIO_LOG_LEVEL", "INFO"))
+    logging.basicConfig(level=log_level())
     args = build_parser().parse_args(argv)
     return int(args.func(args))
 

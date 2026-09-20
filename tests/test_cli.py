@@ -78,3 +78,15 @@ def test_doctor_no_macos_notes_on_linux(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(sys, "platform", "linux")
     assert main.main(["doctor"]) == 0
     assert "Local Network" not in capsys.readouterr().out
+
+def test_lowercase_log_level_does_not_crash(monkeypatch, capsys):
+    monkeypatch.setenv("VJHSTUDIO_LOG_LEVEL", "debug")
+    assert main.main(["version"]) == 0
+    assert __version__ in capsys.readouterr().out
+
+def test_log_level_normalises_and_falls_back():
+    assert main.log_level({"VJHSTUDIO_LOG_LEVEL": "debug"}) == "DEBUG"
+    assert main.log_level({"VJHSTUDIO_LOG_LEVEL": " Warning "}) == "WARNING"
+    assert main.log_level({"VJHSTUDIO_LOG_LEVEL": "warn"}) == "WARNING"
+    assert main.log_level({"VJHSTUDIO_LOG_LEVEL": "chatty"}) == "INFO"
+    assert main.log_level({}) == "INFO"
