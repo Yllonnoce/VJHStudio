@@ -1,10 +1,3 @@
-function rsToggleTheme() {
-  const el = document.documentElement;
-  const next = el.dataset.theme === 'dark' ? 'light' : 'dark';
-  el.dataset.theme = next;
-  const fd = new FormData(); fd.append('ui.theme', next);
-  fetch('/settings', { method: 'POST', body: fd });
-}
 document.addEventListener('htmx:responseError', (e) => {
   const box = document.getElementById('toasts');
   if (!box) return;

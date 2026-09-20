@@ -7,6 +7,8 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 STATIC_DIR = Path(__file__).parent / "static"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
+DARK_THEMES = ("midnight", "crimson", "ember", "royal", "steel")
+
 
 def is_hx(request: Request) -> bool:
     return request.headers.get("HX-Request") == "true"
@@ -20,6 +22,7 @@ def render(request: Request, name: str, ctx: dict | None = None, status_code: in
         "app_version": app.state.boot.version,
         "commit_short": app.state.boot.commit.short if app.state.boot.commit else "",
         "theme": app.state.theme(),
+        "dark_themes": DARK_THEMES,
         "has_api_key": app.state.api_key() is not None,
         "key_source": app.state.key_source(),
     }

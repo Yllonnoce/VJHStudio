@@ -5,7 +5,13 @@
       <li><a href="/">Home</a></li>
       <li><a href="/settings">Settings</a></li>
       {% include "partials/_balance_chip.html" %}
-      <li><button class="secondary outline" type="button" onclick="rsToggleTheme()" aria-label="Toggle theme">◐</button></li>
+      <li class="vjh-theme-wrap">
+        <button id="vjh-theme-btn" class="secondary outline" type="button" title="Color theme" aria-haspopup="true" aria-expanded="false" onclick="vjhTogglePicker()">&#9670;</button>
+        <div id="vjh-theme-panel" role="dialog" aria-label="Color theme">
+          <div class="vjh-panel-title">Color theme</div>
+          <div id="vjh-swatches"></div>
+        </div>
+      </li>
     </ul>
   </nav>
 </header>

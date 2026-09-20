@@ -8,7 +8,7 @@ async def test_settings_page_lists_fields(client):
         assert f'name="{key}"' in r.text
 
 async def test_save_settings(client):
-    r = await client.post("/settings", data={"jobs.concurrency": "4", "ui.theme": "light",
+    r = await client.post("/settings", data={"jobs.concurrency": "4", "ui.theme": "daylight",
                                               "runware.transport": "rest"})
     assert r.status_code == 200 and "Saved" in r.text
     r = await client.get("/settings")

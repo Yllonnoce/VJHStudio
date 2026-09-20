@@ -1,12 +1,15 @@
 <!doctype html>
-<html lang="en" data-theme="{{ theme }}">
+<html lang="en" data-theme="{{ theme }}" data-scheme="{{ 'dark' if theme in dark_themes else 'light' }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}VJHStudio{% endblock %}</title>
   <link rel="icon" href="/static/img/favicon.svg">
+  <link rel="stylesheet" href="/static/css/themes.css">
   <link rel="stylesheet" href="/static/vendor/pico.min.css">
   <link rel="stylesheet" href="/static/css/app.css">
+  <script>try{var t=localStorage.getItem('vjh-theme');if(t){document.documentElement.setAttribute('data-theme',t);document.documentElement.setAttribute('data-scheme',{{ dark_themes|tojson }}.indexOf(t)>=0?'dark':'light');}}catch(e){}</script>
+  <script src="/static/js/theme.js" defer></script>
   <script src="/static/vendor/htmx.min.js" defer></script>
   <script src="/static/js/app.js" defer></script>
   <script src="/static/vendor/alpine-focus.min.js" defer></script>

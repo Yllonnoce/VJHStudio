@@ -11,12 +11,12 @@ def session(tmp_path):
 
 def test_defaults(session):
     assert settings.get(session, "jobs.concurrency") == 3
-    assert settings.get(session, "ui.theme") == "dark"
+    assert settings.get(session, "ui.theme") == "midnight"
 
 def test_set_and_get_casts(session):
-    settings.set_many(session, {"jobs.concurrency": "5", "ui.theme": "light"})
+    settings.set_many(session, {"jobs.concurrency": "5", "ui.theme": "daylight"})
     assert settings.get(session, "jobs.concurrency") == 5
-    assert settings.get(session, "ui.theme") == "light"
+    assert settings.get(session, "ui.theme") == "daylight"
 
 def test_invalid_values_rejected(session):
     with pytest.raises(ValueError): settings.set_many(session, {"jobs.concurrency": "x"})

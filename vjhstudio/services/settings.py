@@ -27,7 +27,8 @@ SPEC: dict[str, Spec] = {
     "defaults.output_format_video": Spec(str, "MP4", ("MP4", "WEBM")),
     "defaults.negative_prompt": Spec(str, "blurry, low quality, watermark, text, deformed"),
     "prompt.polish_mode": Spec(str, "promptEnhance", ("promptEnhance", "textInference")),
-    "ui.theme": Spec(str, "dark", ("dark", "light")),
+    "ui.theme": Spec(str, "midnight", ("daylight", "classic", "forest", "ocean", "frost", "parchment",
+                                        "midnight", "crimson", "ember", "royal", "steel")),
     "uploads.max_mb": Spec(int, 200),
 }
 
