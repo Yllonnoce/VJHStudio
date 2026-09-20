@@ -12,6 +12,10 @@ def write_api_key(paths: Paths, key: str) -> None:
     if not key:
         raise ValueError("API key is empty")
     paths.secrets.mkdir(parents=True, exist_ok=True)
+    if sys.platform != "win32":
+        # This can run before ensure_dirs(), which is the other place the 0700
+        # is applied. On Windows the mode is a no-op: the dir ACL is inherited.
+        os.chmod(paths.secrets, 0o700)
     fd = os.open(paths.api_key_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(key + "\n")

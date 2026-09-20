@@ -27,3 +27,10 @@ def test_launchers_bootstrap_uv_if_missing():
     for name in ("start.sh", "start.bat"):
         text = (REPO_ROOT / name).read_text()
         assert "astral.sh/uv" in text or "astral-sh/uv" in text, name
+
+
+def test_start_sh_survives_an_unset_home_under_set_u():
+    text = (REPO_ROOT / "start.sh").read_text()
+    assert "set -u" in text
+    assert "$HOME/" not in text and '"$HOME"' not in text, "use ${HOME:-} under set -u"
+    assert "${HOME:-}" in text

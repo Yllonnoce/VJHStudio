@@ -31,3 +31,12 @@ def test_meta_round_trip(session):
     assert meta.get(session, "x") is None
     meta.set(session, "x", "1"); meta.set(session, "x", "2")
     assert meta.get(session, "x") == "2"
+
+def test_invalid_env_override_warns_and_falls_back(session, caplog):
+    """A typo in an env var must not turn the settings page into a 500."""
+    settings.set_many(session, {"runware.transport": "websocket"})
+    with caplog.at_level("WARNING"):
+        assert settings.get(session, "runware.transport", env={"VJHSTUDIO_TRANSPORT": "grpc"}) == "websocket"
+    assert "VJHSTUDIO_TRANSPORT" in caplog.text
+    # with nothing saved, the SPEC default is the fallback
+    assert settings.all_values(session, env={"VJHSTUDIO_TRANSPORT": "grpc"})["runware.transport"] == "websocket"

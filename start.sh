@@ -8,7 +8,7 @@ main() {
   local UV GIT
   UV="${VJHSTUDIO_UV:-}"
   if [ -z "$UV" ]; then
-    for c in "$(command -v uv 2>/dev/null)" "$HOME/.local/bin/uv" "$HOME/.cargo/bin/uv"; do
+    for c in "$(command -v uv 2>/dev/null)" "${HOME:-}/.local/bin/uv" "${HOME:-}/.cargo/bin/uv"; do
       [ -n "$c" ] && [ -x "$c" ] && UV="$c" && break
     done
   fi
@@ -16,7 +16,7 @@ main() {
     # uv (the tool that runs the app's Python) is not installed yet. Install it now.
     echo "uv not found; installing it..."
     curl -LsSf https://astral.sh/uv/install.sh | sh
-    UV="$HOME/.local/bin/uv"
+    UV="${HOME:-}/.local/bin/uv"
     if [ ! -x "$UV" ]; then
       echo "Could not install uv automatically. Install it yourself from https://astral.sh/uv and try again."
       exit 1

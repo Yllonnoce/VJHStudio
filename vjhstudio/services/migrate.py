@@ -1,5 +1,6 @@
 """Alembic driver. A failed upgrade raises; refusing to start beats a half-migrated DB."""
 from __future__ import annotations
+import contextlib
 from pathlib import Path
 import sqlite3
 from alembic import command
@@ -31,9 +32,10 @@ def current(db_path: Path) -> str | None:
     if not Path(db_path).exists():
         return None
     try:
-        conn = sqlite3.connect(db_path)
-        row = conn.execute("SELECT version_num FROM alembic_version").fetchone()
-        conn.close()
+        # closing() matters on the error path: a DB without alembic_version
+        # would otherwise leak one connection per boot.
+        with contextlib.closing(sqlite3.connect(db_path)) as conn:
+            row = conn.execute("SELECT version_num FROM alembic_version").fetchone()
         return row[0] if row else None
     except sqlite3.Error:
         return None

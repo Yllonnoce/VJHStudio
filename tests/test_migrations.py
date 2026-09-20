@@ -48,3 +48,23 @@ def test_session_scope_commits_and_rolls_back(tmp_path):
         pass
     with db.session_scope(factory) as s:
         assert [x.slug for x in s.query(models.Project).order_by(models.Project.slug)] == ["a"]
+
+
+def test_current_closes_its_connection_on_the_error_path(tmp_path, monkeypatch):
+    """A DB file without alembic_version used to leak one connection per boot."""
+    import sqlite3
+
+    db = tmp_path / "vjh.db"
+    sqlite3.connect(db).close()  # exists, but has no alembic_version table
+    closed = []
+    real_connect = sqlite3.connect
+
+    class Tracked(sqlite3.Connection):
+        def close(self):
+            closed.append(True)
+            super().close()
+
+    monkeypatch.setattr(migrate.sqlite3, "connect",
+                        lambda p, **kw: real_connect(p, factory=Tracked, **kw))
+    assert migrate.current(db) is None
+    assert closed == [True]

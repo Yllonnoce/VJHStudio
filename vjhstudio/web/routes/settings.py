@@ -48,33 +48,33 @@ def save_settings(request: Request, form: deps.Form):
 @router.post("/settings/api-key")
 def save_api_key(request: Request, form: deps.Form):
     if request.app.state.key_source() == "env":
-        return deps.render(request, "settings/_api_key_form.html",
+        return deps.render(request, "settings/_api_key_response.html",
                            _key_ctx(request, error="RUNWARE_API_KEY is set in the environment; the file is ignored."), 422)
     try:
         secrets.write_api_key(request.app.state.paths, str(form.get("api_key", "")))
     except ValueError:
-        return deps.render(request, "settings/_api_key_form.html", _key_ctx(request, error="Enter a key."), 422)
-    return deps.render(request, "settings/_api_key_form.html", _key_ctx(request, message="Key saved."))
+        return deps.render(request, "settings/_api_key_response.html", _key_ctx(request, error="Enter a key."), 422)
+    return deps.render(request, "settings/_api_key_response.html", _key_ctx(request, message="Key saved."))
 
 
 @router.post("/settings/api-key/clear")
 def clear_api_key(request: Request):
     secrets.clear_api_key(request.app.state.paths)
-    return deps.render(request, "settings/_api_key_form.html", _key_ctx(request, message="Key removed."))
+    return deps.render(request, "settings/_api_key_response.html", _key_ctx(request, message="Key removed."))
 
 
 @router.post("/settings/api-key/test")
 async def test_api_key(request: Request):
     key = request.app.state.api_key()
     if not key:
-        return deps.render(request, "settings/_api_key_form.html", _key_ctx(request, error="No API key set."), 422)
+        return deps.render(request, "settings/_api_key_response.html", _key_ctx(request, error="No API key set."), 422)
     try:
         bal = await account.refresh_balance(request.app.state.client_factory, key,
                                             request.app.state.setting("runware.transport"),
                                             request.app.state.boot.session_factory)
     except account.BalanceError as e:
-        return deps.render(request, "settings/_api_key_form.html", _key_ctx(request, error=e.error.message), 422)
-    return deps.render(request, "settings/_api_key_form.html",
+        return deps.render(request, "settings/_api_key_response.html", _key_ctx(request, error=e.error.message), 422)
+    return deps.render(request, "settings/_api_key_response.html",
                        _key_ctx(request, message="Key works.", balance=bal))
 
 

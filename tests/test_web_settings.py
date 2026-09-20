@@ -58,3 +58,21 @@ async def test_clear_database_route_without_backup(client):
 async def test_settings_page_has_maintenance_section(client):
     r = await client.get("/settings")
     assert 'id="maintenance"' in r.text and "Clear database" in r.text
+
+async def test_oob_balance_chip_is_a_top_level_node_and_appears_once(client, fake):
+    """htmx 2.0 still swaps nested OOB elements but deprecates it; 3.0 will not."""
+    await client.post("/settings/api-key", data={"api_key": "abcdefgh1234"})
+    fake.script["account_management"] = [[{"balance": {"amount": 7.25, "currency": "USD", "freeBalance": 0}}]]
+    r = await client.post("/settings/api-key/test")
+    assert r.status_code == 200
+    assert r.text.count('id="balance-chip"') == 1
+    assert r.text.index('id="balance-chip"') > r.text.index("</form>")
+    assert 'hx-swap-oob="true"' in r.text
+
+async def test_settings_page_has_exactly_one_balance_chip(client, fake):
+    fake.script["account_management"] = [[{"balance": {"amount": 7.25, "currency": "USD", "freeBalance": 0}}]]
+    await client.post("/settings/api-key", data={"api_key": "abcdefgh1234"})
+    await client.post("/settings/api-key/test")
+    r = await client.get("/settings")
+    assert r.text.count('id="balance-chip"') == 1
+    assert 'hx-swap-oob' not in r.text

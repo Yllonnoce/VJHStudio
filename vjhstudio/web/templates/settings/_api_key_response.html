@@ -1,0 +1,6 @@
+{# Response for the API-key HTMX routes: the form itself plus, out of band, the
+   header balance chip. The OOB element must be a top-level node of the
+   response — htmx 2.0 still swaps nested ones, but documents that as
+   deprecated and flips the default in 3.0. #}
+{% include "settings/_api_key_form.html" %}
+{% if balance %}{% with has_api_key=True, oob=True %}{% include "partials/_balance_chip.html" %}{% endwith %}{% endif %}

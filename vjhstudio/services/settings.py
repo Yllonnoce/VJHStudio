@@ -1,10 +1,13 @@
 """Typed key/value settings. Precedence: env > settings table > SPEC default."""
 from __future__ import annotations
+import logging
 import os
 from dataclasses import dataclass
 from typing import Any, Mapping
 from sqlalchemy.orm import Session
 from ..models import Setting
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -50,8 +53,13 @@ def _cast(key: str, raw: str) -> Any:
 def get(session: Session, key: str, env: Mapping[str, str] | None = None) -> Any:
     spec = SPEC[key]
     env = os.environ if env is None else env
-    if spec.env and env.get(spec.env):
-        return _cast(key, env[spec.env])
+    raw = env.get(spec.env) if spec.env else None
+    if raw:
+        try:
+            return _cast(key, raw)
+        except ValueError as e:
+            # A typo in an env var must not turn the settings page into a 500.
+            log.warning("Ignoring %s=%r: %s. Using the saved value instead.", spec.env, raw, e)
     row = session.get(Setting, key)
     return _cast(key, row.value) if row else spec.default
 

@@ -21,6 +21,5 @@
   </div>
   {% if message %}<p class="ok">{{ message }}</p>{% endif %}
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
-  {% if balance %}<p>Balance: <strong>${{ '%.2f'|format(balance.amount) }}</strong> {{ balance.currency }}</p>
-    {% with has_api_key=True, oob=True %}{% include "partials/_balance_chip.html" %}{% endwith %}{% endif %}
+  {% if balance %}<p>Balance: <strong>${{ '%.2f'|format(balance.amount) }}</strong> {{ balance.currency }}</p>{% endif %}
 </form>
