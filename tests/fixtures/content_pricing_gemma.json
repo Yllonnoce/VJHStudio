@@ -1,0 +1,4 @@
+{"model":"google-gemma-4-31b","air":"google:gemma@4-31b","name":"Gemma 4 31B","status":"live",
+ "pricingExamples":[{"configuration":"text-generation","price":"$0.000567","latencyMs":16040,"exampleId":"d"}],
+ "pricingRates":[{"amount":1.02e-7,"unit":"inputToken"},{"amount":2.97e-7,"unit":"outputToken"},{"amount":1.2e-8,"unit":"cachedInputToken"}],
+ "pricingBasis":"token","category":["text"]}

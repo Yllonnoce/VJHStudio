@@ -1,0 +1,3 @@
+{"total":3,"limit":2,"offset":2,"items":[
+ {"model":"birefnet-general","air":"runware:112@5","name":"BiRefNet General","creator":"runware","architecture":"birefnet","capabilities":["io:image-to-image"],"hosted":true,"status":"live"}
+]}

@@ -1,0 +1,4 @@
+{"total":3,"limit":2,"offset":0,"items":[
+ {"model":"bfl-flux-1-dev","air":"runware:101@1","name":"FLUX.1 [dev]","creator":"black-forest-labs","architecture":"flux-1-dev","capabilities":["io:text-to-image","form:checkpoint"],"hosted":true,"status":"live","pricingOverview":"Each image generation costs $0.0038 at 1024x1024.","pricingExamples":[{"configuration":"text-to-image · 1024×1024 · steps 28","price":"$0.0013","latencyMs":2942}]},
+ {"model":"google-nano-banana-pro","air":"google:4@2","name":"Nano Banana Pro","creator":"google","architecture":"gemini","capabilities":["io:text-to-image","io:image-to-image"],"hosted":true,"status":"live","pricingExamples":[{"configuration":"1K","price":"$0.138","latencyMs":12000}]}
+]}

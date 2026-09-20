@@ -1,0 +1,7 @@
+{"model":"bfl-flux-1-dev","air":"runware:101@1","name":"FLUX.1 [dev]","status":"live",
+ "pricingOverview":"Each image generation costs $0.0038 at 1024x1024.",
+ "pricingExamples":[{"configuration":"text-to-image · 1024×1024 · steps 28","price":"$0.0013","latencyMs":2942,"exampleId":"a"},
+                    {"configuration":"image-to-image · 720p","price":"$0.0038","latencyMs":3100,"exampleId":"b"}],
+ "pricingMeasured":[{"configuration":"1024x1024 · 28 steps","price":0.0038},{"configuration":"512x512 · 28 steps","price":0.0019},
+                    {"configuration":"1024x1024 · 28 steps +1 LoRA","price":0.0051}],
+ "category":["image"]}

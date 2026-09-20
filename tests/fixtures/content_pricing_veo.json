@@ -1,0 +1,8 @@
+{"model":"google-veo-3-1","air":"google:3@2","name":"Veo 3.1","status":"live",
+ "pricingOverview":"Each generation will cost $0.2/s for 720p, or $0.4/s for 720p with audio.",
+ "pricingExamples":[{"configuration":"text-to-video · 1080p · 4s · generateAudio","price":"$1.60","latencyMs":89836,"exampleId":"c"}],
+ "pricingRates":[{"amount":0.2,"unit":"durationSecond","label":"720p / 1080p · without audio"},
+                 {"amount":0.4,"unit":"durationSecond","label":"720p / 1080p · with audio"},
+                 {"amount":0.4,"unit":"durationSecond","label":"4K · without audio"},
+                 {"amount":0.6,"unit":"durationSecond","label":"4K · with audio"}],
+ "category":["video"]}
