@@ -34,6 +34,13 @@ async def test_api_models_json(client):
     assert (
         rows[-1]["price_primary"] is None or rows[-1]["price_primary"] <= rows[0]["price_primary"]
     )
+    assert rows[0]["provider_settings_schema"] and rows[0]["tiers"]["video"]["durations"]
+    flux = next(
+        r
+        for r in (await client.get("/api/models?kind=image")).json()
+        if r["air"] == "runware:101@1"
+    )
+    assert flux["default_steps"] == 28
 
 
 async def test_favourite_and_hide_toggle(client):

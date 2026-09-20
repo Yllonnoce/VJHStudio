@@ -38,6 +38,13 @@ def _view(m) -> dict:
         "tiers": m.price_tiers_json or {},
         "source": m.source,
         "creator": m.creator,
+        "provider_settings_schema": m.provider_settings_schema or [],
+        "default_width": m.default_width,
+        "default_height": m.default_height,
+        "default_steps": m.default_steps,
+        "default_cfg": m.default_cfg,
+        "slug": m.slug,
+        "architecture": m.architecture,
     }
 
 
