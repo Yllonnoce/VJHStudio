@@ -1,5 +1,11 @@
 <li id="jobs-badge" {% if oob %}hx-swap-oob="true"{% endif %}
     hx-get="/hx/jobs/badge" hx-trigger="every 10s, jobs-changed from:body" hx-swap="outerHTML">
-  {% if active_jobs %}<a href="/generate" class="chip busy" title="{{ active_jobs }} job(s) in flight">{{ active_jobs }} running</a>
+  {% if active_jobs or unseen_jobs %}
+    <a href="/generate" class="chip {% if active_jobs %}busy{% endif %}"
+       title="{{ active_jobs }} in flight, {{ unseen_jobs }} finished unseen">
+      {%- if active_jobs %}{{ active_jobs }} running{% endif -%}
+      {%- if active_jobs and unseen_jobs %} &middot; {% endif -%}
+      {%- if unseen_jobs %}{{ unseen_jobs }} done{% endif -%}
+    </a>
   {% else %}<a href="/generate" class="chip" title="Job queue">Queue</a>{% endif %}
 </li>

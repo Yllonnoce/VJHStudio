@@ -14,12 +14,27 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 DARK_THEMES = ("midnight", "crimson", "ember", "royal", "steel")
 
 
-def _zero() -> int:
-    return 0
+_DEFAULT_GLOBALS = {
+    "theme": "midnight",
+    "notify_desktop": False,
+    "active_jobs": 0,
+    "unseen_jobs": 0,
+}
 
 
 def is_hx(request: Request) -> bool:
     return request.headers.get("HX-Request") == "true"
+
+
+def _globals(request: Request) -> dict:
+    """Theme, notify flag and the two badge counts, computed once per request in one
+    session instead of once per value in three."""
+    cached = getattr(request.state, "vjh_globals", None)
+    if cached is None:
+        source = getattr(request.app.state, "render_globals", None)
+        cached = dict(_DEFAULT_GLOBALS) | (source() if source is not None else {})
+        request.state.vjh_globals = cached
+    return cached
 
 
 def render(request: Request, name: str, ctx: dict | None = None, status_code: int = 200):
@@ -29,12 +44,10 @@ def render(request: Request, name: str, ctx: dict | None = None, status_code: in
         "request": request,
         "app_version": app.state.boot.version,
         "commit_short": app.state.boot.commit.short if app.state.boot.commit else "",
-        "theme": app.state.theme(),
         "dark_themes": DARK_THEMES,
         "has_api_key": app.state.api_key() is not None,
         "key_source": app.state.key_source(),
-        "active_jobs": getattr(app.state, "active_jobs", _zero)(),
-        "notify_desktop": app.state.setting("ui.notify_desktop"),
+        **_globals(request),
     }
     base.update(ctx or {})
     return templates.TemplateResponse(request, name, base, status_code=status_code)

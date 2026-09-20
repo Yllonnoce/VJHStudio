@@ -12,7 +12,7 @@ import json
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from ... import db
@@ -145,19 +145,30 @@ def _panel(request: Request, headers: dict | None = None, oob_badge: bool = True
 
 
 def _claim_finished(request: Request) -> list[dict]:
-    """Finished-since-last-poll notifications, stamped seen so they fire exactly once."""
+    """Finished-since-last-poll notifications, claimed so they fire exactly once.
+
+    The stamp is a *single* conditional UPDATE inside one transaction and only the rows
+    this call flipped come back, so the queue-panel poller and the header badge poller
+    racing each other cannot both announce the same job.
+    """
     with db.session_scope(request.app.state.boot.session_factory) as s:
-        fresh = list(
+        claimed = list(
             s.execute(
-                select(Job)
-                .where(Job.status.in_(FINISHED), Job.seen_at.is_(None))
-                .order_by(Job.finished_at.asc())
+                update(Job)
+                .where(Job.seen_at.is_(None), Job.status.in_(FINISHED))
+                .values(seen_at=utcnow())
+                .returning(Job.id),
+                execution_options={"synchronize_session": False},
             ).scalars()
         )
-        if not fresh:
+        if not claimed:
             return []
-        slugs = _slugs(s)
-        outs = _output_views(s, [j.id for j in fresh], slugs)
+        fresh = list(
+            s.execute(
+                select(Job).where(Job.id.in_(claimed)).order_by(Job.finished_at.asc())
+            ).scalars()
+        )
+        outs = _output_views(s, claimed, _slugs(s))
         events = []
         for j in fresh:
             thumbs = [o["thumb_url"] for o in outs.get(j.id, []) if o["thumb_url"]]
@@ -169,20 +180,29 @@ def _claim_finished(request: Request) -> list[dict]:
                     "thumb": thumbs[0] if thumbs else None,
                 }
             )
-            j.seen_at = utcnow()
         return events
+
+
+def _finished_trigger(events: list[dict]) -> dict:
+    return {"HX-Trigger": json.dumps({"job-finished": events})} if events else {}
 
 
 @router.get("/hx/jobs/active")
 def hx_active(request: Request):
-    events = _claim_finished(request)
-    headers = {"HX-Trigger": json.dumps({"job-finished": events})} if events else {}
-    return _panel(request, headers)
+    return _panel(request, _finished_trigger(_claim_finished(request)))
 
 
 @router.get("/hx/jobs/badge")
 def hx_badge(request: Request):
-    return deps.render(request, "partials/_jobs_badge.html", {"oob": False})
+    """The header polls this on *every* page, so this - not the Generate-only queue
+    panel - is what makes completion toasts and the unseen count work app-wide."""
+    events = _claim_finished(request)
+    # the claim already cleared seen_at, so show what this very response claimed
+    ctx = {"oob": False, "unseen_jobs": len(events)} if events else {"oob": False}
+    r = deps.render(request, "partials/_jobs_badge.html", ctx)
+    for k, v in _finished_trigger(events).items():
+        r.headers[k] = v
+    return r
 
 
 @router.get("/hx/jobs/{job_id}")

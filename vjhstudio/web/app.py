@@ -31,6 +31,11 @@ from .routes import settings as settings_routes
 
 log = logging.getLogger(__name__)
 _ACTIVE_STATUSES = (JobStatus.queued.value, JobStatus.running.value)
+_FINISHED_STATUSES = (
+    JobStatus.succeeded.value,
+    JobStatus.failed.value,
+    JobStatus.cancelled.value,
+)
 
 
 def create_app(
@@ -112,9 +117,25 @@ def create_app(
             q = select(func.count(Job.id)).where(Job.status.in_(_ACTIVE_STATUSES))
             return int(s.execute(q).scalar() or 0)
 
+    def render_globals() -> dict:
+        """Everything base.html and the header badge need, from ONE session. deps.render
+        sits on the 2 s poll path, where three separate session_scopes were pure waste."""
+        active = select(func.count(Job.id)).where(Job.status.in_(_ACTIVE_STATUSES))
+        unseen = select(func.count(Job.id)).where(
+            Job.seen_at.is_(None), Job.status.in_(_FINISHED_STATUSES)
+        )
+        with db.session_scope(app.state.boot.session_factory) as s:
+            return {
+                "theme": settings_svc.get(s, "ui.theme", env),
+                "notify_desktop": settings_svc.get(s, "ui.notify_desktop", env),
+                "active_jobs": int(s.execute(active).scalar() or 0),
+                "unseen_jobs": int(s.execute(unseen).scalar() or 0),
+            }
+
     app.state.theme = theme
     app.state.setting = setting
     app.state.active_jobs = active_jobs
+    app.state.render_globals = render_globals
     app.add_middleware(CrossSiteBlockMiddleware)
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     app.include_router(system.router)
