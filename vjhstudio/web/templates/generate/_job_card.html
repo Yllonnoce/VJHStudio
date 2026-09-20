@@ -1,0 +1,41 @@
+<article class="job-card {{ 'danger' if j.status in ('failed', 'cancelled') else '' }}" id="job-{{ j.id }}">
+  <header>
+    <span class="pill status-{{ j.status }}">{{ j.status }}</span>
+    <strong class="job-title">{{ j.title }}</strong>
+    <small class="muted">{{ j.model_name }}</small>
+  </header>
+  <progress value="{{ j.progress }}" max="100">{{ j.progress }}%</progress>
+  <p class="job-meta">
+    <span>{{ j.stage }}</span>
+    <span class="muted">{{ '%.1f'|format(j.elapsed_ms / 1000) }}s</span>
+    {% if j.estimated and j.eta_ms %}<span class="muted">~{{ (j.eta_ms / 1000)|round|int }}s left</span>{% endif %}
+    {% if j.cost %}<span class="cost">${{ '%.4f'|format(j.cost) }}</span>{% endif %}
+  </p>
+  {% if j.outputs %}
+  <div class="job-thumbs">
+    {% for o in j.outputs %}
+      <a href="{{ o.url }}" target="_blank" rel="noopener">
+        {% if o.thumb_url %}<img src="{{ o.thumb_url }}" alt="{{ j.title }}" loading="lazy" width="96" height="96">
+        {% else %}<span class="chip">{{ o.id }}</span>{% endif %}
+      </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <footer class="job-actions">
+    {% if j.status in ('queued', 'running') %}
+      <button type="button" class="secondary outline" hx-post="/jobs/{{ j.id }}/cancel"
+              hx-target="#job-{{ j.id }}" hx-swap="outerHTML" {% if j.cancel_requested %}disabled{% endif %}>Cancel</button>
+    {% else %}
+      <button type="button" class="secondary outline" hx-post="/jobs/{{ j.id }}/retry"
+              hx-target="#queue-panel" hx-swap="outerHTML">Retry</button>
+      {% if j.outputs %}<a role="button" class="secondary outline" href="/generate?remix={{ j.outputs[0].id }}">Remix</a>{% endif %}
+    {% endif %}
+  </footer>
+  {% if j.error_message or j.dropped_params %}
+  <details>
+    <summary>Details</summary>
+    {% if j.error_message %}<p class="error">{{ j.error_message }}{% if j.error_code %} <small class="muted">({{ j.error_code }})</small>{% endif %}</p>{% endif %}
+    {% if j.dropped_params %}<p class="muted"><small>Dropped params: {% for d in j.dropped_params %}{{ d.get('name', d) }}{% if not loop.last %}, {% endif %}{% endfor %}</small></p>{% endif %}
+  </details>
+  {% endif %}
+</article>

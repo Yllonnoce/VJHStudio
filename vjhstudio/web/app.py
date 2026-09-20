@@ -8,9 +8,11 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import func, select
 
 from .. import boot as _boot
 from .. import config, db, secrets
+from ..models import Job, JobStatus
 from ..runware.catalog_api import ContentAPI
 from ..runware.client import open_client
 from ..services import catalog, migrate
@@ -19,10 +21,14 @@ from ..services import settings as settings_svc
 from .csrf import CrossSiteBlockMiddleware
 from .deps import STATIC_DIR
 from .routes import catalog as catalog_routes
+from .routes import files as files_routes
+from .routes import generate as generate_routes
+from .routes import jobs as jobs_routes
 from .routes import pages, system
 from .routes import settings as settings_routes
 
 log = logging.getLogger(__name__)
+_ACTIVE_STATUSES = (JobStatus.queued.value, JobStatus.running.value)
 
 
 def create_app(
@@ -98,12 +104,22 @@ def create_app(
         with db.session_scope(app.state.boot.session_factory) as s:
             return settings_svc.get(s, key, env)
 
+    def active_jobs() -> int:
+        """Queued + running, for the header badge. One indexed COUNT per page render."""
+        with db.session_scope(app.state.boot.session_factory) as s:
+            q = select(func.count(Job.id)).where(Job.status.in_(_ACTIVE_STATUSES))
+            return int(s.execute(q).scalar() or 0)
+
     app.state.theme = theme
     app.state.setting = setting
+    app.state.active_jobs = active_jobs
     app.add_middleware(CrossSiteBlockMiddleware)
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     app.include_router(system.router)
     app.include_router(pages.router)
     app.include_router(settings_routes.router)
     app.include_router(catalog_routes.router)
+    app.include_router(generate_routes.router)
+    app.include_router(jobs_routes.router)
+    app.include_router(files_routes.router)
     return app

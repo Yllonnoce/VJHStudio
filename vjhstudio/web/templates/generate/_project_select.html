@@ -1,0 +1,14 @@
+<div id="project-select-wrap">
+  <label>Project
+    <select id="project-select" name="project_id">
+      {% for p in projects %}<option value="{{ p.id }}" {% if selected_project and selected_project|int == p.id %}selected{% endif %}>{{ p.name }}</option>{% endfor %}
+    </select>
+  </label>
+  {# a nested <form> is invalid HTML: the inline creator posts its own field with hx-include #}
+  <div class="new-project">
+    <input type="text" name="new_project_name" placeholder="New project name" aria-label="New project name">
+    <button type="button" class="secondary outline"
+            hx-post="/projects" hx-include="closest .new-project"
+            hx-target="#project-select-wrap" hx-swap="outerHTML">Add</button>
+  </div>
+</div>

@@ -1,0 +1,270 @@
+"""Queue panel, job cards and the JSON job views.
+
+The DB row is the record; the runner's in-memory snapshot is an overlay on top of it
+(progress is written to the database at most every two seconds, so a card built from
+the row alone would visibly lag). Everything the panel and the API need is assembled
+by :func:`job_view`, which both this module and the generate routes render from.
+"""
+
+from __future__ import annotations
+
+import json
+
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from ... import db
+from ...models import CatalogModel, Job, JobStatus, Output, Project, utcnow
+from ...schemas.image import ImageRequest
+from ...services import costs, generate
+from ...services import jobs as jobs_svc
+from ...services import settings as settings_svc
+from .. import deps
+
+router = APIRouter()
+
+ACTIVE = (JobStatus.queued.value, JobStatus.running.value)
+FINISHED = (JobStatus.succeeded.value, JobStatus.failed.value, JobStatus.cancelled.value)
+FINISHED_SHOWN = 10
+
+
+def _ms(start, end) -> int:
+    if start is None:
+        return 0
+    return max(0, int(((end or utcnow()) - start).total_seconds() * 1000))
+
+
+def _output_views(session: Session, job_ids: list[str], slugs: dict[int, str]) -> dict[str, list]:
+    out: dict[str, list] = {}
+    if not job_ids:
+        return out
+    rows = session.execute(
+        select(Output).where(Output.job_id.in_(job_ids)).order_by(Output.id)
+    ).scalars()
+    for o in rows:
+        slug = slugs.get(o.project_id, "")
+        thumb = o.thumb_rel_path.rsplit("/", 1)[-1] if o.thumb_rel_path else None
+        out.setdefault(o.job_id, []).append(
+            {
+                "id": o.id,
+                "url": f"/files/outputs/{slug}/{o.filename}",
+                "thumb_url": f"/files/thumbs/{thumb}" if thumb else None,
+                "seed": o.seed,
+                "width": o.width,
+                "height": o.height,
+                "is_missing": o.is_missing,
+            }
+        )
+    return out
+
+
+def _slugs(session: Session) -> dict[int, str]:
+    return dict(session.execute(select(Project.id, Project.slug)).all())
+
+
+def job_view(job: Job, snap: dict, outputs: list, model_name: str) -> dict:
+    """One job, merged with the runner's live snapshot. Finished jobs never estimate."""
+    live = snap.get(job.id) or {}
+    expected_ms = int(job.expected_ms or costs.DEFAULT_EXPECTED_MS)
+    elapsed_ms = _ms(job.started_at, job.finished_at)
+    if job.status == JobStatus.succeeded.value:
+        progress, estimated = 100, False
+    elif job.status in FINISHED:
+        progress, estimated = 0, False
+    elif live:
+        # snapshot() already returns max(reported, estimate); it lags the row only upwards
+        progress, estimated = int(live.get("progress") or 0), not live.get("real", False)
+    elif job.status == JobStatus.running.value:
+        progress, estimated = jobs_svc.estimate_progress(elapsed_ms, expected_ms), True
+    else:
+        progress, estimated = 0, False
+    return {
+        "id": job.id,
+        "kind": job.kind,
+        "status": job.status,
+        "title": job.title or "Untitled",
+        "model_air": job.model_air,
+        "model_name": model_name or job.model_air,
+        "progress": progress,
+        "estimated": estimated,
+        "stage": live.get("stage") or job.status_text or job.status,
+        "expected_ms": expected_ms,
+        "elapsed_ms": elapsed_ms,
+        "eta_ms": max(0, expected_ms - elapsed_ms) if estimated else 0,
+        "cost": job.cost,
+        "error_code": job.error_code,
+        "error_message": job.error_message,
+        "dropped_params": list(job.dropped_params_json or []),
+        "cancel_requested": job.cancel_requested,
+        "created_at": job.created_at,
+        "started_at": job.started_at,
+        "finished_at": job.finished_at,
+        "outputs": outputs,
+    }
+
+
+def _views(request: Request, session: Session, jobs: list[Job]) -> list[dict]:
+    runner = getattr(request.app.state, "runner", None)
+    snap = runner.snapshot() if runner is not None else {}
+    slugs = _slugs(session)
+    outs = _output_views(session, [j.id for j in jobs], slugs)
+    names = {
+        m.air: m.name for m in session.execute(select(CatalogModel)).scalars()
+    }  # one read: the catalog is small and every card wants a display name
+    return [job_view(j, snap, outs.get(j.id, []), names.get(j.model_air, "")) for j in jobs]
+
+
+def _select(session: Session, statuses, order, limit: int | None = None) -> list[Job]:
+    q = select(Job).where(Job.status.in_(statuses)).order_by(*order)
+    if limit:
+        q = q.limit(limit)
+    return list(session.execute(q).scalars())
+
+
+def panel_ctx(request: Request, oob_badge: bool = False) -> dict:
+    """Active jobs oldest-first, then the most recent finished ones."""
+    with db.session_scope(request.app.state.boot.session_factory) as s:
+        active = _select(s, ACTIVE, (Job.created_at.asc(), Job.id.asc()))
+        done = _select(s, FINISHED, (Job.finished_at.desc(), Job.created_at.desc()), FINISHED_SHOWN)
+        return {
+            "active_jobs": len(active),
+            "jobs_active": _views(request, s, active),
+            "jobs_done": _views(request, s, done),
+            "today_spend": costs.today_spend(s),
+            "oob": oob_badge,
+        }
+
+
+def _panel(request: Request, headers: dict | None = None, oob_badge: bool = True):
+    r = deps.render(request, "generate/_queue_panel.html", panel_ctx(request, oob_badge))
+    for k, v in (headers or {}).items():
+        r.headers[k] = v
+    return r
+
+
+def _claim_finished(request: Request) -> list[dict]:
+    """Finished-since-last-poll notifications, stamped seen so they fire exactly once."""
+    with db.session_scope(request.app.state.boot.session_factory) as s:
+        fresh = list(
+            s.execute(
+                select(Job)
+                .where(Job.status.in_(FINISHED), Job.seen_at.is_(None))
+                .order_by(Job.finished_at.asc())
+            ).scalars()
+        )
+        if not fresh:
+            return []
+        slugs = _slugs(s)
+        outs = _output_views(s, [j.id for j in fresh], slugs)
+        events = []
+        for j in fresh:
+            thumbs = [o["thumb_url"] for o in outs.get(j.id, []) if o["thumb_url"]]
+            events.append(
+                {
+                    "id": j.id,
+                    "status": j.status,
+                    "title": j.title or "Untitled",
+                    "thumb": thumbs[0] if thumbs else None,
+                }
+            )
+            j.seen_at = utcnow()
+        return events
+
+
+@router.get("/hx/jobs/active")
+def hx_active(request: Request):
+    events = _claim_finished(request)
+    headers = {"HX-Trigger": json.dumps({"job-finished": events})} if events else {}
+    return _panel(request, headers)
+
+
+@router.get("/hx/jobs/badge")
+def hx_badge(request: Request):
+    return deps.render(request, "partials/_jobs_badge.html", {"oob": False})
+
+
+@router.get("/hx/jobs/{job_id}")
+def hx_job(request: Request, job_id: str):
+    with db.session_scope(request.app.state.boot.session_factory) as s:
+        job = s.get(Job, job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="unknown job")
+        return deps.render(request, "generate/_job_card.html", {"j": _views(request, s, [job])[0]})
+
+
+@router.post("/jobs/seen")
+def mark_seen(request: Request):
+    _claim_finished(request)
+    return _panel(request)
+
+
+@router.post("/jobs/{job_id}/cancel")
+def cancel(request: Request, job_id: str):
+    runner = getattr(request.app.state, "runner", None)
+    if runner is None or not runner.cancel(job_id):
+        return JSONResponse({"error": "unknown or finished job"}, status_code=404)
+    with db.session_scope(request.app.state.boot.session_factory) as s:
+        job = s.get(Job, job_id)
+        if job is None:
+            return JSONResponse({"error": "unknown job"}, status_code=404)
+        ctx = {"j": _views(request, s, [job])[0]}
+    r = deps.render(request, "generate/_job_card.html", ctx)
+    r.headers["HX-Trigger"] = "jobs-changed"
+    return r
+
+
+@router.post("/jobs/{job_id}/retry")
+def retry(request: Request, job_id: str):
+    """A retry is a *new* job built from the stored request: the failed row stays as history."""
+    with db.session_scope(request.app.state.boot.session_factory) as s:
+        job = s.get(Job, job_id)
+        if job is None:
+            return JSONResponse({"error": "unknown job"}, status_code=404)
+        data = dict(job.request_json or {})
+        data.pop("negative", None)
+        default_negative = settings_svc.get(s, "defaults.negative_prompt", request.app.state.env)
+    try:
+        req = ImageRequest(**data)
+        new = generate.enqueue_image(
+            request.app.state.boot.session_factory,
+            request.app.state.paths,
+            req,
+            default_negative=default_negative,
+        )
+    except (ValueError, TypeError) as e:
+        return JSONResponse({"error": str(e)}, status_code=422)
+    runner = getattr(request.app.state, "runner", None)
+    if runner is not None:
+        runner.submit(new.id)
+    return _panel(request, {"HX-Trigger": "jobs-changed"})
+
+
+@router.get("/api/jobs")
+def api_jobs(request: Request, status: str = "", limit: int = 50):
+    statuses = tuple(s for s in status.split(",") if s) or ACTIVE + FINISHED
+    with db.session_scope(request.app.state.boot.session_factory) as s:
+        jobs = _select(
+            s, statuses, (Job.created_at.desc(), Job.id.desc()), max(1, min(int(limit), 200))
+        )
+        return JSONResponse(_json_rows(_views(request, s, jobs)))
+
+
+@router.get("/api/jobs/{job_id}")
+def api_job(request: Request, job_id: str):
+    with db.session_scope(request.app.state.boot.session_factory) as s:
+        job = s.get(Job, job_id)
+        if job is None:
+            return JSONResponse({"error": "unknown job"}, status_code=404)
+        return JSONResponse(_json_rows(_views(request, s, [job]))[0])
+
+
+def _json_rows(views: list[dict]) -> list[dict]:
+    rows = []
+    for v in views:
+        row = dict(v)
+        for k in ("created_at", "started_at", "finished_at"):
+            row[k] = row[k].isoformat() if row[k] else None
+        rows.append(row)
+    return rows

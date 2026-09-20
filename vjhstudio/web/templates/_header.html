@@ -3,8 +3,12 @@
     <ul><li><strong><a href="/">VJHStudio</a></strong></li></ul>
     <ul>
       <li><a href="/">Home</a></li>
+      <li><a href="/generate">Generate</a></li>
+      <li><a href="/gallery">Gallery</a></li>
+      <li><a href="/projects">Projects</a></li>
       <li><a href="/models">Models</a></li>
       <li><a href="/settings">Settings</a></li>
+      {% with oob=False %}{% include "partials/_jobs_badge.html" %}{% endwith %}
       {% include "partials/_balance_chip.html" %}
       <li class="vjh-theme-wrap">
         <button id="vjh-theme-btn" class="secondary outline" type="button" title="Color theme" aria-haspopup="true" aria-expanded="false" onclick="vjhTogglePicker()">&#9670;</button>

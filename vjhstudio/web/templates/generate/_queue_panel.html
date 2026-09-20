@@ -1,0 +1,17 @@
+<aside id="queue-panel" class="gen-col queue-panel"
+       hx-get="/hx/jobs/active" hx-trigger="{% if jobs_active %}every 2s, {% endif %}jobs-changed from:body"
+       hx-swap="outerHTML">
+  <header class="queue-head">
+    <h3>Queue</h3>
+    <small class="muted">Today: ${{ '%.4f'|format(today_spend) }}</small>
+  </header>
+  {% for j in jobs_active %}{% with j=j %}{% include "generate/_job_card.html" %}{% endwith %}{% endfor %}
+  {% if jobs_done %}
+    <h4>Recent</h4>
+    {% for j in jobs_done %}{% with j=j %}{% include "generate/_job_card.html" %}{% endwith %}{% endfor %}
+    <button type="button" class="secondary outline" hx-post="/jobs/seen" hx-target="#queue-panel" hx-swap="outerHTML">Mark seen</button>
+  {% elif not jobs_active %}
+    <p class="muted">Nothing queued yet.</p>
+  {% endif %}
+</aside>
+{% if oob %}{% include "partials/_jobs_badge.html" %}{% endif %}

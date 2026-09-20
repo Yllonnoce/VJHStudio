@@ -14,6 +14,10 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 DARK_THEMES = ("midnight", "crimson", "ember", "royal", "steel")
 
 
+def _zero() -> int:
+    return 0
+
+
 def is_hx(request: Request) -> bool:
     return request.headers.get("HX-Request") == "true"
 
@@ -29,6 +33,7 @@ def render(request: Request, name: str, ctx: dict | None = None, status_code: in
         "dark_themes": DARK_THEMES,
         "has_api_key": app.state.api_key() is not None,
         "key_source": app.state.key_source(),
+        "active_jobs": getattr(app.state, "active_jobs", _zero)(),
     }
     base.update(ctx or {})
     return templates.TemplateResponse(request, name, base, status_code=status_code)

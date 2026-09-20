@@ -1,4 +1,4 @@
-<select name="{{ name }}">
+<select {% if select_id %}id="{{ select_id }}" {% endif %}name="{{ name }}">
   {% if allow_empty %}<option value="" {% if not selected %}selected{% endif %}>(use promptEnhance)</option>{% endif %}
   {% set airs = options|map(attribute='air')|list %}
   {% if selected and selected not in airs %}<option value="{{ selected }}" selected>{{ selected }} (not in catalog)</option>{% endif %}

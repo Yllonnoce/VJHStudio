@@ -1,0 +1,67 @@
+{# Swapped onto itself: the root element keeps the id so HX-Retarget on a 422 lands here. #}
+<div id="model-params" class="gen-card"
+     hx-get="/hx/model-options" hx-trigger="change from:#model-select"
+     hx-include="#model-select" hx-swap="outerHTML">
+  <h3>Parameters</h3>
+  {% if errors %}
+    <ul class="error" id="param-errors">{% for field, msg in errors.items() %}<li><strong>{{ field }}</strong>: {{ msg }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if family == 'instruction' %}
+    <p class="muted">This is an <strong>instruction</strong> model: it follows the prompt as a written
+      instruction, so steps, CFG and scheduler are not sent.</p>
+  {% endif %}
+  <label>Size
+    <select name="size_preset" aria-label="Size preset"
+            onchange="var p=this.value.split('x');if(p.length==2){var f=this.form;f.width.value=p[0];f.height.value=p[1];f.width.dispatchEvent(new Event('change',{bubbles:true}));}">
+      {% set cur = (values.width|default(defaults.width, true))|string + 'x' + (values.height|default(defaults.height, true))|string %}
+      {% set known = [] %}{% for w, h, name in size_presets %}{% set _ = known.append(w|string + 'x' + h|string) %}{% endfor %}
+      {% for w, h, name in size_presets %}<option value="{{ w }}x{{ h }}" {% if cur == w|string + 'x' + h|string %}selected{% endif %}>{{ name }} — {{ w }}×{{ h }}</option>{% endfor %}
+      <option value="custom" {% if cur not in known %}selected{% endif %}>Custom ({{ cur }})</option>
+    </select>
+  </label>
+  <div class="grid">
+    <label>Width
+      <input type="number" name="width" step="64" min="128" max="2048" value="{{ values.width|default(defaults.width, true) }}" aria-invalid="{{ 'true' if errors.get('width') else 'false' }}">
+      {% if errors.get('width') %}<small class="error">{{ errors['width'] }}</small>{% endif %}
+    </label>
+    <label>Height
+      <input type="number" name="height" step="64" min="128" max="2048" value="{{ values.height|default(defaults.height, true) }}" aria-invalid="{{ 'true' if errors.get('height') else 'false' }}">
+      {% if errors.get('height') %}<small class="error">{{ errors['height'] }}</small>{% endif %}
+    </label>
+  </div>
+  {% if family != 'instruction' %}
+  <div class="grid">
+    <label>Steps
+      <input type="number" name="steps" min="1" max="150" value="{{ values.steps|default(defaults.steps, true) }}">
+      {% if errors.get('steps') %}<small class="error">{{ errors['steps'] }}</small>{% endif %}
+    </label>
+    <label>CFG scale
+      <input type="number" name="cfg_scale" step="0.1" min="0" max="30" value="{{ values.cfg_scale|default(defaults.cfg, true) }}">
+      {% if errors.get('cfg_scale') %}<small class="error">{{ errors['cfg_scale'] }}</small>{% endif %}
+    </label>
+  </div>
+  <label>Scheduler
+    <select name="scheduler">
+      {% for s in schedulers %}<option value="{{ s }}" {% if values.scheduler == s %}selected{% endif %}>{{ s or '(model default)' }}</option>{% endfor %}
+    </select>
+  </label>
+  {% endif %}
+  <div class="grid">
+    <label>Results
+      <input type="number" name="number_results" min="1" max="8" value="{{ values.number_results|default(1, true) }}">
+      {% if errors.get('number_results') %}<small class="error">{{ errors['number_results'] }}</small>{% endif %}
+    </label>
+    <label>Format
+      <select name="output_format">
+        {% for f in ('PNG', 'JPG', 'WEBP') %}<option value="{{ f }}" {% if values.output_format == f %}selected{% endif %}>{{ f }}</option>{% endfor %}
+      </select>
+    </label>
+  </div>
+  <label>Seed
+    <input type="text" inputmode="numeric" name="seed" placeholder="random" value="{{ values.seed|default('', true) }}">
+    {% if errors.get('seed') %}<small class="error">{{ errors['seed'] }}</small>{% endif %}
+  </label>
+  <label><input type="checkbox" id="seed-lock" {% if values.seed %}checked{% endif %}
+      onchange="var s=this.form.seed;s.readOnly=this.checked;if(!this.checked){s.value='';}"> Lock seed</label>
+  {% if capabilities %}<p class="muted"><small>Capabilities: {{ capabilities|join(', ') }}</small></p>{% endif %}
+</div>

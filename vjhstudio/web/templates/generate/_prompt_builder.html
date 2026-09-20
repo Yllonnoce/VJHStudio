@@ -1,0 +1,38 @@
+{# The nine builder fields. The live preview is client-side (Alpine); the same
+   composition runs server-side in services/prompts.py when the job is built. #}
+<section class="gen-col gen-prompt" x-data="generateForm()">
+  <h3>Prompt</h3>
+  <label>Subject<input type="text" name="subject" value="{{ form.get('subject', '') }}" placeholder="a red fox in a snowy forest"></label>
+  <div class="grid">
+    <label>Style<input type="text" name="style" value="{{ form.get('style', '') }}" placeholder="oil painting"></label>
+    <label>Mood<input type="text" name="mood" value="{{ form.get('mood', '') }}" placeholder="serene"></label>
+  </div>
+  <div class="grid">
+    <label>Lighting<input type="text" name="lighting" value="{{ form.get('lighting', '') }}" placeholder="golden hour"></label>
+    <label>Camera<input type="text" name="camera" value="{{ form.get('camera', '') }}" placeholder="85mm, shallow depth of field"></label>
+  </div>
+  <div class="grid">
+    <label>Composition<input type="text" name="composition" value="{{ form.get('composition', '') }}" placeholder="rule of thirds"></label>
+    <label>Colour<input type="text" name="colour" value="{{ form.get('colour', '') }}" placeholder="muted earth tones"></label>
+  </div>
+  <label>Extras<input type="text" name="extras" value="{{ form.get('extras', '') }}" placeholder="fine detail, sharp focus"></label>
+  <label>Negative<input type="text" name="negative" value="{{ form.get('negative', '') }}" placeholder="extra limbs, blurry"></label>
+
+  <fieldset>
+    {# the hidden field carries the "off" a cleared checkbox never posts; the last value wins #}
+    <label><input type="hidden" name="no_text" value="off"><input type="checkbox" name="no_text" value="on" {% if form.get('no_text', True) %}checked{% endif %}> No text in image</label>
+    <label><input type="hidden" name="use_default_negative" value="off"><input type="checkbox" name="use_default_negative" value="on" {% if form.get('use_default_negative', True) %}checked{% endif %}> Use default negative</label>
+  </fieldset>
+
+  <div class="prompt-preview">
+    <p><strong>Composed prompt</strong></p>
+    <output x-text="composed"></output>
+    <p><strong>Negative</strong></p>
+    <output class="muted" x-text="negativePreview"></output>
+  </div>
+
+  <label>Final prompt
+    <textarea name="final_prompt" rows="3" x-model="finalPrompt"
+              placeholder="Leave empty to use the composed prompt">{{ final_prompt|default('', true) }}</textarea>
+  </label>
+</section>
