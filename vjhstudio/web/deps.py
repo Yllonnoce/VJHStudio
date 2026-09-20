@@ -1,7 +1,9 @@
 from __future__ import annotations
 from pathlib import Path
-from fastapi import Request
+from typing import Annotated
+from fastapi import Depends, Request
 from fastapi.templating import Jinja2Templates
+from starlette.datastructures import FormData
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 STATIC_DIR = Path(__file__).parent / "static"
@@ -28,3 +30,13 @@ def render(request: Request, name: str, ctx: dict | None = None, status_code: in
     }
     base.update(ctx or {})
     return templates.TemplateResponse(request, name, base, status_code=status_code)
+
+
+async def _form(request: Request) -> FormData:
+    """Read the body in the event loop so the handler itself can be a plain
+    ``def``: FastAPI then runs it in the threadpool, where blocking SQLAlchemy
+    calls cannot stall every other request."""
+    return await request.form()
+
+
+Form = Annotated[FormData, Depends(_form)]

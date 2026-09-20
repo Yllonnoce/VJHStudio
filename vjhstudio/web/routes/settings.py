@@ -27,7 +27,7 @@ def _maintenance_ctx(request: Request, message: str | None = None, error: str | 
 
 
 @router.get("/settings")
-async def settings_page(request: Request):
+def settings_page(request: Request):
     with db.session_scope(request.app.state.boot.session_factory) as s:
         bal = account.cached_balance(s)
     return deps.render(request, "pages/settings.html",
@@ -35,8 +35,7 @@ async def settings_page(request: Request):
 
 
 @router.post("/settings")
-async def save_settings(request: Request):
-    form = await request.form()
+def save_settings(request: Request, form: deps.Form):
     values = {k: str(v) for k, v in form.items() if k in settings_svc.SPEC}
     try:
         with db.session_scope(request.app.state.boot.session_factory) as s:
@@ -47,8 +46,7 @@ async def save_settings(request: Request):
 
 
 @router.post("/settings/api-key")
-async def save_api_key(request: Request):
-    form = await request.form()
+def save_api_key(request: Request, form: deps.Form):
     if request.app.state.key_source() == "env":
         return deps.render(request, "settings/_api_key_form.html",
                            _key_ctx(request, error="RUNWARE_API_KEY is set in the environment; the file is ignored."), 422)
@@ -60,7 +58,7 @@ async def save_api_key(request: Request):
 
 
 @router.post("/settings/api-key/clear")
-async def clear_api_key(request: Request):
+def clear_api_key(request: Request):
     secrets.clear_api_key(request.app.state.paths)
     return deps.render(request, "settings/_api_key_form.html", _key_ctx(request, message="Key removed."))
 
@@ -81,8 +79,7 @@ async def test_api_key(request: Request):
 
 
 @router.post("/settings/database/clear")
-async def clear_database(request: Request):
-    form = await request.form()
+def clear_database(request: Request, form: deps.Form):
     backup_first = str(form.get("backup_first", "")) == "on"
     try:
         res = maintenance.clear_database(request.app.state.boot.session_factory,
@@ -99,7 +96,7 @@ async def clear_database(request: Request):
 
 
 @router.get("/hx/header/balance")
-async def header_balance(request: Request):
+def header_balance(request: Request):
     with db.session_scope(request.app.state.boot.session_factory) as s:
         bal = account.cached_balance(s)
     return deps.render(request, "partials/_balance_chip.html", {"balance": bal})
