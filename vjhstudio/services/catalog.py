@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from .. import db
 from ..models import CatalogModel, utcnow
 from ..runware.catalog_api import ContentAPI, ContentAPIError
+from ..runware.errors import UserFacingError, classify
 from ..runware.pricing import normalize_price
 from . import meta
 
@@ -249,3 +250,71 @@ def set_flag(
     setattr(m, field_name, (not getattr(m, field_name)) if value is None else bool(value))
     session.flush()
     return m
+
+
+class SearchError(Exception):
+    def __init__(self, error: UserFacingError):
+        super().__init__(error.message)
+        self.error = error
+
+
+_SEARCH_CATEGORY = {"image": "checkpoint", "video": "checkpoint", "text": "checkpoint"}
+
+
+async def search_live(
+    client_factory, api_key: str, transport: str, query: str, kind: str, limit: int = 20
+) -> list[dict]:
+    params = {
+        "search": query,
+        "category": _SEARCH_CATEGORY.get(kind, "checkpoint"),
+        "visibility": "public",
+        "limit": limit,
+    }
+    try:
+        async with client_factory(api_key, transport) as client:
+            rows = await client.model_search(params)
+    except Exception as e:  # noqa: BLE001
+        raise SearchError(classify(e)) from e
+    results: list[dict] = []
+    for row in rows or []:
+        for r in row.get("results") or []:
+            if r.get("air"):
+                results.append(
+                    {
+                        "air": r["air"],
+                        "name": r.get("name") or r["air"],
+                        "category": r.get("category"),
+                        "architecture": r.get("architecture"),
+                        "provider": r.get("provider"),
+                        "capabilities": r.get("capabilities") or [],
+                        "heroImage": r.get("heroImage"),
+                        "shortDescription": r.get("shortDescription"),
+                        "raw": r,
+                    }
+                )
+    return results
+
+
+def add_from_search(session: Session, record: dict, kind: str) -> CatalogModel:
+    return upsert_row(
+        session,
+        {
+            "air": record["air"],
+            "name": record.get("name"),
+            "kind": kind,
+            "creator": record.get("provider"),
+            "architecture": record.get("architecture"),
+            "capabilities": record.get("capabilities") or [],
+            "hero_image_url": record.get("heroImage"),
+            "price": {
+                "unit": {"image": "per_image", "video": "per_second", "text": "per_1m_tokens"}[
+                    kind
+                ],
+                "primary": None,
+                "tiers": {},
+            },
+            "price_source": "search",
+            "raw": record.get("raw"),
+        },
+        source="search",
+    )

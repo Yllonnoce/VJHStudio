@@ -4,7 +4,9 @@ from pathlib import Path
 
 import httpx
 import pytest
+from runware import RunwareError
 
+from tests.fakes.fake_runware import FakeRunware, fake_factory
 from vjhstudio import db
 from vjhstudio.models import utcnow
 from vjhstudio.runware.catalog_api import ContentAPI
@@ -128,3 +130,42 @@ def test_needs_refresh_when_old(factory):
         assert catalog.needs_refresh(s)
         meta.set(s, catalog.REFRESH_KEY, utcnow().isoformat())
         assert not catalog.needs_refresh(s)
+
+
+async def test_search_live_maps_results_and_add(factory):
+    fake = FakeRunware(
+        {
+            "model_search": [
+                [
+                    {
+                        "results": [
+                            {
+                                "air": "civitai:4201@130090",
+                                "name": "Realistic Vision",
+                                "category": "checkpoint",
+                                "architecture": "sdxl",
+                                "provider": "civitai",
+                                "capabilities": ["io:text-to-image"],
+                                "heroImage": "https://x/y.png",
+                                "shortDescription": "photo",
+                            }
+                        ],
+                        "totalResults": 1,
+                    }
+                ]
+            ]
+        }
+    )
+    rows = await catalog.search_live(fake_factory(fake), "key", "rest", "realistic", "image")
+    assert rows[0]["air"] == "civitai:4201@130090" and fake.calls[-1][1]["search"] == "realistic"
+    with db.session_scope(factory) as s:
+        m = catalog.add_from_search(s, rows[0], "image")
+        assert m.source == "search" and m.price_primary is None and m.kind == "image"
+        assert catalog.label(m).endswith("price unknown")
+
+
+async def test_search_live_error(factory):
+    fake = FakeRunware({"model_search": [RunwareError("invalidApiKey", "bad")]})
+    with pytest.raises(catalog.SearchError) as ei:
+        await catalog.search_live(fake_factory(fake), "key", "rest", "x", "image")
+    assert ei.value.error.code == "auth"
