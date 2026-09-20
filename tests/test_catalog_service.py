@@ -124,6 +124,42 @@ async def test_refresh_from_content_api(factory):
         assert catalog.last_refreshed(s) is not None and not catalog.needs_refresh(s)
 
 
+def _video_refresh_transport():
+    def handler(request: httpx.Request) -> httpx.Response:
+        path, q = request.url.path, str(request.url.query, "utf-8")
+        if path == "/models":
+            if "category=video" in q:
+                return httpx.Response(
+                    200, json=json.loads((FIX / "content_list_video.json").read_text())
+                )
+            return httpx.Response(200, json={"total": 0, "limit": 2, "offset": 0, "items": []})
+        if path == "/models/google-veo-3-1/pricing":
+            return httpx.Response(
+                200, json=json.loads((FIX / "content_pricing_veo.json").read_text())
+            )
+        return httpx.Response(404)
+
+    return httpx.MockTransport(handler)
+
+
+async def test_refresh_from_content_api_preserves_curated_video_presets(factory):
+    with db.session_scope(factory) as s:
+        catalog.seed_curated(s)
+        veo = catalog.get_by_air(s, "google:3@2")
+        assert veo.price_tiers_json["video"]["durations"] == [4, 6, 8]
+    api = ContentAPI(transport=_video_refresh_transport())
+    res = await catalog.refresh_from_content_api(factory, api)
+    assert res.models == 1 and res.priced == 1
+    with db.session_scope(factory) as s:
+        veo = catalog.get_by_air(s, "google:3@2")
+        # The rates-only content-API payload must not wipe the curated video presets.
+        assert veo.price_tiers_json["video"]["durations"] == [4, 6, 8]
+        assert veo.price_tiers_json["video"]["resolutions"] == ["720p", "1080p", "4K"]
+        # ...but the rates themselves are refreshed from the new payload (4 rates, not 2).
+        assert len(veo.price_tiers_json["rates"]) == 4
+        assert veo.provider_settings_schema  # untouched by this refresh, still present
+
+
 def test_needs_refresh_when_old(factory):
     with db.session_scope(factory) as s:
         assert catalog.needs_refresh(s)

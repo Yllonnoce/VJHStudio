@@ -123,10 +123,16 @@ def upsert_row(session: Session, row: dict, source: str) -> CatalogModel:
             m.price_in = price.get("price_in")
         if price.get("price_out") is not None or m.price_out is None:
             m.price_out = price.get("price_out")
-        tiers = dict(price.get("tiers") or {})
+        new_tiers = dict(price.get("tiers") or {})
+        old_tiers = dict(m.price_tiers_json or {})
+        for key in ("video", "observed"):
+            # Curated video presets and observed rolling costs the content API never
+            # supplies: a refresh must not silently delete them.
+            if key in old_tiers and key not in new_tiers:
+                new_tiers[key] = old_tiers[key]
         if row.get("video"):
-            tiers["video"] = row["video"]
-        m.price_tiers_json = tiers
+            new_tiers["video"] = row["video"]
+        m.price_tiers_json = new_tiers
         m.price_source = row.get("price_source") or (
             "content_api" if source == "content" else "curated"
         )
