@@ -45,10 +45,21 @@ def is_ours(host: str, port: int) -> bool:
 
 
 def _port_free(host: str, port: int) -> bool:
-    # Deliberately no SO_REUSEADDR: on Windows that flag lets the bind succeed
-    # on a port another socket is actively listening on, which would report a
-    # busy port as free.
+    """True when we could listen on host:port right now.
+
+    POSIX: SO_REUSEADDR lets the bind succeed while the previous server's
+    connections are still in TIME_WAIT (the normal state right after a
+    restart) but still fails against an active listener. Windows: that same
+    flag would let the bind succeed on a port another process is listening on,
+    so use SO_EXCLUSIVEADDRUSE there instead.
+    """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        if sys.platform == "win32":
+            excl = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)
+            if excl is not None:
+                s.setsockopt(socket.SOL_SOCKET, excl, 1)
+        else:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             s.bind((host, port))
             return True

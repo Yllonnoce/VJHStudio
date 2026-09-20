@@ -126,3 +126,20 @@ def test_log_level_normalises_and_falls_back():
     assert main.log_level({"VJHSTUDIO_LOG_LEVEL": "warn"}) == "WARNING"
     assert main.log_level({"VJHSTUDIO_LOG_LEVEL": "chatty"}) == "INFO"
     assert main.log_level({}) == "INFO"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="TIME_WAIT reproduction is POSIX-only")
+def test_port_free_ignores_time_wait_after_restart():
+    """After a restart the old listener's connections sit in TIME_WAIT for a while;
+    the port must still count as free so the app comes back on the same port."""
+    srv = socket.socket()
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    port = srv.getsockname()[1]
+    cli = socket.create_connection(("127.0.0.1", port))
+    conn, _ = srv.accept()
+    conn.close()  # server side closes first -> its side enters TIME_WAIT
+    cli.close()
+    srv.close()
+    assert main._port_free("127.0.0.1", port) is True
