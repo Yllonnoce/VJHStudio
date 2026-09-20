@@ -6,10 +6,10 @@
     <small class="muted">Today: ${{ '%.4f'|format(today_spend) }}</small>
   </header>
   {% if error %}<article class="job-card danger" id="queue-error"><header><strong>Retry failed</strong></header><p class="error">{{ error }}</p></article>{% endif %}
-  {% for j in jobs_active %}{% with j=j %}{% include "generate/_job_card.html" %}{% endwith %}{% endfor %}
+  {% for j in jobs_active %}{% include "generate/_job_card.html" %}{% endfor %}
   {% if jobs_done %}
     <h4>Recent</h4>
-    {% for j in jobs_done %}{% with j=j %}{% include "generate/_job_card.html" %}{% endwith %}{% endfor %}
+    {% for j in jobs_done %}{% include "generate/_job_card.html" %}{% endfor %}
     <button type="button" class="secondary outline" hx-post="/jobs/seen" hx-target="#queue-panel" hx-swap="outerHTML">Mark seen</button>
   {% elif not jobs_active %}
     <p class="muted">Nothing queued yet.</p>

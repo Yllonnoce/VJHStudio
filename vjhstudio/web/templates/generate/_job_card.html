@@ -35,7 +35,7 @@
   <details>
     <summary>Details</summary>
     {% if j.error_message %}<p class="error">{{ j.error_message }}{% if j.error_code %} <small class="muted">({{ j.error_code }})</small>{% endif %}</p>{% endif %}
-    {% if j.dropped_params %}<p class="muted"><small>Dropped params: {% for d in j.dropped_params %}{{ d.get('name', d) }}{% if not loop.last %}, {% endif %}{% endfor %}</small></p>{% endif %}
+    {% if j.dropped_params %}<p class="muted"><small>Dropped params: {% for d in j.dropped_params %}{{ d.get('field', d) }}{% if d.get('action') %} ({{ d['action'] }}){% endif %}{% if not loop.last %}, {% endif %}{% endfor %}</small></p>{% endif %}
   </details>
   {% endif %}
 </article>

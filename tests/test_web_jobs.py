@@ -88,3 +88,16 @@ async def test_racing_pollers_claim_a_job_only_once(client, fake, app):
     )
     triggers = [r.headers.get("HX-Trigger", "") for r in (a, b)]
     assert sum("job-finished" in t for t in triggers) == 1
+
+
+async def test_dropped_params_render_field_and_action(client, fake, app):
+    """apply_fallback records {"field", "action"} - the card used to print the raw dict."""
+    from vjhstudio import db, models
+
+    await _finish_one_job(client, fake, app)
+    jid = (await client.get("/api/jobs")).json()[0]["id"]
+    with db.session_scope(app.state.boot.session_factory) as s:
+        s.get(models.Job, jid).dropped_params_json = [{"field": "steps", "action": "dropped"}]
+    r = await client.get(f"/hx/jobs/{jid}")
+    assert r.status_code == 200 and "Dropped params" in r.text
+    assert "steps" in r.text and "dropped" in r.text and "'field'" not in r.text
