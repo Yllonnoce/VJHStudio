@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import re
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 
@@ -108,9 +109,15 @@ async def run_with_policy(
             on_progress=_progress,
             validate=False,
         )
+        # timed per attempt: a rateLimit backoff of up to 15s must not be charged to the
+        # model's rolling latency average, which drives the estimated progress bar.
+        attempt_started_at = time.monotonic()
         try:
             rows = await client.run(current, opts)
-            return TaskResult(parse_items(rows), current["taskUUID"], current, dropped, attempt)
+            duration_ms = int((time.monotonic() - attempt_started_at) * 1000)
+            return TaskResult(
+                parse_items(rows), current["taskUUID"], current, dropped, attempt, duration_ms
+            )
         except RunwareError as e:
             last = e
             if e.code == "validation":

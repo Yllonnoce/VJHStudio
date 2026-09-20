@@ -260,7 +260,6 @@ class JobRunner:
             self._save_task(job_id, task, [])
             # spec stage sequence: queued -> submitting -> rendering -> downloading -> done
             self._stage(job_id, "rendering")
-            t0 = time.monotonic()
             api_key = self.api_key_getter() or ""
             transport = self.transport_getter() or "rest"
             async with self.client_factory(api_key, transport) as client:
@@ -274,14 +273,13 @@ class JobRunner:
                 )
             if ev.is_set():
                 raise RunwareError("aborted", "Request aborted")
-            elapsed_ms = (time.monotonic() - t0) * 1000
             self._stage(job_id, "downloading", DOWNLOAD_PROGRESS)
             dest = projects.dir_for(self.paths, plan.slug, plan.outputs_dir)
             saved = await download.download_items(
                 result.items, dest, plan.req.output_format, transport=self.download_transport
             )
             self._stage(job_id, "saving", DOWNLOAD_PROGRESS)
-            cost = await asyncio.to_thread(self._persist, plan, result, saved, elapsed_ms)
+            cost = await asyncio.to_thread(self._persist, plan, result, saved)
             self._succeed(job_id, cost)
         except RunwareError as e:
             err = classify(e)
@@ -297,7 +295,7 @@ class JobRunner:
             self._last_write.pop(job_id, None)
             self._cancelled.discard(job_id)
 
-    def _persist(self, plan: _Plan, result, saved: list, elapsed_ms: float) -> float:
+    def _persist(self, plan: _Plan, result, saved: list) -> float:
         """Blocking tail, run in a worker thread: sidecars and thumbnails first, then one
         short transaction. The outputs root comes from the plan, so a settings change
         mid-job cannot make the relative paths unresolvable."""
@@ -334,7 +332,8 @@ class JobRunner:
                 costs.record_usage(
                     s, job=job, task_type="imageInference", cost=c, model_air=plan.model_air
                 )
-            costs.observe_latency(s, plan.model_air, elapsed_ms)
+            if result.duration_ms is not None:  # retries/backoff would poison the average
+                costs.observe_latency(s, plan.model_air, result.duration_ms)
         return total
 
     # ---- state writes ----------------------------------------------------

@@ -20,6 +20,7 @@ class TaskResult:
     task_sent: dict
     dropped: list[dict] = field(default_factory=list)
     attempts: int = 1
+    duration_ms: int | None = None  # the *successful* attempt alone, backoff excluded
 
 
 def parse_items(rows: list[dict]) -> list[ResultItem]:

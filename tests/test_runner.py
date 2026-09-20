@@ -124,3 +124,26 @@ async def test_progress_callback_and_cancel():
             fake2, TASK, timeout_s=5, cancel_event=ev, on_progress=None, sleep=_no_sleep
         )
     assert ei.value.code == "aborted"
+
+
+async def test_duration_ms_excludes_retry_backoff():
+    """The rolling latency average must see the successful attempt, not the waiting."""
+    slept: list[float] = []
+
+    async def slow_sleep(seconds):
+        slept.append(seconds)
+        await asyncio.sleep(0.25)  # a real pause, so a whole-call timer would notice
+
+    fake = FakeRunware(
+        {
+            "run": [
+                RunwareError("rateLimitExceeded", "slow down"),
+                [{"imageURL": "http://x/1.png", "cost": 0.01}],
+            ]
+        }
+    )
+    res = await runner.run_with_policy(
+        fake, dict(TASK), timeout_s=5, cancel_event=None, on_progress=None, sleep=slow_sleep
+    )
+    assert res.attempts == 2 and slept == [2]
+    assert res.duration_ms is not None and res.duration_ms < 100

@@ -347,3 +347,40 @@ async def test_stage_sequence_includes_rendering(env):
     await r.stop()
     assert seen == ["rendering", "rendering"]  # the row and the snapshot agree, mid-render
     assert stages[0] == "rendering" and "downloading" in stages and "saving" in stages
+
+
+async def test_observed_latency_excludes_retry_backoff(env, monkeypatch):
+    """I-6: one rate-limited job used to shift the model's average by seconds."""
+    paths, f, _ = env
+    slept: list[float] = []
+    real_policy = jobs.policy.run_with_policy
+
+    async def slow_sleep(seconds):
+        slept.append(seconds)
+        await asyncio.sleep(0.25)  # stands in for the real 2s rateLimit backoff
+
+    async def with_stub_sleep(*args, **kwargs):
+        kwargs["sleep"] = slow_sleep
+        return await real_policy(*args, **kwargs)
+
+    monkeypatch.setattr(jobs.policy, "run_with_policy", with_stub_sleep)
+    fake = FakeRunware(
+        {
+            "run": [
+                RunwareError("rateLimitExceeded", "slow down"),
+                [{"imageURL": "http://x/1.png", "cost": 0.01}],
+            ]
+        }
+    )
+    r = _runner(env, fake)
+    await r.start()
+    job = generate.enqueue_image(f, paths, _req(f), default_negative="")
+    r.submit(job.id)
+    await r.wait_idle()
+    await r.stop()
+    assert slept == [2]  # the backoff really happened, and really took wall-clock time
+    with db.session_scope(f) as s:
+        assert s.get(models.Job, job.id).status == "succeeded"
+        observed = s.query(models.CatalogModel).filter_by(air="runware:101@1").one()
+        avg_ms = observed.price_tiers_json["observed"]["avg_ms"]
+    assert avg_ms < 100  # the 250ms backoff is not in there, let alone a real 2s one
