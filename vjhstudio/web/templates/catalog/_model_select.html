@@ -1,0 +1,6 @@
+<select name="{{ name }}">
+  {% if allow_empty %}<option value="" {% if not selected %}selected{% endif %}>(use promptEnhance)</option>{% endif %}
+  {% set airs = options|map(attribute='air')|list %}
+  {% if selected and selected not in airs %}<option value="{{ selected }}" selected>{{ selected }} (not in catalog)</option>{% endif %}
+  {% for m in options %}<option value="{{ m.air }}" {% if m.air == selected %}selected{% endif %}>{{ labels[m.air] }}</option>{% endfor %}
+</select>

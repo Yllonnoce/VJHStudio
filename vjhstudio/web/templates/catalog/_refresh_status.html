@@ -1,0 +1,7 @@
+<form id="refresh-form" hx-post="/models/refresh-prices" hx-target="this" hx-swap="outerHTML" hx-indicator="#refresh-spinner">
+  <button type="submit" class="secondary">Refresh prices</button>
+  <span id="refresh-spinner" class="htmx-indicator" aria-busy="true">Refreshing…</span>
+  <small>Last refreshed: {% if last_refreshed %}{{ last_refreshed.strftime('%Y-%m-%d %H:%M') }} UTC{% else %}never (using the shipped snapshot){% endif %}</small>
+  {% if message %}<p class="ok">{{ message }}</p>{% endif %}
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+</form>

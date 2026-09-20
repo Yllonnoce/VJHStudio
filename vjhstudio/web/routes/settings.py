@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 
 from ... import db, secrets
-from ...services import account, maintenance
+from ...services import account, catalog, maintenance
 from ...services import settings as settings_svc
 from .. import deps
 
@@ -13,7 +13,16 @@ router = APIRouter()
 def _general_ctx(request: Request, saved: bool = False, error: str | None = None) -> dict:
     with db.session_scope(request.app.state.boot.session_factory) as s:
         values = settings_svc.all_values(s, request.app.state.env)
-    return {"spec": settings_svc.SPEC, "values": values, "saved": saved, "error": error}
+        model_options = {k: catalog.list_models(s, k) for k in ("image", "video", "text")}
+        labels = {m.air: catalog.label(m) for k in model_options for m in model_options[k]}
+    return {
+        "spec": settings_svc.SPEC,
+        "values": values,
+        "saved": saved,
+        "error": error,
+        "model_options": model_options,
+        "labels": labels,
+    }
 
 
 def _key_ctx(

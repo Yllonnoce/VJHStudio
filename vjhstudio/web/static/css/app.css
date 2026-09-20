@@ -98,6 +98,10 @@ article.warn{border-left:4px solid var(--sp-warning)}
 .htmx-indicator{opacity:0}.htmx-request .htmx-indicator,.htmx-request.htmx-indicator{opacity:1}
 .key-help{margin-bottom:.75rem} .key-help ol{margin-top:.5rem}
 
+/* ── Model catalog table ──────────────────────────────────────────────── */
+table.models td{vertical-align:top}
+tr.hidden-model{opacity:.55}
+
 /* ── Theme picker ─────────────────────────────────────────────────────── */
 .vjh-theme-wrap{position:relative}
 #vjh-theme-panel{

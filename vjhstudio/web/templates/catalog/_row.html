@@ -1,0 +1,10 @@
+<tr id="model-{{ m.id }}" class="{% if m.is_hidden %}hidden-model{% endif %}">
+  <td><strong>{{ m.name }}</strong><br><small><code>{{ m.air }}</code>{% if m.creator %} · {{ m.creator }}{% endif %}</small></td>
+  <td title="{{ m.label }}">{{ m.label.split(' — ', 1)[1] if ' — ' in m.label else '' }}</td>
+  <td>{{ m.family }}</td>
+  <td>{{ m.source }}</td>
+  <td>
+    <button class="secondary outline" hx-post="/models/{{ m.id }}/favourite" hx-target="#model-{{ m.id }}" hx-swap="outerHTML" title="Favourite">{{ '★' if m.is_favourite else '☆' }}</button>
+    <button class="secondary outline" hx-post="/models/{{ m.id }}/hide" hx-target="#model-{{ m.id }}" hx-swap="outerHTML" title="Hide/show">{{ 'Show' if m.is_hidden else 'Hide' }}</button>
+  </td>
+</tr>

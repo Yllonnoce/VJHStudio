@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Models · VJHStudio{% endblock %}
+{% block content %}
+<h1>Models</h1>
+<p>Sorted by price, most expensive first. Prices come from RunWare's public catalog.</p>
+<section id="refresh">{% include "catalog/_refresh_status.html" %}</section>
+<section id="search">
+  <h2>Find more models</h2>
+  <form hx-post="/hx/models/search" hx-target="#search-results" hx-swap="innerHTML">
+    <div class="grid">
+      <input type="search" name="q" placeholder="Search RunWare models (e.g. realistic, anime)" aria-label="Search">
+      <select name="kind" aria-label="Kind"><option value="image">image</option><option value="video">video</option><option value="text">text</option></select>
+      <button type="submit">Search</button>
+    </div>
+  </form>
+  <div id="search-results"></div>
+</section>
+{% for kind, ctx in lists.items() %}
+<section id="models-{{ kind }}">
+  <h2>{{ kind|capitalize }} models</h2>
+  <label><input type="checkbox" hx-get="/hx/models?kind={{ kind }}&hidden=1" hx-trigger="change[this.checked]" hx-target="#list-{{ kind }}" hx-swap="outerHTML"
+         onchange="if(!this.checked){htmx.ajax('GET','/hx/models?kind={{ kind }}',{target:'#list-{{ kind }}',swap:'outerHTML'})}"> show hidden</label>
+  {% with kind=ctx.kind, rows=ctx.rows, include_hidden=ctx.include_hidden %}{% include "catalog/_list.html" %}{% endwith %}
+</section>
+{% endfor %}
+{% endblock %}

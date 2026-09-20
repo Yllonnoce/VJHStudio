@@ -17,6 +17,7 @@ from ..services import catalog, migrate
 from ..services import settings as settings_svc
 from .csrf import CrossSiteBlockMiddleware
 from .deps import STATIC_DIR
+from .routes import catalog as catalog_routes
 from .routes import pages, system
 from .routes import settings as settings_routes
 
@@ -89,4 +90,5 @@ def create_app(
     app.include_router(system.router)
     app.include_router(pages.router)
     app.include_router(settings_routes.router)
+    app.include_router(catalog_routes.router)
     return app
