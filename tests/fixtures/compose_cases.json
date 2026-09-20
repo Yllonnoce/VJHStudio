@@ -1,0 +1,6 @@
+[
+ {"form": {"subject": "a red fox", "style": "oil painting", "mood": "", "lighting": "golden hour", "camera": "", "composition": "", "colour": "", "extras": ""}, "composed": "a red fox, oil painting, golden hour"},
+ {"form": {"subject": "  a   red fox, ", "style": "oil painting.", "mood": "Oil Painting"}, "composed": "a red fox, oil painting"},
+ {"form": {"subject": "", "style": "   "}, "composed": ""},
+ {"form": {"subject": "castle", "extras": "8k; detailed;"}, "composed": "castle, 8k; detailed"}
+]
