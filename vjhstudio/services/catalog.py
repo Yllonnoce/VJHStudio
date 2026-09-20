@@ -305,6 +305,13 @@ async def search_live(
 
 
 def add_from_search(session: Session, record: dict, kind: str) -> CatalogModel:
+    existing = get_by_air(session, record["air"])
+    if existing is not None:
+        # A search "add" must never rewrite an already-known row's kind, price or tiers
+        # (curated or content-priced rows in particular) — just bump last_seen_at.
+        existing.last_seen_at = utcnow()
+        session.flush()
+        return existing
     return upsert_row(
         session,
         {

@@ -94,6 +94,15 @@ async def test_search_and_add(client, fake):
     )
 
 
+async def test_add_model_rejects_bad_kind(client):
+    record = json.dumps({"air": "civitai:9@9", "name": "Whatever"})
+    r = await client.post("/models/add", data={"kind": "audio", "record": record})
+    assert r.status_code == 400 and r.json() == {"error": "bad kind"}
+    assert all(
+        x["air"] != "civitai:9@9" for x in (await client.get("/api/models?kind=image")).json()
+    )
+
+
 async def test_search_error_422(client, fake):
     await client.post("/settings/api-key", data={"api_key": "abcdefgh1234"})
     fake.script["model_search"] = [RunwareError("invalidApiKey", "bad")]

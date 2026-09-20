@@ -114,6 +114,8 @@ async def hx_search(request: Request, form: deps.Form):
 @router.post("/models/add")
 def add_model(request: Request, form: deps.Form):
     kind = str(form.get("kind", "image"))
+    if kind not in KINDS:
+        return JSONResponse({"error": "bad kind"}, status_code=400)
     try:
         record = json.loads(str(form.get("record", "{}")))
         if not (isinstance(record, dict) and record.get("air")):

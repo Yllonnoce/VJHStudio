@@ -220,6 +220,21 @@ async def test_search_live_maps_results_and_add(factory):
         assert catalog.label(m).endswith("price unknown")
 
 
+def test_add_from_search_never_rewrites_an_existing_row(factory):
+    with db.session_scope(factory) as s:
+        catalog.seed_curated(s)
+        flux = catalog.get_by_air(s, "runware:101@1")
+        assert flux.kind == "image" and flux.price_primary == 0.0038
+        original_tiers = flux.price_tiers_json
+        m = catalog.add_from_search(s, {"air": "runware:101@1", "name": "FLUX (renamed)"}, "video")
+        assert m.id == flux.id
+        assert m.kind == "image"  # kind is never rewritten by a search add
+        assert m.price_primary == 0.0038  # price is never rewritten
+        assert m.price_tiers_json == original_tiers  # tiers are never rewritten
+        assert m.name == "FLUX.1 [dev]"  # name is untouched too
+        assert m.source == "curated"
+
+
 async def test_search_live_error(factory):
     fake = FakeRunware({"model_search": [RunwareError("invalidApiKey", "bad")]})
     with pytest.raises(catalog.SearchError) as ei:
