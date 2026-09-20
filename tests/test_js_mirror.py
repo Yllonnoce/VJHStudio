@@ -56,6 +56,24 @@ def test_build_negative_js_dedupes_case_insensitively_and_respects_flags():
     assert result.stdout == "blurry, watermark, text"
 
 
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_unwrap_trigger_normalises_every_htmx_payload_shape():
+    script = (
+        "const {vjhUnwrapTrigger} = require(" + json.dumps(str(COMPOSE_JS)) + ");"
+        "const out = ["
+        "  vjhUnwrapTrigger({value: [{id: 1}]}),"
+        "  vjhUnwrapTrigger([{id: 2}]),"
+        "  vjhUnwrapTrigger({id: 3}),"
+        "  vjhUnwrapTrigger(null),"
+        "];"
+        "process.stdout.write(JSON.stringify(out));"
+    )
+    result = subprocess.run(
+        [NODE, "-e", script], capture_output=True, text=True, check=True, timeout=30
+    )
+    assert json.loads(result.stdout) == [[{"id": 1}], [{"id": 2}], [{"id": 3}], []]
+
+
 def test_base_html_loads_compose_before_app_and_sets_data_notify():
     html = BASE_HTML.read_text()
     html_tag = html.split("<html", 1)[1].split(">", 1)[0]

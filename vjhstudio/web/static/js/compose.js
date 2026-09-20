@@ -60,7 +60,27 @@
     return _dedupeJoin(toks);
   }
 
-  var api = { ORDER: ORDER, clean: clean, composePrompt: composePrompt, buildNegative: buildNegative };
+  // htmx 2.x wraps a non-object `HX-Trigger` payload (our job-finished events are a JSON
+  // array) as `event.detail = {value: [...], elt: ...}` rather than handing the array
+  // straight through as `event.detail`. This normalises every shape a trigger payload
+  // could arrive in back to a plain array, so callers never need to know which one htmx
+  // chose: an array (already unwrapped, or a future non-htmx caller), `{value: [...]}}`
+  // (htmx's actual wrapping of an array payload), a bare object (a single event, not a
+  // list), or a missing/null detail (defensive default).
+  function vjhUnwrapTrigger(detail) {
+    if (detail && Array.isArray(detail.value)) return detail.value;
+    if (Array.isArray(detail)) return detail;
+    if (detail) return [detail];
+    return [];
+  }
+
+  var api = {
+    ORDER: ORDER,
+    clean: clean,
+    composePrompt: composePrompt,
+    buildNegative: buildNegative,
+    vjhUnwrapTrigger: vjhUnwrapTrigger,
+  };
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
@@ -70,5 +90,6 @@
     global.clean = clean;
     global.composePrompt = composePrompt;
     global.buildNegative = buildNegative;
+    global.vjhUnwrapTrigger = vjhUnwrapTrigger;
   }
 })(typeof window !== 'undefined' ? window : globalThis);

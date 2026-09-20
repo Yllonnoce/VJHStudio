@@ -131,10 +131,13 @@ function vjhToast(text, kind, thumb) {
 
 // The HX-Trigger payload is a list of {id, status, title, thumb} — one entry per job
 // that finished since the last poll (see routes/jobs.py::panel_ctx / "seen_at" stamping).
+// htmx 2.x wraps a JSON-array trigger value as `e.detail = {value: [...], elt: ...}` rather
+// than handing the array through as `e.detail` itself — vjhUnwrapTrigger (compose.js)
+// normalises every shape back to a plain array.
 document.body.addEventListener('job-finished', (e) => {
-  const jobs = Array.isArray(e.detail) ? e.detail : [e.detail];
+  const jobs = window.vjhUnwrapTrigger ? window.vjhUnwrapTrigger(e.detail) : [];
   jobs.forEach((d) => {
-    if (!d) return;
+    if (!d || !d.id) return;
     const ok = d.status === 'succeeded';
     vjhToast(`${d.title}: ${d.status}`, ok ? 'ok' : 'error', d.thumb);
     if (window.Notification && Notification.permission === 'granted'
