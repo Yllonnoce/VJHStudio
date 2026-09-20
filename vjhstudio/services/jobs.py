@@ -43,6 +43,7 @@ def estimate_progress(elapsed_ms: float, expected_ms: int) -> int:
 @dataclass
 class _Plan:
     job_id: str
+    project_id: int
     slug: str
     model_air: str
     req: ImageRequest
@@ -121,23 +122,29 @@ class JobRunner:
         self._sem = asyncio.Semaphore(self._concurrency)
 
     # ---- queue -----------------------------------------------------------
-    def submit(self, job_id: str) -> None:
-        self._cancelled.discard(job_id)
+    def _on_loop(self, fn: Callable, *args) -> None:
+        """Sync routes run in a threadpool: asyncio primitives must be touched on the loop."""
         loop = self._loop
         try:
             current = asyncio.get_running_loop()
         except RuntimeError:
             current = None
         if loop is not None and current is not loop:
-            loop.call_soon_threadsafe(self._queue.put_nowait, job_id)
+            loop.call_soon_threadsafe(fn, *args)
         else:
-            self._queue.put_nowait(job_id)
+            fn(*args)
+
+    def submit(self, job_id: str) -> None:
+        self._cancelled.discard(job_id)
+        self._on_loop(self._queue.put_nowait, job_id)
 
     def cancel(self, job_id: str) -> bool:
-        ev = self._events.get(job_id)
+        # flag first, then look: _execute re-reads _cancelled after registering its event,
+        # so a cancel that arrives in between is never lost.
         self._cancelled.add(job_id)
+        ev = self._events.get(job_id)
         if ev is not None:  # running: ask the client to abort, the pipeline records it
-            ev.set()
+            self._on_loop(ev.set)
             with db.session_scope(self.session_factory) as s:
                 job = s.get(Job, job_id)
                 if job is None:
@@ -224,6 +231,7 @@ class JobRunner:
             project = projects.get(s, job.project_id)
             return _Plan(
                 job_id=job_id,
+                project_id=job.project_id,
                 slug=project.slug if project else "default",
                 model_air=job.model_air,
                 req=req,
@@ -286,7 +294,9 @@ class JobRunner:
             self._cancelled.discard(job_id)
 
     def _persist(self, plan: _Plan, result, saved: list, elapsed_ms: float) -> float:
-        """Blocking tail, run in a worker thread: sidecars, thumbnails, rows, usage."""
+        """Blocking tail, run in a worker thread: sidecars and thumbnails first, then one
+        short transaction. The outputs root comes from the plan, so a settings change
+        mid-job cannot make the relative paths unresolvable."""
         req = plan.req
         params = {
             "width": req.width,
@@ -299,10 +309,21 @@ class JobRunner:
             "number_results": req.number_results,
         }
         extra = {"task_sent": result.task_sent, "dropped_params": result.dropped}
+        meta = outputs_svc.OutputMeta(
+            job_id=plan.job_id,
+            project_id=plan.project_id,
+            project_slug=plan.slug,
+            kind="image",
+            model_air=plan.model_air,
+            prompt_text=str(result.task_sent.get("positivePrompt") or ""),
+            negative_prompt=plan.negative,
+        )
+        root = projects.outputs_root(self.paths, plan.outputs_dir)
+        prepared = outputs_svc.prepare(self.paths, meta, saved, params, extra, root=root)
         total = 0.0
         with db.session_scope(self.session_factory) as s:
             job = s.get(Job, plan.job_id)
-            outputs_svc.record_outputs(s, self.paths, job, saved, params, extra)
+            outputs_svc.insert(s, meta, prepared)
             for f in saved:
                 c = float(f.item.cost or 0.0)
                 total += c
@@ -358,6 +379,8 @@ class JobRunner:
             job = s.get(Job, job_id)
             if job is None:
                 return
+            if job.status == JobStatus.cancelled.value:
+                return  # a cancel that landed while we were finishing wins
             job.status = JobStatus.succeeded.value
             job.progress = 100
             job.status_text = "done"
@@ -368,6 +391,8 @@ class JobRunner:
         with db.session_scope(self.session_factory) as s:
             job = s.get(Job, job_id)
             if job is None:
+                return
+            if job.status == JobStatus.cancelled.value:
                 return
             job.status = JobStatus.cancelled.value if cancelled else JobStatus.failed.value
             job.status_text = "cancelled" if cancelled else "failed"

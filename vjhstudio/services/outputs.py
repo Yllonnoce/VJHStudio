@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, object_session
 
+from .. import __version__
 from ..config import Paths
-from ..models import Job, Output, utcnow
+from ..models import Job, Output, Project, utcnow
 from ..runware.download import SavedFile, make_thumbnail, write_sidecar
 from . import projects, prompts
 
@@ -18,8 +20,22 @@ log = logging.getLogger(__name__)
 PER_PAGE = 48
 
 
+def contained(root: Path, rel_path: str | None) -> Path | None:
+    """Resolve ``rel_path`` under ``root``; None when it escapes (``..``, absolute, symlink)."""
+    if not rel_path:
+        return None
+    base = root.resolve()
+    target = Path(base / rel_path).resolve()
+    return target if target.is_relative_to(base) else None
+
+
 def abs_path(paths: Paths, output: Output, outputs_dir: str = "") -> Path:
-    return projects.outputs_root(paths, outputs_dir) / output.rel_path
+    """The file for an output row. Raises LookupError when the row points outside the root,
+    so a file route can 404 instead of serving whatever the path escaped to."""
+    path = contained(projects.outputs_root(paths, outputs_dir), output.rel_path)
+    if path is None:
+        raise LookupError(output.rel_path)
+    return path
 
 
 def _dims(path: Path) -> tuple[int | None, int | None]:
@@ -32,29 +48,69 @@ def _dims(path: Path) -> tuple[int | None, int | None]:
         return None, None
 
 
-def record_outputs(
-    session: Session,
+@dataclass(frozen=True)
+class OutputMeta:
+    """Everything the file work needs, read out of the ORM before any of it starts."""
+
+    job_id: str
+    project_id: int
+    project_slug: str
+    kind: str
+    model_air: str
+    prompt_text: str
+    negative_prompt: str
+
+
+@dataclass(frozen=True)
+class Prepared:
+    saved: SavedFile
+    rel_path: str
+    sidecar_rel_path: str
+    thumb_rel_path: str | None
+    width: int | None
+    height: int | None
+    params: dict
+
+
+def meta_for(session: Session, job: Job) -> OutputMeta:
+    request = dict(job.request_json or {})
+    project = session.get(Project, job.project_id)
+    return OutputMeta(
+        job_id=job.id,
+        project_id=job.project_id,
+        project_slug=project.slug if project else "",
+        kind=job.kind,
+        model_air=job.model_air,
+        prompt_text=str(
+            (job.task_json or {}).get("positivePrompt")
+            or prompts.compose(request.get("form") or {})
+        ),
+        negative_prompt=str(request.get("negative") or ""),
+    )
+
+
+def prepare(
     paths: Paths,
-    job: Job,
+    meta: OutputMeta,
     saved: list[SavedFile],
     params: dict,
     sidecar_extra: dict | None = None,
-) -> list[Output]:
-    root = projects.root_for(session, paths)
-    request = dict(job.request_json or {})
-    negative = str(request.get("negative") or "")
-    prompt_text = str(
-        (job.task_json or {}).get("positivePrompt") or prompts.compose(request.get("form") or {})
-    )
-    rows: list[Output] = []
+    *,
+    root: Path,
+) -> list[Prepared]:
+    """Sidecars, dimensions and thumbnails. Deliberately does no DB work: JPEG encoding
+    must not happen inside a write transaction."""
+    out: list[Prepared] = []
     for f in saved:
         item = f.item
         sidecar = {
-            "job_id": job.id,
-            "model": job.model_air,
-            "kind": job.kind,
-            "prompt": prompt_text,
-            "negative": negative,
+            "app_version": __version__,
+            "job_id": meta.job_id,
+            "project": meta.project_slug,
+            "model": meta.model_air,
+            "kind": meta.kind,
+            "prompt": meta.prompt_text,
+            "negative_prompt": meta.negative_prompt,
             "seed": item.seed,
             "cost": item.cost,
             "source_url": f.url,
@@ -64,32 +120,66 @@ def record_outputs(
         }
         side = write_sidecar(f.path, sidecar)
         w, h = _dims(f.path)
-        row = Output(
-            job_id=job.id,
-            project_id=job.project_id,
-            kind=job.kind,
-            filename=f.path.name,
-            rel_path=f.path.relative_to(root).as_posix(),
-            sidecar_rel_path=side.relative_to(root).as_posix(),
-            model_air=job.model_air,
-            prompt_text=prompt_text,
-            negative_prompt=negative,
-            params_json=params,
-            seed=item.seed,
-            width=w,
-            height=h,
-            cost=item.cost,
-            source_url=f.url,
-            file_size=f.size,
+        thumb = paths.thumbs / f"{f.path.stem}.jpg"
+        made = make_thumbnail(f.path, thumb)
+        out.append(
+            Prepared(
+                saved=f,
+                rel_path=f.path.relative_to(root).as_posix(),
+                sidecar_rel_path=side.relative_to(root).as_posix(),
+                thumb_rel_path=thumb.relative_to(paths.data).as_posix() if made else None,
+                width=w,
+                height=h,
+                params=params,
+            )
         )
-        session.add(row)
-        session.flush()  # the thumbnail is named after the row id
-        thumb = paths.thumbs / f"{row.id}.jpg"
-        if make_thumbnail(f.path, thumb) is not None:
-            row.thumb_rel_path = thumb.relative_to(paths.data).as_posix()
-        rows.append(row)
+    return out
+
+
+def insert(session: Session, meta: OutputMeta, prepared: list[Prepared]) -> list[Output]:
+    """One short transaction: the files are already on disk."""
+    rows = [
+        Output(
+            job_id=meta.job_id,
+            project_id=meta.project_id,
+            kind=meta.kind,
+            filename=p.saved.path.name,
+            rel_path=p.rel_path,
+            sidecar_rel_path=p.sidecar_rel_path,
+            thumb_rel_path=p.thumb_rel_path,
+            model_air=meta.model_air,
+            prompt_text=meta.prompt_text,
+            negative_prompt=meta.negative_prompt,
+            params_json=p.params,
+            seed=p.saved.item.seed,
+            width=p.width,
+            height=p.height,
+            cost=p.saved.item.cost,
+            source_url=p.saved.url,
+            file_size=p.saved.size,
+        )
+        for p in prepared
+    ]
+    session.add_all(rows)
     session.flush()
     return rows
+
+
+def record_outputs(
+    session: Session,
+    paths: Paths,
+    job: Job,
+    saved: list[SavedFile],
+    params: dict,
+    sidecar_extra: dict | None = None,
+    *,
+    root: Path | None = None,
+) -> list[Output]:
+    """Convenience wrapper. The runner calls prepare() and insert() separately so the file
+    work stays outside the transaction."""
+    meta = meta_for(session, job)
+    root = root or projects.root_for(session, paths)
+    return insert(session, meta, prepare(paths, meta, saved, params, sidecar_extra, root=root))
 
 
 def _as_datetime(value: str | date | datetime | None) -> datetime | None:
@@ -164,17 +254,22 @@ def delete(session: Session, paths: Paths, output_id: int) -> bool:
     if o is None:
         return False
     root = projects.root_for(session, paths)
-    for p in (
-        root / o.rel_path,
-        root / o.sidecar_rel_path,
-        (paths.data / o.thumb_rel_path) if o.thumb_rel_path else None,
-    ):
-        if p is None:
+    targets = (
+        contained(root, o.rel_path),
+        contained(root, o.sidecar_rel_path),
+        contained(paths.data, o.thumb_rel_path),
+    )
+    for rel, path in zip((o.rel_path, o.sidecar_rel_path, o.thumb_rel_path), targets, strict=True):
+        if rel and path is None:
+            # a row pointing outside the data root is never followed onto the filesystem
+            log.warning("refusing to delete %r: outside the outputs root", rel)
+            continue
+        if path is None:
             continue
         try:
-            p.unlink(missing_ok=True)
+            path.unlink(missing_ok=True)
         except OSError as e:  # a locked file must not block deleting the row
-            log.warning("could not delete %s: %s", p, e)
+            log.warning("could not delete %s: %s", path, e)
     session.delete(o)
     session.flush()
     return True
@@ -193,7 +288,8 @@ def mark_missing(session: Session, paths: Paths) -> int:
     root = projects.root_for(session, paths)
     n = 0
     for o in session.execute(select(Output).where(Output.is_missing.is_(False))).scalars():
-        if not (root / o.rel_path).exists():
+        path = contained(root, o.rel_path)
+        if path is None or not path.exists():  # escaping rows count as missing, never as files
             o.is_missing = True
             n += 1
     session.flush()

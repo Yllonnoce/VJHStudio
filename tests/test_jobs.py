@@ -6,10 +6,12 @@ import pytest
 from PIL import Image
 from runware import RunwareError
 
+import vjhstudio
 from tests.fakes.fake_runware import FakeRunware, fake_factory
 from vjhstudio import boot, config, db, models
 from vjhstudio.schemas.image import ImageRequest, PromptForm
 from vjhstudio.services import costs, generate, jobs
+from vjhstudio.services import settings as settings_svc
 
 
 def _png() -> bytes:
@@ -78,6 +80,8 @@ async def test_job_succeeds_end_to_end(env):
         side = json.loads((paths.outputs / outs[0].sidecar_rel_path).read_text())
         assert side["job_id"] == job.id and side["seed"] == 1 and side["cost"] == 0.01
         assert side["params"]["width"] == 1024 and side["task_sent"]["model"] == "runware:101@1"
+        assert side["app_version"] == vjhstudio.__version__ and side["project"] == "default"
+        assert "negative_prompt" in side and "negative" not in side
         assert s.query(models.UsageEntry).count() == 2 and costs.today_spend(s) > 0
         assert (
             "observed"
@@ -206,6 +210,102 @@ async def test_unparseable_request_row_fails_cleanly(env):
     with db.session_scope(f) as s:
         j = s.get(models.Job, job.id)
         assert j.status == "failed" and j.error_code == "unknown"
+
+
+class _GatedFake(FakeRunware):
+    """Blocks in run() until its gate opens, then honours the cancel event like the SDK does."""
+
+    def __init__(self, gate, script=None):
+        super().__init__(script or {})
+        self.gate = gate
+
+    async def run(self, params, options=None):
+        await self.gate.wait()
+        if options and options.cancel_event and options.cancel_event.is_set():
+            raise RunwareError("aborted", "Request aborted")
+        return [{"imageURL": "http://x/1.png"}]
+
+
+async def test_cancel_from_a_worker_thread(env):
+    """Sync routes run in a threadpool: cancel() must touch the Event on the runner's loop."""
+    paths, f, _ = env
+    gate = asyncio.Event()
+    r = _runner(env, _GatedFake(gate), concurrency=1)
+    await r.start()
+    job = generate.enqueue_image(f, paths, _req(f), default_negative="")
+    r.submit(job.id)
+    await asyncio.sleep(0.05)
+    assert r.active_ids() == [job.id]
+    ev = r._events[job.id]
+    hops = []
+    real_hop = r._loop.call_soon_threadsafe
+    r._loop.call_soon_threadsafe = lambda fn, *a: (hops.append(fn), real_hop(fn, *a))[1]
+    try:
+        assert await asyncio.to_thread(r.cancel, job.id) is True
+    finally:
+        r._loop.call_soon_threadsafe = real_hop
+    # to_thread hops back on its own, so look for the Event itself among the callbacks
+    assert ev.set in hops, "cancel() must set the Event on the loop, not from the worker thread"
+    gate.set()
+    await r.wait_idle()
+    await r.stop()
+    with db.session_scope(f) as s:
+        assert s.get(models.Job, job.id).status == "cancelled"
+
+
+async def test_cancel_racing_event_registration_is_not_lost(env):
+    """cancel() lands between `running` and the cancel event existing: the row stays cancelled
+    even though the provider went on to return images."""
+    paths, f, _ = env
+    fake = FakeRunware({"run": [[{"imageURL": "http://x/1.png", "cost": 0.01}]]})
+    r = _runner(env, fake, concurrency=1)
+    real_begin = r._begin
+
+    def begin(job_id):
+        plan = real_begin(job_id)  # the row is `running`, no event registered yet
+        assert r.cancel(job_id) is True
+        r._cancelled.discard(job_id)  # worst case: even the in-memory flag is lost
+        return plan
+
+    r._begin = begin
+    await r.start()
+    job = generate.enqueue_image(f, paths, _req(f), default_negative="")
+    r.submit(job.id)
+    await r.wait_idle()
+    await r.stop()
+    with db.session_scope(f) as s:
+        assert s.get(models.Job, job.id).status == "cancelled"
+
+
+async def test_outputs_dir_change_mid_job_does_not_break_persist(env, tmp_path):
+    """The plan's root is used at persist time, not the setting as it stands by then."""
+    paths, f, _ = env
+    fake = FakeRunware({"run": [[{"imageURL": "http://x/1.png", "cost": 0.01}]]})
+
+    def handler(request):
+        with db.session_scope(f) as s:  # the setting moves while the job is downloading
+            settings_svc.set_many(s, {"paths.outputs_dir": str(tmp_path / "moved")})
+        return httpx.Response(200, content=_png())
+
+    r = jobs.JobRunner(
+        f,
+        paths,
+        client_factory=fake_factory(fake),
+        api_key_getter=lambda: "key",
+        transport_getter=lambda: "rest",
+        concurrency=1,
+        download_transport=httpx.MockTransport(handler),
+    )
+    await r.start()
+    job = generate.enqueue_image(f, paths, _req(f), default_negative="")
+    r.submit(job.id)
+    await r.wait_idle()
+    await r.stop()
+    with db.session_scope(f) as s:
+        j = s.get(models.Job, job.id)
+        assert j.status == "succeeded", j.error_message
+        out = s.query(models.Output).filter_by(job_id=job.id).one()
+        assert out.rel_path.startswith("default/") and (paths.outputs / out.rel_path).exists()
 
 
 def test_estimate_progress():
