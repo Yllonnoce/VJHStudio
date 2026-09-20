@@ -43,8 +43,8 @@ def clear_database(
                 continue
             # Table names come from Base.metadata, never from user input.
             rows_deleted[table.name] = s.execute(
-                text(f"SELECT COUNT(*) FROM {table.name}")
-            ).scalar_one()  # noqa: S608
+                text(f"SELECT COUNT(*) FROM {table.name}")  # noqa: S608
+            ).scalar_one()
             s.execute(text(f"DELETE FROM {table.name}"))  # noqa: S608
 
         s.add(Project(name="Default", slug="default"))

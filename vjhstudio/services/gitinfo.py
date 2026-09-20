@@ -24,11 +24,11 @@ def git_bin() -> str:
 
 def run_git(args: list[str], timeout: int = 30) -> subprocess.CompletedProcess[str]:
     # Fixed argv, no shell; args are built by this module, never by a user.
-    return subprocess.run(
+    return subprocess.run(  # noqa: S603
         [git_bin(), *args],
         cwd=REPO_ROOT,
         capture_output=True,
-        text=True,  # noqa: S603
+        text=True,
         timeout=timeout,
         env=GIT_ENV,
         check=False,
