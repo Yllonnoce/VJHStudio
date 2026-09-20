@@ -1,0 +1,58 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "VJHStudio: serve (debug)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "vjhstudio.main",
+      "args": ["serve", "--port", "8080", "--no-browser"],
+      "cwd": "${workspaceFolder}",
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "windows": { "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe" },
+      "env": {
+        "VJHSTUDIO_LOG_LEVEL": "DEBUG",
+        "VJHSTUDIO_DATA_DIR": "${workspaceFolder}/data-debug",
+        "PYTHONUNBUFFERED": "1"
+      },
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "VJHStudio: doctor",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "vjhstudio.main",
+      "args": ["doctor"],
+      "cwd": "${workspaceFolder}",
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "windows": { "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe" },
+      "env": { "VJHSTUDIO_DATA_DIR": "${workspaceFolder}/data-debug" },
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "VJHStudio: pytest (all)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["-q", "tests"],
+      "cwd": "${workspaceFolder}",
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "windows": { "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe" },
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "VJHStudio: pytest (current file)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["-q", "${file}"],
+      "cwd": "${workspaceFolder}",
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "windows": { "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe" },
+      "console": "integratedTerminal",
+      "justMyCode": false
+    }
+  ]
+}
