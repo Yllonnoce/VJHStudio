@@ -123,13 +123,26 @@ def params_ctx(session, air: str, values: dict | None = None, errors: dict | Non
     }
 
 
-def estimate_ctx(session, air: str, width: int, height: int, n: int) -> dict:
+def _int_or(raw, default: int) -> int:
+    """Lenient query parsing: a half-typed or cleared form field must re-render the
+    estimate, never hand FastAPI's 422 *JSON* body to an htmx swap target."""
+    try:
+        value = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
+
+
+def estimate_ctx(session, air: str, width=None, height=None, n=None) -> dict:
     m = _model_row(session, air)
+    w = _int_or(width, (m.default_width if m is not None else None) or 1024)
+    h = _int_or(height, (m.default_height if m is not None else None) or 1024)
+    count = _int_or(n, 1)
     price = m.price_primary if m is not None else None
     total = None
     if price is not None:
-        total = float(price) * (max(width, 1) * max(height, 1) / REF_PX) * max(n, 1)
-    return {"air": air, "total": total, "width": width, "height": height, "number_results": n}
+        total = float(price) * (w * h / REF_PX) * count
+    return {"air": air, "total": total, "width": w, "height": h, "number_results": count}
 
 
 def safe_json(data) -> str:
@@ -187,9 +200,9 @@ def generate_page(request: Request, remix: str = "", prompt: str = ""):
             "estimate": estimate_ctx(
                 s,
                 air,
-                int(values.get("width") or 1024),
-                int(values.get("height") or 1024),
-                int(values.get("number_results") or 1),
+                values.get("width"),
+                values.get("height"),
+                values.get("number_results"),
             ),
             "default_negative": settings_svc.get(s, "defaults.negative_prompt", app.state.env),
             "no_text_tokens": prompts.NO_TEXT_NEGATIVE,
@@ -251,10 +264,12 @@ def hx_estimate(
     request: Request,
     air: str = "",
     model: str = "",
-    width: int = 1024,
-    height: int = 1024,
-    number_results: int = 1,
+    width: str = "",
+    height: str = "",
+    number_results: str = "",
 ):
+    # strings on purpose: declaring ``int`` lets FastAPI answer a cleared Width box with a
+    # 422 JSON body, which htmx (configured to swap 422s) would paste into #estimate.
     with db.session_scope(request.app.state.boot.session_factory) as s:
         ctx = estimate_ctx(s, air or model, width, height, number_results)
     return deps.render(request, "generate/_estimate.html", ctx)

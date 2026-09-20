@@ -97,3 +97,32 @@ async def test_remix_prefills_initial(client, fake, app):
     oid = (await client.get("/api/jobs")).json()[0]["outputs"][0]["id"]
     r = await client.get(f"/generate?remix={oid}")
     assert '"seed": 77' in r.text and '"subject": "a red fox"' in r.text
+
+
+async def test_estimate_tolerates_blank_numbers(client):
+    """A cleared Width box must re-render the estimate, not swap FastAPI's 422 JSON in."""
+    r = await client.get("/hx/generate/estimate?air=runware:101@1&width=&height=&number_results=")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/html")
+    assert "≈" in r.text or "n/a" in r.text
+    r = await client.get(
+        "/hx/generate/estimate?air=runware:101@1&width=abc&height=-3&number_results=x"
+    )
+    assert r.status_code == 200 and 'id="estimate"' in r.text
+
+
+async def test_retry_errors_render_html_not_json(client, fake, app):
+    from vjhstudio import db, models
+
+    assert (await client.post("/jobs/nope/retry")).status_code == 404
+    await client.post("/settings/api-key", data={"api_key": "abcdefgh1234"})
+    fake.script["run"] = [RunwareError("invalidApiKey", "bad")]
+    await client.post("/generate/image", data=FORM)
+    await app.state.runner.wait_idle()
+    jid = (await client.get("/api/jobs")).json()[0]["id"]
+    with db.session_scope(app.state.boot.session_factory) as s:
+        job = s.get(models.Job, jid)
+        job.request_json = {**dict(job.request_json or {}), "width": 7}
+    r = await client.post(f"/jobs/{jid}/retry")
+    assert r.status_code == 422 and "Retry failed" in r.text
+    assert r.headers["content-type"].startswith("text/html") and 'id="queue-panel"' in r.text

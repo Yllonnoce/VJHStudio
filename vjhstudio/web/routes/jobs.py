@@ -234,7 +234,10 @@ def retry(request: Request, job_id: str):
             default_negative=default_negative,
         )
     except (ValueError, TypeError) as e:
-        return JSONResponse({"error": str(e)}, status_code=422)
+        # the button targets #queue-panel: a JSON body here would replace the whole queue
+        ctx = panel_ctx(request)
+        ctx["error"] = str(e)
+        return deps.render(request, "generate/_queue_panel.html", ctx, 422)
     runner = getattr(request.app.state, "runner", None)
     if runner is not None:
         runner.submit(new.id)

@@ -5,6 +5,7 @@
     <h3>Queue</h3>
     <small class="muted">Today: ${{ '%.4f'|format(today_spend) }}</small>
   </header>
+  {% if error %}<article class="job-card danger" id="queue-error"><header><strong>Retry failed</strong></header><p class="error">{{ error }}</p></article>{% endif %}
   {% for j in jobs_active %}{% with j=j %}{% include "generate/_job_card.html" %}{% endwith %}{% endfor %}
   {% if jobs_done %}
     <h4>Recent</h4>
