@@ -63,6 +63,8 @@ def is_utility_slug(slug: str | None) -> bool:
 def family(model: CatalogModel) -> str:
     if model.kind == "video":
         return "video"
+    if model.kind == "text":
+        return "text"
     hay = " ".join(
         x or "" for x in (model.architecture, model.creator, model.air, model.slug)
     ).lower()

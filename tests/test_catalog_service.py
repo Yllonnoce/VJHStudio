@@ -70,6 +70,7 @@ def test_family(factory):
         assert catalog.family(catalog.get_by_air(s, "google:4@2")) == "instruction"
         assert catalog.family(catalog.get_by_air(s, "openai:gpt-image@2")) == "instruction"
         assert catalog.family(catalog.get_by_air(s, "google:3@2")) == "video"
+        assert catalog.family(catalog.get_by_air(s, "anthropic:claude@sonnet-4.6")) == "text"
 
 
 def test_utility_slugs_hidden():
