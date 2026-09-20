@@ -1,6 +1,8 @@
-import os, stat, sys
-from pathlib import Path
+import stat
+import sys
+
 from vjhstudio import config
+
 
 def test_default_data_dir_is_repo_data():
     p = config.resolve_paths(env={})

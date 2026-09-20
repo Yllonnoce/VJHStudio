@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
+
 from runware import RunwareError
 
 _MESSAGES: dict[str, tuple[str, bool]] = {

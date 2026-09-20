@@ -1,6 +1,11 @@
 """Process restart/shutdown. The exit happens on a timer so the HTTP reply gets out first."""
 from __future__ import annotations
-import os, subprocess, sys, threading
+
+import os
+import subprocess
+import sys
+import threading
+
 from ..config import REPO_ROOT, RESTART_EXIT_CODE
 
 _timers: list[threading.Timer] = []
@@ -15,13 +20,15 @@ def _exit(code: int) -> None:
 
 
 def _execv(argv: list[str]) -> None:
-    os.execv(argv[0], argv)
+    # Re-exec ourselves: argv[0] is sys.executable, no shell involved.
+    os.execv(argv[0], argv)  # noqa: S606
 
 
 def _spawn_helper(pid: int) -> None:
     helper = REPO_ROOT / "scripts" / "restart_helper.bat"
     flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-    subprocess.Popen(["cmd.exe", "/c", str(helper), str(pid)], cwd=REPO_ROOT, creationflags=flags,
+    # Fixed argv; cmd.exe is resolved from PATH because Windows always has it there.
+    subprocess.Popen(["cmd.exe", "/c", str(helper), str(pid)], cwd=REPO_ROOT, creationflags=flags,  # noqa: S603, S607
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                      close_fds=True)
 

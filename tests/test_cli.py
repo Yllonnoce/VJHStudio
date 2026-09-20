@@ -10,6 +10,7 @@ from vjhstudio import boot as boot_mod
 from vjhstudio.services import migrate
 from vjhstudio.web.app import create_app
 
+
 def test_version_command(capsys):
     assert main.main(["version"]) == 0
     assert __version__ in capsys.readouterr().out

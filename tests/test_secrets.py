@@ -1,5 +1,10 @@
-import stat, sys, pytest
+import stat
+import sys
+
+import pytest
+
 from vjhstudio import config, secrets
+
 
 @pytest.fixture
 def paths(tmp_path):

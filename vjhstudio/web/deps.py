@@ -1,6 +1,8 @@
 from __future__ import annotations
+
 from pathlib import Path
 from typing import Annotated
+
 from fastapi import Depends, Request
 from fastapi.templating import Jinja2Templates
 from starlette.datastructures import FormData

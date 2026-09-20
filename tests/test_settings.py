@@ -1,6 +1,8 @@
 import pytest
-from vjhstudio import db, models
-from vjhstudio.services import migrate, settings, meta
+
+from vjhstudio import db
+from vjhstudio.services import meta, migrate, settings
+
 
 @pytest.fixture
 def session(tmp_path):

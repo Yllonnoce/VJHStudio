@@ -1,9 +1,11 @@
 import sqlite3
-from pathlib import Path
+
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
+
 from vjhstudio import db, models
 from vjhstudio.services import migrate
+
 
 def test_fresh_db_upgrades_to_head(tmp_path):
     p = tmp_path / "vjh.db"

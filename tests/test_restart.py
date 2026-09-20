@@ -1,5 +1,7 @@
 import sys
+
 from vjhstudio.services import restart
+
 
 def test_launcher_strategy(monkeypatch):
     called = {}

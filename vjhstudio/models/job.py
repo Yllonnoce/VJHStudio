@@ -1,12 +1,15 @@
 from __future__ import annotations
+
 import enum
 from datetime import datetime
+
 from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
+
 from .base import Base, utcnow
 
 
-class JobStatus(str, enum.Enum):
+class JobStatus(enum.StrEnum):
     queued = "queued"
     running = "running"
     succeeded = "succeeded"

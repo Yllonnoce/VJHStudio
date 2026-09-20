@@ -1,14 +1,14 @@
 import re
-from pathlib import Path
-from vjhstudio.web.deps import STATIC_DIR
+
 from vjhstudio.services.settings import SPEC
+from vjhstudio.web.deps import STATIC_DIR
 
 THEMES = SPEC["ui.theme"].choices
 
 def test_every_theme_defines_full_token_set():
     css = (STATIC_DIR / "css" / "themes.css").read_text()
     for t in THEMES:
-        block = re.search(r'\[data-theme="%s"\]\s*\{(.*?)\}' % t, css, re.S)
+        block = re.search(rf'\[data-theme="{t}"\]\s*\{{(.*?)\}}', css, re.S)
         assert block, t
         for tok in ("--sp-bg", "--sp-surface", "--sp-accent", "--sp-on-accent", "--sp-text", "--sp-border", "--sp-shadow-1", "--sp-danger", "color-scheme"):
             assert tok in block.group(1), (t, tok)
@@ -16,7 +16,7 @@ def test_every_theme_defines_full_token_set():
 def test_theme_js_registry_matches_settings():
     js = (STATIC_DIR / "js" / "theme.js").read_text()
     for t in THEMES:
-        assert "'%s'" % t in js or '"%s"' % t in js, t
+        assert f"'{t}'" in js or f'"{t}"' in js, t
     assert "vjh-theme" in js
 
 async def test_html_carries_theme_attributes(client):

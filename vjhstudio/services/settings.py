@@ -1,10 +1,14 @@
 """Typed key/value settings. Precedence: env > settings table > SPEC default."""
 from __future__ import annotations
+
 import logging
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any
+
 from sqlalchemy.orm import Session
+
 from ..models import Setting
 
 log = logging.getLogger(__name__)

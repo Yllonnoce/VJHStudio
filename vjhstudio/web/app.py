@@ -1,16 +1,22 @@
 from __future__ import annotations
+
 import logging
 import os
+from collections.abc import Mapping
 from contextlib import asynccontextmanager
-from typing import Mapping
+
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from .. import boot as _boot, config, db, secrets
+
+from .. import boot as _boot
+from .. import config, db, secrets
 from ..runware.client import open_client
-from ..services import migrate, settings as settings_svc
+from ..services import migrate
+from ..services import settings as settings_svc
 from .csrf import CrossSiteBlockMiddleware
 from .deps import STATIC_DIR
-from .routes import pages, settings as settings_routes, system
+from .routes import pages, system
+from .routes import settings as settings_routes
 
 log = logging.getLogger(__name__)
 

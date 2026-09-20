@@ -1,10 +1,14 @@
 """Boot: dirs -> backup-if-migrating -> upgrade -> meta -> default project -> orphan jobs."""
 from __future__ import annotations
-import logging, uuid
+
+import logging
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
+
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
+
 from . import __version__, config, db
 from .models import Job, JobStatus, Project, utcnow
 from .services import backup, gitinfo, meta, migrate

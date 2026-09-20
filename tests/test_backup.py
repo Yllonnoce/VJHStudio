@@ -1,6 +1,10 @@
-import sqlite3, time, pytest
+import sqlite3
+
+import pytest
+
 from vjhstudio import config
 from vjhstudio.services import backup, migrate
+
 
 @pytest.fixture
 def paths(tmp_path):

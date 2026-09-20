@@ -1,7 +1,11 @@
 """Plain-file API key stash with owner-only permissions. Env var wins."""
 from __future__ import annotations
-import os, sys
-from typing import Literal, Mapping
+
+import os
+import sys
+from collections.abc import Mapping
+from typing import Literal
+
 from .config import Paths
 
 ENV_KEY = "RUNWARE_API_KEY"
@@ -32,10 +36,7 @@ def read_api_key(paths: Paths) -> str | None:
 
 
 def clear_api_key(paths: Paths) -> None:
-    try:
-        paths.api_key_file.unlink()
-    except FileNotFoundError:
-        pass
+    paths.api_key_file.unlink(missing_ok=True)
 
 
 def effective_api_key(paths: Paths, env: Mapping[str, str] | None = None) -> str | None:

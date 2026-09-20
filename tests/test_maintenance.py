@@ -1,6 +1,8 @@
 import pytest
+
 from vjhstudio import boot, config, db, models
 from vjhstudio.services import backup, maintenance
+
 
 @pytest.fixture
 def booted(tmp_path):

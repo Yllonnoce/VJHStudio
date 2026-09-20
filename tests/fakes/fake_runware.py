@@ -1,6 +1,7 @@
 """Scripted stand-in for runware.Runware. Each method pops the next scripted reply for its
 name; a reply that is an Exception is raised instead of returned."""
 from __future__ import annotations
+
 from contextlib import asynccontextmanager
 from typing import Any
 

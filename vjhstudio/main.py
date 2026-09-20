@@ -1,7 +1,17 @@
 """CLI entry point: serve | migrate | version | doctor."""
 from __future__ import annotations
-import argparse, logging, os, shutil, socket, sys, threading, webbrowser
+
+import argparse
+import logging
+import os
+import shutil
+import socket
+import sys
+import threading
+import webbrowser
+
 import httpx
+
 from . import __version__, config, secrets
 from .services import gitinfo, migrate
 
@@ -64,6 +74,7 @@ def pick_port(host: str, port: int, tries: int = 10) -> tuple[int, bool]:
 
 def cmd_serve(args: argparse.Namespace) -> int:
     import uvicorn
+
     from . import boot
     from .web.app import create_app
     paths = config.resolve_paths()

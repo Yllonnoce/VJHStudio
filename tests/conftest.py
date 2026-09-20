@@ -1,7 +1,10 @@
-import pytest, httpx
+import httpx
+import pytest
+
+from tests.fakes.fake_runware import FakeRunware, fake_factory
 from vjhstudio import config
 from vjhstudio.web.app import create_app
-from tests.fakes.fake_runware import FakeRunware, fake_factory
+
 
 @pytest.fixture
 def paths(tmp_path):
@@ -17,6 +20,6 @@ def app(paths, fake):
 
 @pytest.fixture
 async def client(app):
-    async with app.router.lifespan_context(app):
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
-            yield c
+    async with (app.router.lifespan_context(app),
+                httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c):
+        yield c

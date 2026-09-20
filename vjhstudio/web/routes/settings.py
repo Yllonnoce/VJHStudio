@@ -1,7 +1,10 @@
 from __future__ import annotations
+
 from fastapi import APIRouter, Request
+
 from ... import db, secrets
-from ...services import account, maintenance, settings as settings_svc
+from ...services import account, maintenance
+from ...services import settings as settings_svc
 from .. import deps
 
 router = APIRouter()

@@ -1,6 +1,9 @@
 from __future__ import annotations
+
 import os
+
 from fastapi import APIRouter, HTTPException, Request
+
 from ...services import restart as restart_svc
 
 router = APIRouter()

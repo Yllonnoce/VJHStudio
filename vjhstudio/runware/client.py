@@ -1,9 +1,12 @@
 from __future__ import annotations
-from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Callable, AsyncContextManager
+
+from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from typing import Any
+
 from runware import Runware
 
-ClientFactory = Callable[..., AsyncContextManager[Any]]
+ClientFactory = Callable[..., AbstractAsyncContextManager[Any]]
 
 
 @asynccontextmanager

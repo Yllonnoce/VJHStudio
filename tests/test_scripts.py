@@ -1,4 +1,6 @@
-import os, stat, sys
+import stat
+import sys
+
 from vjhstudio.config import REPO_ROOT
 
 

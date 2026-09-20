@@ -1,8 +1,10 @@
 import pytest
 from runware import RunwareError
+
+from tests.fakes.fake_runware import FakeRunware, fake_factory
 from vjhstudio import db
 from vjhstudio.services import account, migrate
-from tests.fakes.fake_runware import FakeRunware, fake_factory
+
 
 @pytest.fixture
 def factory(tmp_path):

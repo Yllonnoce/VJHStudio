@@ -1,10 +1,14 @@
 """SQLite backups via the online backup API (safe under WAL)."""
 from __future__ import annotations
-import re, sqlite3
+
+import re
+import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+
 from ..config import Paths
+from ..models import utcnow
 
 _NAME = re.compile(r"^vjh-(\d{8}-\d{6})-(.+)\.db$")
 
@@ -21,7 +25,9 @@ def backup_db(paths: Paths, label: str) -> Path:
     if not paths.db.exists():
         raise FileNotFoundError(paths.db)
     paths.backups.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    # Naive UTC, like every timestamp in the DB (models.utcnow), so a backup
+    # filename and the created_at rows inside it agree.
+    stamp = utcnow().strftime("%Y%m%d-%H%M%S")
     dest = paths.backups / f"vjh-{stamp}-{label}.db"
     src = sqlite3.connect(paths.db)
     dst = sqlite3.connect(dest)
@@ -41,9 +47,9 @@ def list_backups(paths: Paths) -> list[BackupInfo]:
         if not m:
             continue
         try:
-            dt = datetime.strptime(m.group(1), "%Y%m%d-%H%M%S")
+            dt = datetime.strptime(m.group(1), "%Y%m%d-%H%M%S")  # noqa: DTZ007 — naive UTC by convention
         except ValueError:
-            dt = datetime.min
+            dt = datetime.min  # noqa: DTZ901 — sorts unparseable names last
         out.append(BackupInfo(f, m.group(2), dt, f.stat().st_size))
     return sorted(out, key=lambda b: b.created_at, reverse=True)
 

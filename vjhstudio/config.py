@@ -1,9 +1,11 @@
 """Environment and filesystem configuration. No I/O beyond mkdir."""
 from __future__ import annotations
-import os, sys
+
+import os
+import sys
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RESTART_EXIT_CODE = 75

@@ -1,11 +1,14 @@
 """Alembic driver. A failed upgrade raises; refusing to start beats a half-migrated DB."""
 from __future__ import annotations
+
 import contextlib
-from pathlib import Path
 import sqlite3
+from pathlib import Path
+
 from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
+
 from ..config import REPO_ROOT
 
 MIGRATIONS_DIR = REPO_ROOT / "migrations"

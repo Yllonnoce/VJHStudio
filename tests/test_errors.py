@@ -1,5 +1,7 @@
 from runware import RunwareError
+
 from vjhstudio.runware import errors
+
 
 def test_known_code_maps_to_message():
     e = errors.classify(RunwareError("invalidApiKey", "Invalid API key"))
