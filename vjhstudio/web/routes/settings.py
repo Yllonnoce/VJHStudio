@@ -1,7 +1,7 @@
 from __future__ import annotations
 from fastapi import APIRouter, Request
 from ... import db, secrets
-from ...services import account, settings as settings_svc
+from ...services import account, maintenance, settings as settings_svc
 from .. import deps
 
 router = APIRouter()
@@ -22,11 +22,16 @@ def _key_ctx(request: Request, message: str | None = None, error: str | None = N
             "env_locked": request.app.state.key_source() == "env", "paths": paths}
 
 
+def _maintenance_ctx(request: Request, message: str | None = None, error: str | None = None) -> dict:
+    return {"paths": request.app.state.paths, "message": message, "error": error}
+
+
 @router.get("/settings")
 async def settings_page(request: Request):
     with db.session_scope(request.app.state.boot.session_factory) as s:
         bal = account.cached_balance(s)
-    return deps.render(request, "pages/settings.html", {**_general_ctx(request), **_key_ctx(request, balance=bal)})
+    return deps.render(request, "pages/settings.html",
+                       {**_general_ctx(request), **_key_ctx(request, balance=bal), **_maintenance_ctx(request)})
 
 
 @router.post("/settings")
@@ -73,6 +78,24 @@ async def test_api_key(request: Request):
         return deps.render(request, "settings/_api_key_form.html", _key_ctx(request, error=e.error.message), 422)
     return deps.render(request, "settings/_api_key_form.html",
                        _key_ctx(request, message="Key works.", balance=bal))
+
+
+@router.post("/settings/database/clear")
+async def clear_database(request: Request):
+    form = await request.form()
+    backup_first = str(form.get("backup_first", "")) == "on"
+    try:
+        res = maintenance.clear_database(request.app.state.boot.session_factory,
+                                         request.app.state.paths, backup_first=backup_first)
+    except FileNotFoundError:
+        return deps.render(request, "settings/_maintenance_form.html",
+                           _maintenance_ctx(request, error="No database file found to back up."), 422)
+    total = sum(res.rows_deleted.values())
+    if res.backup_path:
+        message = f"Database cleared (backup: {res.backup_path.name}). {total} rows removed."
+    else:
+        message = f"Database cleared (no backup taken). {total} rows removed."
+    return deps.render(request, "settings/_maintenance_form.html", _maintenance_ctx(request, message=message))
 
 
 @router.get("/hx/header/balance")

@@ -46,3 +46,15 @@ async def test_api_key_test_without_key_422(client):
 async def test_settings_page_shows_key_guide(client):
     r = await client.get("/settings")
     assert "How to get a RunWare API key" in r.text and "https://runware.ai/signup" in r.text
+
+async def test_clear_database_route_with_backup(client, paths):
+    r = await client.post("/settings/database/clear", data={"backup_first": "on"})
+    assert r.status_code == 200 and "Database cleared" in r.text and "pre-clear" in r.text
+
+async def test_clear_database_route_without_backup(client):
+    r = await client.post("/settings/database/clear", data={})
+    assert r.status_code == 200 and "no backup taken" in r.text
+
+async def test_settings_page_has_maintenance_section(client):
+    r = await client.get("/settings")
+    assert 'id="maintenance"' in r.text and "Clear database" in r.text

@@ -21,6 +21,11 @@
   --pico-primary-hover: var(--sp-hover-bg);
   --pico-primary-hover-background: var(--sp-hover-bg);
   --pico-primary-focus: var(--sp-accent-glow);
+  --pico-secondary: var(--sp-text);
+  --pico-secondary-hover: var(--sp-accent);
+  --pico-secondary-focus: var(--sp-accent-glow);
+  --pico-secondary-inverse: var(--sp-on-accent);
+  --pico-secondary-underline: var(--sp-accent);
   --pico-secondary-background: var(--sp-btn-tint);
   --pico-secondary-border: var(--sp-btn-tint-border);
   --pico-secondary-hover-background: var(--sp-btn-tint-hover);

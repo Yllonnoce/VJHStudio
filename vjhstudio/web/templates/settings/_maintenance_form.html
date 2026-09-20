@@ -1,0 +1,8 @@
+<form id="maintenance-form" hx-post="/settings/database/clear" hx-target="this" hx-swap="outerHTML"
+      hx-confirm="Clear the database? All projects, prompts, jobs, outputs and asset records will be removed. Files in uploads/ and outputs/ stay on disk.">
+  <label><input type="checkbox" name="backup_first" checked> Back up the database first (recommended)</label>
+  <button type="submit" class="contrast">Clear database</button>
+  <small>Backups are kept in {{ paths.backups }} (last 10 of each kind).</small>
+  {% if message %}<p class="ok">{{ message }}</p>{% endif %}
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+</form>
