@@ -1,3 +1,4 @@
+import inspect
 import socket
 import sys
 
@@ -25,7 +26,8 @@ def test_doctor_command(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "data dir" in out and "api key" in out and "git" in out
 
-def test_pick_port_skips_busy_foreign_port():
+def test_pick_port_skips_busy_foreign_port(monkeypatch):
+    monkeypatch.setattr(main, "is_ours", lambda h, p: False)
     s = socket.socket(); s.bind(("127.0.0.1", 0)); s.listen(1)
     busy = s.getsockname()[1]
     try:
@@ -34,9 +36,22 @@ def test_pick_port_skips_busy_foreign_port():
     finally:
         s.close()
 
-def test_pick_port_returns_free_port():
+def test_pick_port_returns_free_port(monkeypatch):
+    monkeypatch.setattr(main, "is_ours", lambda h, p: False)
     s = socket.socket(); s.bind(("127.0.0.1", 0)); free = s.getsockname()[1]; s.close()
     assert main.pick_port("127.0.0.1", free) == (free, False)
+
+def test_pick_port_asks_is_ours_before_binding(monkeypatch):
+    """On Windows a bind test can succeed on a listening port, so is_ours goes first."""
+    calls = []
+    monkeypatch.setattr(main, "is_ours", lambda h, p: True)
+    monkeypatch.setattr(main, "_port_free", lambda h, p: calls.append(p) or True)
+    assert main.pick_port("127.0.0.1", 8080) == (8080, True)
+    assert calls == []
+
+def test_port_free_does_not_relax_address_reuse():
+    """SO_REUSEADDR would let the bind succeed on a listening port on Windows."""
+    assert "setsockopt" not in inspect.getsource(main._port_free)
 
 def test_serve_boots_before_uvicorn_and_reports_migration_failure(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("VJHSTUDIO_DATA_DIR", str(tmp_path))

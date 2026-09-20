@@ -34,8 +34,10 @@ def is_ours(host: str, port: int) -> bool:
 
 
 def _port_free(host: str, port: int) -> bool:
+    # Deliberately no SO_REUSEADDR: on Windows that flag lets the bind succeed
+    # on a port another socket is actively listening on, which would report a
+    # busy port as free.
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             s.bind((host, port))
             return True
@@ -45,11 +47,15 @@ def _port_free(host: str, port: int) -> bool:
 
 def pick_port(host: str, port: int, tries: int = 10) -> tuple[int, bool]:
     """Return (port, already_ours). If the requested port runs VJHStudio, report it.
-    Otherwise walk forward until a free port is found."""
-    if _port_free(host, port):
-        return port, False
+    Otherwise walk forward until a free port is found.
+
+    The "is it us?" question comes first so the answer never depends on whether
+    the platform's bind test can see a listening socket.
+    """
     if is_ours(host, port):
         return port, True
+    if _port_free(host, port):
+        return port, False
     for p in range(port + 1, port + 1 + tries):
         if _port_free(host, p):
             return p, False
