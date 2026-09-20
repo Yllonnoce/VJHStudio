@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from .. import boot as _boot, config, db, secrets
 from ..runware.client import open_client
 from ..services import migrate, settings as settings_svc
+from .csrf import CrossSiteBlockMiddleware
 from .deps import STATIC_DIR
 from .routes import pages, settings as settings_routes, system
 
@@ -46,6 +47,7 @@ def create_app(paths: config.Paths, client_factory=open_client, env: Mapping[str
 
     app.state.theme = theme
     app.state.setting = setting
+    app.add_middleware(CrossSiteBlockMiddleware)
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     app.include_router(system.router)
     app.include_router(pages.router)

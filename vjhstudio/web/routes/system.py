@@ -16,8 +16,10 @@ async def health(request: Request):
 
 
 def _local_only(request: Request) -> None:
+    """Refuse a non-loopback peer. Cross-site browser requests, which *are*
+    loopback, are handled earlier by web.csrf.CrossSiteBlockMiddleware."""
     host = request.client.host if request.client else ""
-    if host not in ("127.0.0.1", "::1", "testclient", ""):
+    if host not in ("127.0.0.1", "::1", "testclient"):
         raise HTTPException(403, "local only")
 
 
