@@ -141,6 +141,14 @@ async def refresh_prices(request: Request):
             _refresh_ctx(request, error=f"Refresh failed: {e}"),
             422,
         )
+    if res.models == 0:
+        detail = res.errors[0] if res.errors else "no models returned"
+        return deps.render(
+            request,
+            "catalog/_refresh_status.html",
+            _refresh_ctx(request, error=f"Refresh failed: {detail}"),
+            422,
+        )
     msg = f"Refreshed {res.models} models, {res.priced} priced, {len(res.errors)} error{'s' if len(res.errors) != 1 else ''}."
     return deps.render(request, "catalog/_refresh_status.html", _refresh_ctx(request, message=msg))
 

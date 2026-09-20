@@ -160,6 +160,25 @@ async def test_refresh_from_content_api_preserves_curated_video_presets(factory)
         assert veo.provider_settings_schema  # untouched by this refresh, still present
 
 
+def _all_500_transport():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500)
+
+    return httpx.MockTransport(handler)
+
+
+async def test_refresh_from_content_api_total_failure_does_not_stamp(factory):
+    with db.session_scope(factory) as s:
+        catalog.seed_curated(s)
+        assert catalog.last_refreshed(s) is None
+    api = ContentAPI(transport=_all_500_transport())
+    res = await catalog.refresh_from_content_api(factory, api)
+    assert res.models == 0 and len(res.errors) == 3
+    with db.session_scope(factory) as s:
+        assert catalog.last_refreshed(s) is None
+        assert catalog.needs_refresh(s)
+
+
 def test_needs_refresh_when_old(factory):
     with db.session_scope(factory) as s:
         assert catalog.needs_refresh(s)

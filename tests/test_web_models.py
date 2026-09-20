@@ -120,6 +120,22 @@ async def test_refresh_prices_uses_injected_api(app, client, monkeypatch):
     assert "Last refreshed" in r.text
 
 
+async def test_refresh_prices_total_failure_returns_422_and_does_not_stamp(
+    app, client, monkeypatch
+):
+    from vjhstudio.models import utcnow
+    from vjhstudio.services import catalog
+
+    async def fake_refresh(session_factory, api, concurrency=5):
+        return catalog.RefreshResult(models=0, priced=0, errors=["boom"], finished_at=utcnow())
+
+    monkeypatch.setattr(catalog, "refresh_from_content_api", fake_refresh)
+    r = await client.post("/models/refresh-prices")
+    assert r.status_code == 422 and "Refresh failed: boom" in r.text
+    r = await client.get("/models")
+    assert "Last refreshed: never" in r.text
+
+
 async def test_settings_default_models_are_selects(client):
     r = await client.get("/settings")
     assert (

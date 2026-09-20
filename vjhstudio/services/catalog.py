@@ -219,8 +219,9 @@ async def refresh_from_content_api(
                 if pricing is not None:
                     res.priced += 1
     res.finished_at = utcnow()
-    with db.session_scope(session_factory) as s:
-        meta.set(s, REFRESH_KEY, res.finished_at.isoformat())
+    if res.models > 0:
+        with db.session_scope(session_factory) as s:
+            meta.set(s, REFRESH_KEY, res.finished_at.isoformat())
     return res
 
 
