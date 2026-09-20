@@ -42,3 +42,7 @@ async def test_api_key_test_failure_422(client, fake):
 async def test_api_key_test_without_key_422(client):
     r = await client.post("/settings/api-key/test")
     assert r.status_code == 422 and "No API key" in r.text
+
+async def test_settings_page_shows_key_guide(client):
+    r = await client.get("/settings")
+    assert "How to get a RunWare API key" in r.text and "https://runware.ai/signup" in r.text

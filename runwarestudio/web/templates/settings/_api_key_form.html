@@ -1,4 +1,15 @@
 <form id="api-key-form" hx-post="/settings/api-key" hx-swap="outerHTML" hx-target="this">
+  <details class="key-help">
+    <summary>How to get a RunWare API key</summary>
+    <ol>
+      <li>Create a free account at <a href="https://runware.ai/signup" target="_blank" rel="noopener">runware.ai/signup</a> (GitHub, Google or email).</li>
+      <li>Open your dashboard at <a href="https://my.runware.ai" target="_blank" rel="noopener">my.runware.ai</a> and add some credit (pay as you go, in USD; unused balance does not expire).</li>
+      <li>In the dashboard, open <strong>API Keys</strong> and click <strong>Create Key</strong>. Give it a name such as "RunwareStudio".</li>
+      <li>Copy the key right away. The dashboard only shows it in full once.</li>
+      <li>Paste it below and click <strong>Save</strong>, then <strong>Test</strong> to see your balance.</li>
+    </ol>
+    <p><small>The key is stored only on this computer in <code>{{ paths.api_key_file }}</code>. Keep it private: anyone with the key can spend your balance. You can revoke a key at any time from the API Keys page.</small></p>
+  </details>
   <label>API key
     <input type="password" name="api_key" placeholder="{{ masked or 'paste your RunWare key' }}" autocomplete="off" {% if env_locked %}disabled{% endif %}>
   </label>
