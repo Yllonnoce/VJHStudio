@@ -28,3 +28,28 @@ async def test_saving_theme_changes_attribute(client):
     await client.post("/settings", data={"ui.theme": "daylight"})
     r = await client.get("/")
     assert 'data-theme="daylight"' in r.text and 'data-scheme="light"' in r.text
+
+def test_theme_js_guards_every_storage_access():
+    """localStorage throws when a browser blocks site storage; an unguarded read
+    would abort the file and the swatch picker would never be built."""
+    js = (STATIC_DIR / "js" / "theme.js").read_text()
+    accesses = re.findall(r"^.*\blocalStorage\.\w+\(.*$", js, re.M)
+    assert accesses, "theme.js no longer touches localStorage"
+    for line in accesses:
+        assert "try {" in line and "catch" in line, line
+
+def test_theme_js_lets_the_server_value_win():
+    """The saved ui.theme setting is the source of truth; localStorage is only
+    the pre-paint fast path."""
+    js = (STATIC_DIR / "js" / "theme.js").read_text()
+    assert "dataset.serverTheme" in js
+    assert "_vjhReconcileTheme" in js
+    # the old clobbering default must not come back
+    assert "localStorage.getItem('vjh-theme') || " not in js
+
+async def test_html_carries_server_theme_attribute(client):
+    r = await client.get("/")
+    assert 'data-server-theme="midnight"' in r.text
+    await client.post("/settings", data={"ui.theme": "daylight"})
+    r = await client.get("/")
+    assert 'data-server-theme="daylight"' in r.text

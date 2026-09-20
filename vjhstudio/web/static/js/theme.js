@@ -1,7 +1,12 @@
 /* ── VJHStudio Theme Engine ───────────────────────────────────────────────────
-   Loaded in <head> — the IIFE runs synchronously before first paint so there
-   is zero flash of unstyled content.  The rest of the functions run after
-   DOMContentLoaded.
+   Loaded with `defer`, so nothing here runs before first paint.  The pre-paint
+   work — applying the remembered theme so there is no flash of the wrong
+   colours — is the small inline script in base.html.
+
+   Source of truth is the `ui.theme` setting in the database, which the server
+   renders as `data-server-theme` on <html>.  localStorage is only a fast path
+   for that first paint, so on DOMContentLoaded the two are reconciled and the
+   server value wins.
    ──────────────────────────────────────────────────────────────────────── */
 
 /* Picker order: all light themes first, then all dark — the `dark` flag
@@ -51,18 +56,43 @@ function _vjhApplyOnAccent() {
   document.documentElement.style.setProperty('--sp-on-accent', best);
 }
 
-/* ── IIFE: apply theme synchronously before first paint ─────────────────── */
-(function () {
-  var saved = localStorage.getItem('vjh-theme') || 'midnight';
-  document.documentElement.setAttribute('data-theme', saved);
-  document.documentElement.setAttribute('data-scheme', VJH_DARK_THEMES.indexOf(saved) >= 0 ? 'dark' : 'light');
-}());
+/* ── Storage helpers ─────────────────────────────────────────────────────────
+   localStorage throws in privacy modes that block site storage; an unguarded
+   access there would abort this file and leave the picker unbuilt.          */
+function _vjhReadStored() {
+  try { return localStorage.getItem('vjh-theme'); } catch (e) { return null; }
+}
+
+function _vjhWriteStored(id) {
+  try { localStorage.setItem('vjh-theme', id); } catch (e) { /* not persisted here */ }
+}
+
+function _vjhCurrentTheme() {
+  return document.documentElement.getAttribute('data-theme') || 'midnight';
+}
+
+function _vjhApplyTheme(id) {
+  document.documentElement.setAttribute('data-theme', id);
+  document.documentElement.setAttribute('data-scheme', VJH_DARK_THEMES.indexOf(id) >= 0 ? 'dark' : 'light');
+}
+
+/* Reconcile the pre-paint fast path with the saved setting: whatever the
+   server rendered from the database wins, and this browser's copy is
+   corrected so the next first paint is already right.                       */
+function _vjhReconcileTheme() {
+  var server = document.documentElement.dataset.serverTheme;
+  if (!server) return;
+  if (_vjhReadStored() !== server) {
+    _vjhApplyTheme(server);
+    _vjhWriteStored(server);
+  }
+}
 
 /* ── Public API ─────────────────────────────────────────────────────────── */
 function vjhSetTheme(id) {
-  document.documentElement.setAttribute('data-theme', id);
-  document.documentElement.setAttribute('data-scheme', VJH_DARK_THEMES.indexOf(id) >= 0 ? 'dark' : 'light');
-  localStorage.setItem('vjh-theme', id);
+  _vjhApplyTheme(id);
+  _vjhWriteStored(id);
+  document.documentElement.dataset.serverTheme = id;
   // Recompute on-accent after CSS vars have updated (next microtask)
   requestAnimationFrame(_vjhApplyOnAccent);
   _vjhUpdateSwatchStates(id);
@@ -76,7 +106,7 @@ function vjhTogglePicker() {
   if (!p) return;
   var open = p.style.display === 'block';
   p.style.display = open ? 'none' : 'block';
-  if (!open) _vjhUpdateSwatchStates(localStorage.getItem('vjh-theme') || 'midnight');
+  if (!open) _vjhUpdateSwatchStates(_vjhCurrentTheme());
 }
 
 function _vjhUpdateSwatchStates(activeId) {
@@ -90,13 +120,15 @@ function _vjhUpdateSwatchStates(activeId) {
 
 /* ── Build swatch grid once DOM is ready ────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', function () {
+  // The saved setting beats whatever this browser remembered
+  _vjhReconcileTheme();
   // Compute and apply on-accent now that CSS has loaded
   _vjhApplyOnAccent();
 
   var container = document.getElementById('vjh-swatches');
   if (!container) return;
 
-  var active = localStorage.getItem('vjh-theme') || 'midnight';
+  var active = _vjhCurrentTheme();
 
   function addGroupLabel(text) {
     var el = document.createElement('div');
