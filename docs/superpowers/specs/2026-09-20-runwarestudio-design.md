@@ -187,6 +187,9 @@ UI: Settings → Backups: Create (checkboxes db/uploads/outputs), list with size
 
 ## UI design (Jinja2 + HTMX + Alpine, Pico CSS, dark default)
 
+**Theme requirement (user, 2026-09-20)**: modern look with *colour binding* like the ScenePlay_Flask project: CSS design tokens on `:root` (background, surface, text, accent, border, radius, shadow), a user-selectable palette/accent stored as the `ui.theme`/`ui.accent` settings and applied via `data-theme`/`data-accent` attributes on `<html>` before first paint, mirrored for light and dark. Ported from ScenePlay_Flask's stylesheet and theme JS (see Phase 1 Task 12).
+
+
 Vendored under `runwarestudio/web/static/vendor/`: htmx 2.0.x, Alpine 3.x (+ focus plugin), Pico CSS 2.x; `css/app.css` (≤300 lines), `js/app.js` (composePrompt, generateForm, restartWatcher, dropzone, htmx error→toast). Icons: `icon.ico`, `icon.png`, `favicon.svg`. No CDN.
 
 Conventions: pages extend `base.html`; partials start with `_` and are included on first paint and returned by HTMX later (one source of truth). 422 re-renders the partial with inline errors (`HX-Retarget` when needed); other errors → JSON `{"error"}` → toast. Any response may append an OOB toast. `HX-Trigger: jobs-changed` after job create/cancel/retry.
@@ -231,6 +234,7 @@ CLI (`runwarestudio` console script): `serve [--port] [--open|--no-browser]`, `m
 - **Install choices (added 2026-09-20)**: the installer asks two plain yes/no questions: (1) "Start RunwareStudio automatically when you log in (run as a service)?" and (2) "Create a desktop link?". Either, both or neither. Service = Linux `~/.config/systemd/user/runwarestudio.service` (`systemctl --user enable --now`), macOS `~/Library/LaunchAgents/com.yllonnoce.runwarestudio.plist` (`launchctl load`), Windows `schtasks /Create /SC ONLOGON /TN RunwareStudio /TR "<home>\start.bat --no-browser"` (no PowerShell). The choice is written to `data/install.json` so the uninstaller knows exactly what to remove. Service mode runs `start.sh --no-browser` / `start.bat --no-browser`; the desktop link opens the browser.
 - **Simplicity rule (user, 2026-09-20)**: installation files and their descriptions must be very simple: one obvious path per OS, short scripts with plain-English comments, README install section as 3-5 numbered steps.
 - **Uninstall** removes the service (disable + delete unit/plist/task), the desktop link, `.venv`, and `data/install.json`; keeps `data/` unless the user opts in.
+- **macOS notes (added 2026-09-20)**: Apple TN3179 states the "Local Network" privacy permission covers only broadcast-capable interfaces (Wi-Fi/Ethernet), never loopback, and command-line tools started from Terminal are exempt. So the app always opens and prints `http://127.0.0.1:<port>/` (never `localhost`, which Safari may resolve to `::1` while uvicorn listens on IPv4). `runwarestudio doctor` on macOS prints: the 127.0.0.1 note; "if macOS asks to allow Local Network access: System Settings > Privacy & Security > Local Network"; and the Gatekeeper step for a downloaded launcher (right-click > Open once, or `xattr -d com.apple.quarantine <file>`). The README macOS section repeats these three lines.
 - Bootstrap docs in README: one-liners, SmartScreen "Run anyway" note, Gatekeeper right-click→Open note, OneDrive Desktop note.
 
 ## How implementation will proceed
