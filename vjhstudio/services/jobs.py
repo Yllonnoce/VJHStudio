@@ -256,6 +256,8 @@ class JobRunner:
                 ev.set()
             task = build_image_task(plan.req, job_id, {}, plan.family, plan.negative)
             self._save_task(job_id, task, [])
+            # spec stage sequence: queued -> submitting -> rendering -> downloading -> done
+            self._stage(job_id, "rendering")
             t0 = time.monotonic()
             api_key = self.api_key_getter() or ""
             transport = self.transport_getter() or "rest"
@@ -348,6 +350,7 @@ class JobRunner:
         if live is None:
             return
         live.progress = max(live.progress, min(99, int(pct)))
+        live.stage = "rendering"
         self._write_live(job_id, force=False)
 
     def _stage(self, job_id: str, stage: str, progress: int | None = None) -> None:

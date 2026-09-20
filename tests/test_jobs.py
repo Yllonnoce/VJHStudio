@@ -312,3 +312,38 @@ def test_estimate_progress():
     assert jobs.estimate_progress(0, 10000) == 0
     assert 55 <= jobs.estimate_progress(10000, 10000) <= 65
     assert jobs.estimate_progress(10**9, 10000) == 90
+
+
+async def test_stage_sequence_includes_rendering(env):
+    """Spec: queued -> submitting -> rendering -> downloading -> done."""
+    paths, f, _ = env
+    holder: dict = {}
+    seen: list[str] = []
+
+    class Recording(FakeRunware):
+        async def run(self, params, options=None):
+            jid = holder["job_id"]
+            with db.session_scope(f) as s:
+                seen.append(s.get(models.Job, jid).status_text)
+            seen.append(holder["runner"].snapshot()[jid]["stage"])
+            return await FakeRunware.run(self, params, options)
+
+    fake = Recording({"run": [[{"imageURL": "http://x/1.png", "cost": 0.01}]]})
+    r = _runner(env, fake)
+    holder["runner"] = r
+    stages: list[str] = []
+    original = r._stage
+
+    def spy(job_id, stage, progress=None):
+        stages.append(stage)
+        original(job_id, stage, progress)
+
+    r._stage = spy
+    await r.start()
+    job = generate.enqueue_image(f, paths, _req(f), default_negative="")
+    holder["job_id"] = job.id
+    r.submit(job.id)
+    await r.wait_idle()
+    await r.stop()
+    assert seen == ["rendering", "rendering"]  # the row and the snapshot agree, mid-render
+    assert stages[0] == "rendering" and "downloading" in stages and "saving" in stages
