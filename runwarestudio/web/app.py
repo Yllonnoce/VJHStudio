@@ -15,13 +15,13 @@ log = logging.getLogger(__name__)
 
 
 def create_app(paths: config.Paths, client_factory=open_client, env: Mapping[str, str] | None = None,
-               port: int = config.DEFAULT_PORT) -> FastAPI:
+               port: int = config.DEFAULT_PORT, boot_info: _boot.BootInfo | None = None) -> FastAPI:
     env = os.environ if env is None else env
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         try:
-            app.state.boot = _boot.boot(paths)
+            app.state.boot = boot_info or _boot.boot(paths)
         except migrate.MigrationFailed as e:
             log.error(str(e))
             raise

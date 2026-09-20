@@ -41,6 +41,7 @@ def pick_port(host: str, port: int, tries: int = 10) -> tuple[int, bool]:
 
 def cmd_serve(args: argparse.Namespace) -> int:
     import uvicorn
+    from . import boot
     from .web.app import create_app
     paths = config.resolve_paths()
     host = args.host or config.env_str(os.environ, "RUNWARESTUDIO_HOST", config.DEFAULT_HOST)
@@ -55,18 +56,15 @@ def cmd_serve(args: argparse.Namespace) -> int:
     if port != want:
         print(f"Port {want} is busy; using {port}")
     try:
-        app = create_app(paths, port=port)
+        info = boot.boot(paths)
     except migrate.MigrationFailed as e:
         print(str(e), file=sys.stderr)
         return config.MIGRATION_FAIL_EXIT_CODE
+    app = create_app(paths, port=port, boot_info=info)
     if args.open:
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     print(f"RunwareStudio {__version__} on {url}  (data: {paths.data})")
-    try:
-        uvicorn.run(app, host=host, port=port, log_level=os.environ.get("RUNWARESTUDIO_LOG_LEVEL", "info").lower())
-    except migrate.MigrationFailed as e:  # raised from lifespan
-        print(str(e), file=sys.stderr)
-        return config.MIGRATION_FAIL_EXIT_CODE
+    uvicorn.run(app, host=host, port=port, log_level=os.environ.get("RUNWARESTUDIO_LOG_LEVEL", "info").lower())
     return 0
 
 
@@ -91,6 +89,7 @@ def cmd_version(_args: argparse.Namespace) -> int:
 
 def cmd_doctor(_args: argparse.Namespace) -> int:
     paths = config.resolve_paths()
+    port = config.env_int(os.environ, "RUNWARESTUDIO_PORT", config.DEFAULT_PORT)
     print(f"version    : {__version__}")
     print(f"python     : {sys.version.split()[0]} ({sys.executable})")
     print(f"data dir   : {paths.data} ({'exists' if paths.data.exists() else 'missing'})")
@@ -101,6 +100,13 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
     print(f"uv         : {os.environ.get('RUNWARESTUDIO_UV') or shutil.which('uv') or 'not found'}")
     print(f"git binary : {os.environ.get('RUNWARESTUDIO_GIT') or shutil.which('git') or 'not found'}")
     print(f"launcher   : {'yes' if os.environ.get('RUNWARESTUDIO_LAUNCHER') == '1' else 'no'}")
+    if sys.platform == "darwin":
+        print("macOS notes:")
+        print(f'  - Open the app at http://127.0.0.1:{port}/ (not "localhost": Safari may try IPv6 first).')
+        print('  - If macOS asks to allow "Local Network" access, allow it: '
+              "System Settings > Privacy & Security > Local Network.")
+        print("  - If a downloaded launcher will not open, right-click it and choose Open once, "
+              "or run: xattr -d com.apple.quarantine <file>")
     return 0
 
 
