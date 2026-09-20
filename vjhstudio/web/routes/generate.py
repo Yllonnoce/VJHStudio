@@ -192,6 +192,7 @@ def generate_page(request: Request, remix: str = "", prompt: str = ""):
                 int(values.get("number_results") or 1),
             ),
             "default_negative": settings_svc.get(s, "defaults.negative_prompt", app.state.env),
+            "no_text_tokens": prompts.NO_TEXT_NEGATIVE,
         }
     ctx.update(panel_ctx(request))
     ctx["oob"] = False  # the page already carries the header badge

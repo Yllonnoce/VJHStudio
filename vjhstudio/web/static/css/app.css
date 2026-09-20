@@ -141,7 +141,9 @@ tr.hidden-model{opacity:.55}
 .job-card{padding:.75rem 1rem;margin-bottom:.75rem}
 .job-card header{display:flex;flex-wrap:wrap;gap:.4rem;align-items:baseline;margin-bottom:.4rem}
 .job-card .job-title{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
-.job-card progress{width:100%;margin:.25rem 0}
+.job-card progress{width:100%;margin:.25rem 0;accent-color:var(--sp-accent)}
+.job-card progress::-webkit-progress-value{background:var(--sp-accent);transition:width 1s ease}
+.job-card progress::-moz-progress-bar{background:var(--sp-accent);transition:width 1s ease}
 .job-meta{display:flex;flex-wrap:wrap;gap:.75rem;margin:.25rem 0;font-size:.85rem}
 .job-meta .cost{margin-left:auto;font-variant-numeric:tabular-nums}
 .job-thumbs{display:flex;flex-wrap:wrap;gap:.4rem;margin:.4rem 0}

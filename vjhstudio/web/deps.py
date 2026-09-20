@@ -34,6 +34,7 @@ def render(request: Request, name: str, ctx: dict | None = None, status_code: in
         "has_api_key": app.state.api_key() is not None,
         "key_source": app.state.key_source(),
         "active_jobs": getattr(app.state, "active_jobs", _zero)(),
+        "notify_desktop": app.state.setting("ui.notify_desktop"),
     }
     base.update(ctx or {})
     return templates.TemplateResponse(request, name, base, status_code=status_code)

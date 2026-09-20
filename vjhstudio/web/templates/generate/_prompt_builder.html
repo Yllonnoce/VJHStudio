@@ -1,27 +1,29 @@
 {# The nine builder fields. The live preview is client-side (Alpine); the same
    composition runs server-side in services/prompts.py when the job is built. #}
-<section class="gen-col gen-prompt" x-data="generateForm()">
+<section class="gen-col gen-prompt" x-data="generateForm()"
+         data-default-negative="{{ default_negative|default('', true) }}"
+         data-no-text-tokens="{{ no_text_tokens|default('', true) }}">
   <h3>Prompt</h3>
-  <label>Subject<input type="text" name="subject" value="{{ form.get('subject', '') }}" placeholder="a red fox in a snowy forest"></label>
+  <label>Subject<input type="text" name="subject" x-model="fields.subject" value="{{ form.get('subject', '') }}" placeholder="a red fox in a snowy forest"></label>
   <div class="grid">
-    <label>Style<input type="text" name="style" value="{{ form.get('style', '') }}" placeholder="oil painting"></label>
-    <label>Mood<input type="text" name="mood" value="{{ form.get('mood', '') }}" placeholder="serene"></label>
+    <label>Style<input type="text" name="style" x-model="fields.style" value="{{ form.get('style', '') }}" placeholder="oil painting"></label>
+    <label>Mood<input type="text" name="mood" x-model="fields.mood" value="{{ form.get('mood', '') }}" placeholder="serene"></label>
   </div>
   <div class="grid">
-    <label>Lighting<input type="text" name="lighting" value="{{ form.get('lighting', '') }}" placeholder="golden hour"></label>
-    <label>Camera<input type="text" name="camera" value="{{ form.get('camera', '') }}" placeholder="85mm, shallow depth of field"></label>
+    <label>Lighting<input type="text" name="lighting" x-model="fields.lighting" value="{{ form.get('lighting', '') }}" placeholder="golden hour"></label>
+    <label>Camera<input type="text" name="camera" x-model="fields.camera" value="{{ form.get('camera', '') }}" placeholder="85mm, shallow depth of field"></label>
   </div>
   <div class="grid">
-    <label>Composition<input type="text" name="composition" value="{{ form.get('composition', '') }}" placeholder="rule of thirds"></label>
-    <label>Colour<input type="text" name="colour" value="{{ form.get('colour', '') }}" placeholder="muted earth tones"></label>
+    <label>Composition<input type="text" name="composition" x-model="fields.composition" value="{{ form.get('composition', '') }}" placeholder="rule of thirds"></label>
+    <label>Colour<input type="text" name="colour" x-model="fields.colour" value="{{ form.get('colour', '') }}" placeholder="muted earth tones"></label>
   </div>
-  <label>Extras<input type="text" name="extras" value="{{ form.get('extras', '') }}" placeholder="fine detail, sharp focus"></label>
-  <label>Negative<input type="text" name="negative" value="{{ form.get('negative', '') }}" placeholder="extra limbs, blurry"></label>
+  <label>Extras<input type="text" name="extras" x-model="fields.extras" value="{{ form.get('extras', '') }}" placeholder="fine detail, sharp focus"></label>
+  <label>Negative<input type="text" name="negative" x-model="fields.negative" value="{{ form.get('negative', '') }}" placeholder="extra limbs, blurry"></label>
 
   <fieldset>
     {# the hidden field carries the "off" a cleared checkbox never posts; the last value wins #}
-    <label><input type="hidden" name="no_text" value="off"><input type="checkbox" name="no_text" value="on" {% if form.get('no_text', True) %}checked{% endif %}> No text in image</label>
-    <label><input type="hidden" name="use_default_negative" value="off"><input type="checkbox" name="use_default_negative" value="on" {% if form.get('use_default_negative', True) %}checked{% endif %}> Use default negative</label>
+    <label><input type="hidden" name="no_text" value="off"><input type="checkbox" name="no_text" value="on" x-model="noText" {% if form.get('no_text', True) %}checked{% endif %}> No text in image</label>
+    <label><input type="hidden" name="use_default_negative" value="off"><input type="checkbox" name="use_default_negative" value="on" x-model="useDefaultNegative" {% if form.get('use_default_negative', True) %}checked{% endif %}> Use default negative</label>
   </fieldset>
 
   <div class="prompt-preview">

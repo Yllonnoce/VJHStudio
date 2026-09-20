@@ -159,6 +159,15 @@ how to get a key if you do not have one yet.
 
 If the test worked, your balance appears at the top of the page.
 
+## Make your first image
+
+1. Click **Generate** in the top menu.
+2. Type a few words into **Subject** — for example "a red fox in a snowy forest".
+3. Pick a model from the dropdown if you want something other than the default, then click
+   **Generate**.
+4. Watch the progress bar on the right; when it finishes, your image appears there and in the
+   **Gallery**.
+
 ## Starting it again
 
 You do not have to repeat the install. To use the app again:
