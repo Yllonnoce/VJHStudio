@@ -1,0 +1,22 @@
+{% if toast %}{% with text=toast %}{% include "partials/_toast.html" %}{% endwith %}{% endif %}
+<tr id="project-{{ p.id }}" class="{{ 'archived' if p.is_archived else '' }}">
+  <td>
+    <form hx-post="/projects/{{ p.id }}" hx-target="closest tr" hx-swap="outerHTML" class="project-rename">
+      <input type="text" name="name" value="{{ p.name }}" aria-label="Project name">
+      <button type="submit" class="secondary outline">Rename</button>
+    </form>
+  </td>
+  <td><code>{{ p.slug }}</code>{% if p.is_archived %} <span class="chip">archived</span>{% endif %}</td>
+  <td>{{ totals.outputs }}</td>
+  <td>${{ '%.4f'|format(totals.cost) }}</td>
+  <td>
+    <code id="folder-{{ p.id }}">{{ folder }}</code>
+    <button type="button" class="secondary outline" title="Copy folder path"
+            onclick="navigator.clipboard.writeText(document.getElementById('folder-{{ p.id }}').textContent)">Copy</button>
+  </td>
+  <td>
+    <button type="button" class="secondary outline" hx-post="/projects/{{ p.id }}/archive"
+            hx-vals='{"show_archived": {{ 1 if show_archived else 0 }}}'
+            hx-target="closest tr" hx-swap="outerHTML">{{ 'Unarchive' if p.is_archived else 'Archive' }}</button>
+  </td>
+</tr>

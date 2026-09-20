@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Projects · VJHStudio{% endblock %}
+{% block content %}
+<h1>Projects</h1>
+<table id="projects-table">
+  <thead><tr><th>Name</th><th>Slug</th><th>Outputs</th><th>Cost</th><th>Folder</th><th></th></tr></thead>
+  <tbody id="projects-body">
+    {% for row in rows %}
+      {% with p=row.p, totals=row.totals, folder=row.folder, show_archived=row.show_archived %}
+        {% include "projects/_row.html" %}
+      {% endwith %}
+    {% else %}
+      <tr><td colspan="6">No projects yet.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p><a href="/projects?show_archived={{ 0 if show_archived else 1 }}">{{ 'Hide archived projects' if show_archived else 'Show archived projects' }}</a></p>
+
+<section class="gen-card">
+  <h2>New project</h2>
+  <form hx-post="/projects" hx-target="#projects-body" hx-swap="afterbegin">
+    <input type="text" name="name" placeholder="Project name" aria-label="Project name" required>
+    <input type="text" name="description" placeholder="Description (optional)" aria-label="Description">
+    <button type="submit">Create</button>
+  </form>
+</section>
+{% endblock %}

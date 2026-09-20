@@ -1,4 +1,6 @@
 <form id="general-form" hx-post="/settings" hx-swap="outerHTML" hx-target="this">
+  {# lets the server reset an absent bool field to false instead of leaving it stale #}
+  <input type="hidden" name="_form" value="general">
   {% for key, sp in spec.items() %}
     <label>{{ key }}
       {% if sp.choices %}
@@ -7,6 +9,9 @@
         {# the hidden field carries the "off" a cleared checkbox never posts #}
         <input type="hidden" name="{{ key }}" value="off">
         <input type="checkbox" name="{{ key }}" value="on" {% if values[key] %}checked{% endif %}>
+        {% if key == "ui.notify_desktop" %}
+          <button type="button" class="secondary outline" onclick="vjhTestNotification()">Test notification</button>
+        {% endif %}
       {% elif key in ("defaults.image_model", "defaults.video_model", "defaults.polish_model") %}
         {% set kind = {"defaults.image_model": "image", "defaults.video_model": "video", "defaults.polish_model": "text"}[key] %}
         {% with name=key, options=model_options[kind], selected=values[key], allow_empty=(key == "defaults.polish_model") %}{% include "catalog/_model_select.html" %}{% endwith %}

@@ -64,6 +64,13 @@ def settings_page(request: Request):
 @router.post("/settings")
 def save_settings(request: Request, form: deps.Form):
     values = {k: str(v) for k, v in form.items() if k in settings_svc.SPEC}
+    if str(form.get("_form", "")) == "general":
+        # An unchecked checkbox posts nothing at all. The template already sends a
+        # hidden "off" companion for each bool field, so a real browser submit never
+        # hits this; it only matters for a partial post that omits the field entirely.
+        for key, sp in settings_svc.SPEC.items():
+            if sp.type is bool and key not in values:
+                values[key] = "false"
     try:
         with db.session_scope(request.app.state.boot.session_factory) as s:
             settings_svc.set_many(s, values)

@@ -1,0 +1,2 @@
+{% for c in cards %}{% with o=c.o, thumb=c.thumb, url=c.url %}{% include "gallery/_card.html" %}{% endwith %}{% endfor %}
+{% include "gallery/_load_more.html" %}

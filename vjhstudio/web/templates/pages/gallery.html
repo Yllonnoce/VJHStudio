@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Gallery · VJHStudio{% endblock %}
+{% block content %}
+<h1>Gallery</h1>
+<form id="gallery-filters" class="gallery-filters-grid" hx-get="/hx/gallery" hx-target="#gallery-grid"
+      hx-swap="outerHTML" hx-trigger="change, submit, keyup changed delay:400ms from:[name=q]" hx-push-url="true">
+  <label>Project
+    <select name="project_id">
+      <option value="">All projects</option>
+      {% for p in projects %}<option value="{{ p.id }}" {% if filters.project_id == p.id %}selected{% endif %}>{{ p.name }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Kind
+    <select name="kind">
+      <option value="">All kinds</option>
+      <option value="image" {% if filters.kind == 'image' %}selected{% endif %}>Image</option>
+      <option value="video" {% if filters.kind == 'video' %}selected{% endif %}>Video</option>
+    </select>
+  </label>
+  <label>Model
+    <select name="model">
+      <option value="">All models</option>
+      {% for m in models %}<option value="{{ m.air }}" {% if filters.model == m.air %}selected{% endif %}>{{ labels[m.air] }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>From <input type="date" name="date_from" value="{{ filters.date_from or '' }}"></label>
+  <label>To <input type="date" name="date_to" value="{{ filters.date_to or '' }}"></label>
+  <label class="gallery-fav-filter">
+    <input type="checkbox" name="favourite" value="1" {% if filters.favourite %}checked{% endif %}> Favourites only
+  </label>
+  <label>Search <input type="search" name="q" value="{{ filters.q or '' }}" placeholder="prompt or filename"></label>
+</form>
+
+{% include "gallery/_grid.html" %}
+
+<dialog id="lightbox">
+  <button type="button" class="secondary outline lightbox-close" aria-label="Close"
+          onclick="document.getElementById('lightbox').close()">&times;</button>
+  <div id="lightbox-body"></div>
+</dialog>
+{% endblock %}

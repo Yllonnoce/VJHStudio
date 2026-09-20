@@ -22,9 +22,11 @@ from .csrf import CrossSiteBlockMiddleware
 from .deps import STATIC_DIR
 from .routes import catalog as catalog_routes
 from .routes import files as files_routes
+from .routes import gallery as gallery_routes
 from .routes import generate as generate_routes
 from .routes import jobs as jobs_routes
 from .routes import pages, system
+from .routes import projects as projects_routes
 from .routes import settings as settings_routes
 
 log = logging.getLogger(__name__)
@@ -122,4 +124,6 @@ def create_app(
     app.include_router(generate_routes.router)
     app.include_router(jobs_routes.router)
     app.include_router(files_routes.router)
+    app.include_router(gallery_routes.router)
+    app.include_router(projects_routes.router)
     return app

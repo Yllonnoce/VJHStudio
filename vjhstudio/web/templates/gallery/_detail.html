@@ -1,0 +1,26 @@
+<div class="lightbox-detail">
+  <img src="{{ url }}" alt="{{ o.prompt_text|truncate(80) }}" class="lightbox-image">
+  <h3>{{ o.prompt_text }}</h3>
+  {% if o.negative_prompt %}<p class="muted">Negative: {{ o.negative_prompt }}</p>{% endif %}
+  <table class="params-table">
+    <tbody>
+      <tr><th>Model</th><td>{{ model_name }}</td></tr>
+      <tr><th>Size</th><td>{{ o.width }}&times;{{ o.height }}</td></tr>
+      <tr><th>Seed</th><td>{{ o.seed if o.seed is not none else '—' }}</td></tr>
+      <tr><th>Cost</th><td>{% if o.cost %}${{ '%.4f'|format(o.cost) }}{% else %}n/a{% endif %}</td></tr>
+      <tr><th>Job</th><td><a href="/api/jobs/{{ o.job_id }}" target="_blank" rel="noopener">{{ o.job_id }}</a></td></tr>
+      <tr><th>Path</th><td><code id="output-path-{{ o.id }}">{{ o.rel_path }}</code></td></tr>
+    </tbody>
+  </table>
+  <footer class="lightbox-actions">
+    <a role="button" class="secondary outline" href="/outputs/{{ o.id }}/download">Download</a>
+    <button type="button" class="secondary outline" hx-post="/outputs/{{ o.id }}/favourite"
+            hx-target="#output-{{ o.id }}" hx-swap="outerHTML">
+      {{ '★ Favourited' if o.is_favourite else '☆ Favourite' }}
+    </button>
+    <a role="button" class="secondary outline" href="/generate?remix={{ o.id }}">Remix</a>
+    <button type="button" class="secondary outline"
+            onclick="navigator.clipboard.writeText(document.getElementById('output-path-{{ o.id }}').textContent)">Copy path</button>
+    <button type="button" class="secondary outline" hx-delete="/outputs/{{ o.id }}" hx-confirm="Delete this output?">Delete</button>
+  </footer>
+</div>

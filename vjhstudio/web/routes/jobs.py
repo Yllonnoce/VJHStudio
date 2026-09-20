@@ -22,6 +22,7 @@ from ...services import costs, generate
 from ...services import jobs as jobs_svc
 from ...services import settings as settings_svc
 from .. import deps
+from ..urls import output_url, thumb_url
 
 router = APIRouter()
 
@@ -45,12 +46,11 @@ def _output_views(session: Session, job_ids: list[str], slugs: dict[int, str]) -
     ).scalars()
     for o in rows:
         slug = slugs.get(o.project_id, "")
-        thumb = o.thumb_rel_path.rsplit("/", 1)[-1] if o.thumb_rel_path else None
         out.setdefault(o.job_id, []).append(
             {
                 "id": o.id,
-                "url": f"/files/outputs/{slug}/{o.filename}",
-                "thumb_url": f"/files/thumbs/{thumb}" if thumb else None,
+                "url": output_url(slug, o.filename),
+                "thumb_url": thumb_url(o.thumb_rel_path),
                 "seed": o.seed,
                 "width": o.width,
                 "height": o.height,
