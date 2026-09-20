@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from . import __version__, config, db
 from .models import Job, JobStatus, Project, utcnow
-from .services import backup, gitinfo, meta, migrate
+from .services import backup, catalog, gitinfo, meta, migrate
 from .services.gitinfo import CommitInfo
 
 log = logging.getLogger(__name__)
@@ -73,6 +73,10 @@ def boot(paths: config.Paths) -> BootInfo:
             s.add(Project(name="Default", slug="default"))
         (paths.outputs / "default").mkdir(parents=True, exist_ok=True)
         orphaned, requeued = orphan_jobs(s)
+        try:
+            catalog.seed_curated(s)
+        except Exception as e:  # noqa: BLE001 - a seed failure must never block boot
+            log.warning("catalog seed skipped: %s", e)
     return BootInfo(
         paths,
         engine,

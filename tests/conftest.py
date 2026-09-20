@@ -18,7 +18,7 @@ def fake():
 
 @pytest.fixture
 def app(paths, fake):
-    return create_app(paths, client_factory=fake_factory(fake), env={})
+    return create_app(paths, client_factory=fake_factory(fake), env={}, auto_refresh=False)
 
 
 @pytest.fixture

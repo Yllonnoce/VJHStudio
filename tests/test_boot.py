@@ -76,3 +76,9 @@ def test_outputs_default_ensured_on_every_boot(paths):
     assert not default_dir.exists()
     boot.boot(paths)
     assert default_dir.is_dir()
+
+
+def test_boot_seeds_catalog(paths):
+    info = boot.boot(paths)
+    with db.session_scope(info.session_factory) as s:
+        assert s.query(models.CatalogModel).count() >= 10

@@ -1,8 +1,8 @@
 .venv/
-data/
+/data/
 __pycache__/
 *.pyc
 *.log
 .pytest_cache/
 .ruff_cache/
-data-debug/
+/data-debug/

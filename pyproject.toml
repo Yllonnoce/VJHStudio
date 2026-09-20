@@ -33,6 +33,7 @@ path = "vjhstudio/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["vjhstudio"]
+artifacts = ["*.json"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -41,6 +42,7 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+exclude = ["docs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "DTZ", "S"]
