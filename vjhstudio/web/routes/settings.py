@@ -71,6 +71,9 @@ def save_settings(request: Request, form: deps.Form):
         return deps.render(
             request, "settings/_general_form.html", _general_ctx(request, error=str(e)), 422
         )
+    runner = getattr(request.app.state, "runner", None)
+    if runner is not None and "jobs.concurrency" in values:
+        runner.set_concurrency(int(values["jobs.concurrency"]))
     return deps.render(request, "settings/_general_form.html", _general_ctx(request, saved=True))
 
 

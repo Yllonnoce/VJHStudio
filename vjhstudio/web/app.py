@@ -14,6 +14,7 @@ from .. import config, db, secrets
 from ..runware.catalog_api import ContentAPI
 from ..runware.client import open_client
 from ..services import catalog, migrate
+from ..services import jobs as jobs_svc
 from ..services import settings as settings_svc
 from .csrf import CrossSiteBlockMiddleware
 from .deps import STATIC_DIR
@@ -31,6 +32,7 @@ def create_app(
     port: int = config.DEFAULT_PORT,
     boot_info: _boot.BootInfo | None = None,
     auto_refresh: bool = True,
+    download_transport=None,
 ) -> FastAPI:
     env = os.environ if env is None else env
 
@@ -60,10 +62,21 @@ def create_app(
             except Exception as e:  # noqa: BLE001 - a background refresh must never crash the app
                 log.warning("catalog refresh skipped: %s", e)
 
+        app.state.runner = jobs_svc.JobRunner(
+            app.state.boot.session_factory,
+            paths,
+            client_factory=app.state.client_factory,
+            api_key_getter=app.state.api_key,
+            transport_getter=lambda: app.state.setting("runware.transport"),
+            concurrency=app.state.setting("jobs.concurrency"),
+            download_transport=app.state.download_transport,
+        )
+        await app.state.runner.start(requeue=app.state.boot.requeued_jobs)
         task = asyncio.create_task(_maybe_refresh()) if app.state.auto_refresh else None
         yield
         if task:
             task.cancel()
+        await app.state.runner.stop()
         app.state.boot.engine.dispose()
 
     app = FastAPI(title="VJHStudio", lifespan=lifespan, docs_url=None, redoc_url=None)
@@ -72,6 +85,8 @@ def create_app(
     app.state.env = env
     app.state.port = port
     app.state.auto_refresh = auto_refresh
+    app.state.download_transport = download_transport
+    app.state.runner = None
     app.state.api_key = lambda: secrets.effective_api_key(paths, env)
     app.state.key_source = lambda: secrets.key_source(paths, env)
 

@@ -52,6 +52,7 @@ SPEC: dict[str, Spec] = {
             "steel",
         ),
     ),
+    "ui.notify_desktop": Spec(bool, False),
     "uploads.max_mb": Spec(int, 200),
 }
 

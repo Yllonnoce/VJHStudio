@@ -23,6 +23,7 @@ class Paths:
     backups: Path
     uploads: Path
     outputs: Path
+    thumbs: Path
     secrets: Path
     api_key_file: Path
 
@@ -38,13 +39,21 @@ def resolve_paths(env: Mapping[str, str] | None = None) -> Paths:
         backups=data / "backups",
         uploads=data / "uploads",
         outputs=data / "outputs",
+        thumbs=data / "thumbs",
         secrets=secrets,
         api_key_file=secrets / "api_key",
     )
 
 
 def ensure_dirs(paths: Paths) -> None:
-    for d in (paths.data, paths.backups, paths.uploads, paths.outputs, paths.secrets):
+    for d in (
+        paths.data,
+        paths.backups,
+        paths.uploads,
+        paths.outputs,
+        paths.thumbs,
+        paths.secrets,
+    ):
         d.mkdir(parents=True, exist_ok=True)
     if sys.platform != "win32":
         os.chmod(paths.secrets, 0o700)

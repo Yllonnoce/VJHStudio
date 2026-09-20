@@ -17,6 +17,7 @@ class Output(Base):
     filename: Mapped[str] = mapped_column(String(80), nullable=False)
     rel_path: Mapped[str] = mapped_column(String(300), nullable=False)
     sidecar_rel_path: Mapped[str] = mapped_column(String(300), nullable=False)
+    thumb_rel_path: Mapped[str | None] = mapped_column(String(300))
     model_air: Mapped[str] = mapped_column(String(120), nullable=False)
     prompt_text: Mapped[str] = mapped_column(Text, nullable=False)
     negative_prompt: Mapped[str] = mapped_column(Text, default="", nullable=False)

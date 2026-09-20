@@ -3,6 +3,10 @@
     <label>{{ key }}
       {% if sp.choices %}
         <select name="{{ key }}">{% for c in sp.choices %}<option value="{{ c }}" {% if values[key] == c %}selected{% endif %}>{{ c }}</option>{% endfor %}</select>
+      {% elif sp.type.__name__ == 'bool' %}
+        {# the hidden field carries the "off" a cleared checkbox never posts #}
+        <input type="hidden" name="{{ key }}" value="off">
+        <input type="checkbox" name="{{ key }}" value="on" {% if values[key] %}checked{% endif %}>
       {% elif key in ("defaults.image_model", "defaults.video_model", "defaults.polish_model") %}
         {% set kind = {"defaults.image_model": "image", "defaults.video_model": "video", "defaults.polish_model": "text"}[key] %}
         {% with name=key, options=model_options[kind], selected=values[key], allow_empty=(key == "defaults.polish_model") %}{% include "catalog/_model_select.html" %}{% endwith %}
