@@ -70,6 +70,7 @@ class Prepared:
     width: int | None
     height: int | None
     params: dict
+    duration_s: float | None = None
 
 
 def meta_for(session: Session, job: Job) -> OutputMeta:
@@ -97,9 +98,15 @@ def prepare(
     sidecar_extra: dict | None = None,
     *,
     root: Path,
+    dims: tuple[int | None, int | None] | None = None,
+    duration_s: float | None = None,
+    thumbnail: bool = True,
 ) -> list[Prepared]:
     """Sidecars, dimensions and thumbnails. Deliberately does no DB work: JPEG encoding
-    must not happen inside a write transaction."""
+    must not happen inside a write transaction.
+
+    ``dims`` supplies width/height for files Pillow cannot open (video), and
+    ``thumbnail=False`` skips the still that only makes sense for an image."""
     out: list[Prepared] = []
     for f in saved:
         item = f.item
@@ -119,18 +126,22 @@ def prepare(
             **(sidecar_extra or {}),
         }
         side = write_sidecar(f.path, sidecar)
-        w, h = _dims(f.path)
-        thumb = paths.thumbs / f"{f.path.stem}.jpg"
-        made = make_thumbnail(f.path, thumb)
+        w, h = dims if dims is not None else _dims(f.path)
+        thumb_rel: str | None = None
+        if thumbnail:
+            thumb = paths.thumbs / f"{f.path.stem}.jpg"
+            if make_thumbnail(f.path, thumb) is not None:
+                thumb_rel = thumb.relative_to(paths.data).as_posix()
         out.append(
             Prepared(
                 saved=f,
                 rel_path=f.path.relative_to(root).as_posix(),
                 sidecar_rel_path=side.relative_to(root).as_posix(),
-                thumb_rel_path=thumb.relative_to(paths.data).as_posix() if made else None,
+                thumb_rel_path=thumb_rel,
                 width=w,
                 height=h,
                 params=params,
+                duration_s=duration_s,
             )
         )
     return out
@@ -154,6 +165,7 @@ def insert(session: Session, meta: OutputMeta, prepared: list[Prepared]) -> list
             seed=p.saved.item.seed,
             width=p.width,
             height=p.height,
+            duration_s=p.duration_s,
             cost=p.saved.item.cost,
             source_url=p.saved.url,
             file_size=p.saved.size,

@@ -1,4 +1,4 @@
-"""Turn a validated ImageRequest into a queued Job row. No network, no runner."""
+"""Turn a validated ImageRequest/VideoRequest into a queued Job row. No network, no runner."""
 
 from __future__ import annotations
 
@@ -10,19 +10,28 @@ from .. import db
 from ..config import Paths
 from ..models import Job, JobStatus, Project
 from ..schemas.image import ImageRequest
+from ..schemas.video import VideoRequest
 from . import catalog, costs, projects, prompts
 
 TITLE_MAX = 80
 
 
-def title_for(req: ImageRequest) -> str:
+def title_for(req: ImageRequest | VideoRequest) -> str:
     return (req.title or prompts.compose(req.form))[:TITLE_MAX].strip() or "Untitled"
 
 
-def _require_image_model(session: Session, air: str) -> None:
+def _require_kind(session: Session, air: str, kind: str) -> None:
     m = catalog.get_by_air(session, air)
-    if m is None or m.kind != "image":
-        raise ValueError(f"{air} is not an image model")
+    if m is None or m.kind != kind:
+        article = "an" if kind[0] in "aeiou" else "a"
+        raise ValueError(f"{air} is not {article} {kind} model")
+
+
+def _require_project(session: Session, project_id: int) -> Project:
+    project = session.get(Project, project_id)
+    if project is None:
+        raise ValueError(f"project {project_id} does not exist")
+    return project
 
 
 def enqueue_image(
@@ -33,10 +42,8 @@ def enqueue_image(
     default_negative: str,
 ) -> Job:
     with db.session_scope(session_factory) as s:
-        _require_image_model(s, req.model)
-        project = s.get(Project, req.project_id)
-        if project is None:
-            raise ValueError(f"project {req.project_id} does not exist")
+        _require_kind(s, req.model, "image")
+        project = _require_project(s, req.project_id)
         negative = prompts.build_negative(req.form, default_negative, req.form.no_text)
         job = Job(
             id=str(uuid.uuid4()),
@@ -56,3 +63,28 @@ def enqueue_image(
             parents=True, exist_ok=True
         )
     return job  # detached but fully loaded: sessions are expire_on_commit=False
+
+
+def enqueue_video(session_factory: sessionmaker[Session], paths: Paths, req: VideoRequest) -> Job:
+    """Video models take no negative prompt, so ``request_json`` is the request alone."""
+    with db.session_scope(session_factory) as s:
+        _require_kind(s, req.model, "video")
+        project = _require_project(s, req.project_id)
+        job = Job(
+            id=str(uuid.uuid4()),
+            project_id=project.id,
+            prompt_id=req.prompt_id,
+            kind="video",
+            status=JobStatus.queued.value,
+            model_air=req.model,
+            request_json=req.model_dump(),
+            title=title_for(req),
+            expected_ms=costs.expected_ms(s, req.model),
+            status_text="queued",
+        )
+        s.add(job)
+        s.flush()
+        projects.dir_for(paths, project.slug, projects.root_override(s)).mkdir(
+            parents=True, exist_ok=True
+        )
+    return job

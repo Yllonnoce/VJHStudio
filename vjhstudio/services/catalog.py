@@ -85,6 +85,37 @@ def label(model: CatalogModel) -> str:
     return f"{star}{model.name} — ${model.price_in:.2f} in / ${model.price_out:.2f} out per 1M"
 
 
+def view(m: CatalogModel) -> dict:
+    """The plain-dict form of a catalog row, as ``/api/models`` serves it. Also what the
+    task builders read (``tiers.video``, ``provider_settings_schema``, ``capabilities``),
+    so the runner never hands an ORM object to ``runware/``."""
+    return {
+        "id": m.id,
+        "air": m.air,
+        "name": m.name,
+        "kind": m.kind,
+        "label": label(m),
+        "price_primary": m.price_primary,
+        "price_unit": m.price_unit,
+        "price_in": m.price_in,
+        "price_out": m.price_out,
+        "family": family(m),
+        "is_favourite": m.is_favourite,
+        "is_hidden": m.is_hidden,
+        "capabilities": m.capabilities_json or [],
+        "tiers": m.price_tiers_json or {},
+        "source": m.source,
+        "creator": m.creator,
+        "provider_settings_schema": m.provider_settings_schema or [],
+        "default_width": m.default_width,
+        "default_height": m.default_height,
+        "default_steps": m.default_steps,
+        "default_cfg": m.default_cfg,
+        "slug": m.slug,
+        "architecture": m.architecture,
+    }
+
+
 def get_by_air(session: Session, air: str) -> CatalogModel | None:
     return session.execute(select(CatalogModel).where(CatalogModel.air == air)).scalar_one_or_none()
 

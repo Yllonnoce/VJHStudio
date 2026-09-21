@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from ..schemas.image import ImageRequest, PromptForm
+from ..schemas.video import VideoRequest
 
 FIELD_ORDER = ("subject", "style", "mood", "lighting", "camera", "composition", "colour", "extras")
 PROMPT_MAX = 2900
@@ -63,6 +64,6 @@ def apply_no_text(prompt: str) -> str:
     return cap(prompt, NO_TEXT_SUFFIX)
 
 
-def final_prompt(req: ImageRequest) -> str:
+def final_prompt(req: ImageRequest | VideoRequest) -> str:
     base = clean(req.final_prompt) if req.final_prompt else compose(req.form)
     return cap(base, NO_TEXT_SUFFIX if req.form.no_text else "")

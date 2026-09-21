@@ -23,8 +23,9 @@ from ..runware import download
 from ..runware import runner as policy
 from ..runware.download import DownloadError
 from ..runware.errors import classify
-from ..runware.tasks import build_image_task
+from ..runware.tasks import build_image_task, build_video_task, resolution_wh
 from ..schemas.image import ImageRequest
+from ..schemas.video import VideoRequest
 from . import assets, catalog, costs, projects
 from . import outputs as outputs_svc
 from . import settings as settings_svc
@@ -43,16 +44,22 @@ def estimate_progress(elapsed_ms: float, expected_ms: int) -> int:
 @dataclass
 class _Plan:
     job_id: str
+    kind: str
     project_id: int
     slug: str
     model_air: str
-    req: ImageRequest
+    req: ImageRequest | VideoRequest
     negative: str
     family: str
     timeout_s: float
     expected_ms: int
     outputs_dir: str
     asset_ids: list[int]
+    model_row: dict = field(default_factory=dict)
+
+    @property
+    def is_video(self) -> bool:
+        return self.kind == "video"
 
 
 @dataclass
@@ -63,6 +70,52 @@ class _Live:
     started_at: object = None
     expected_ms: int = 20000
     t0: float = field(default_factory=time.monotonic)
+
+
+def _asset_ids(req: ImageRequest | VideoRequest) -> list[int]:
+    """Every asset the task will need a RunWare mediaUUID for, de-duplicated, in order."""
+    singles = (
+        (req.first_frame_asset_id, req.last_frame_asset_id)
+        if isinstance(req, VideoRequest)
+        else (req.seed_image_asset_id,)
+    )
+    out: list[int] = []
+    for asset_id in (*singles, *req.reference_asset_ids):
+        if asset_id is not None and asset_id not in out:
+            out.append(asset_id)
+    return out
+
+
+def _build_task(plan: _Plan, job_id: str, media: dict[int, str]) -> dict:
+    if plan.is_video:
+        return build_video_task(plan.req, job_id, media, plan.model_row)
+    return build_image_task(plan.req, job_id, media, plan.family, plan.negative)
+
+
+def _params(req: ImageRequest | VideoRequest, dims: tuple[int, int] | None) -> dict:
+    """The knobs recorded on the output row and in its sidecar."""
+    if isinstance(req, VideoRequest):
+        width, height = dims if dims is not None else (None, None)
+        return {
+            "width": width,
+            "height": height,
+            "resolution": req.resolution,
+            "duration": req.duration,
+            "fps": req.fps,
+            "seed": req.seed,
+            "output_format": req.output_format,
+            "provider_settings": dict(req.provider_settings or {}),
+        }
+    return {
+        "width": req.width,
+        "height": req.height,
+        "steps": req.steps,
+        "cfg": req.cfg_scale,
+        "seed": req.seed,
+        "strength": req.strength,
+        "output_format": req.output_format,
+        "number_results": req.number_results,
+    }
 
 
 class JobRunner:
@@ -227,29 +280,28 @@ class JobRunner:
             job.status_text = "submitting"
             job.error_code = None
             job.error_message = None
+            kind = job.kind or "image"
             data = dict(job.request_json or {})
             negative = str(data.pop("negative", "") or "")
-            req = ImageRequest(**data)
+            req: ImageRequest | VideoRequest = (
+                VideoRequest(**data) if kind == "video" else ImageRequest(**data)
+            )
             model = catalog.get_by_air(s, job.model_air)
             project = projects.get(s, job.project_id)
-            asset_ids: list[int] = []
-            if req.seed_image_asset_id is not None:
-                asset_ids.append(req.seed_image_asset_id)
-            for rid in req.reference_asset_ids:
-                if rid not in asset_ids:
-                    asset_ids.append(rid)
             return _Plan(
                 job_id=job_id,
+                kind=kind,
                 project_id=job.project_id,
                 slug=project.slug if project else "default",
                 model_air=job.model_air,
                 req=req,
-                negative=negative,
+                negative="" if kind == "video" else negative,
                 family=self.catalog_family(model) if model is not None else "diffusion",
                 timeout_s=float(settings_svc.get(s, "runware.timeout_s")),
                 expected_ms=int(job.expected_ms or costs.DEFAULT_EXPECTED_MS),
                 outputs_dir=projects.root_override(s),
-                asset_ids=asset_ids,
+                asset_ids=_asset_ids(req),
+                model_row=catalog.view(model) if model is not None else {},
             )
 
     async def _execute(self, job_id: str) -> None:
@@ -270,7 +322,7 @@ class JobRunner:
                 media = await assets.media_map(
                     client, self.session_factory, self.paths, plan.asset_ids
                 )
-                task = build_image_task(plan.req, job_id, media, plan.family, plan.negative)
+                task = _build_task(plan, job_id, media)
                 self._save_task(job_id, task, [])
                 # spec stage sequence: queued -> submitting -> rendering -> downloading -> done
                 self._stage(job_id, "rendering")
@@ -287,7 +339,10 @@ class JobRunner:
             self._stage(job_id, "downloading", DOWNLOAD_PROGRESS)
             dest = projects.dir_for(self.paths, plan.slug, plan.outputs_dir)
             saved = await download.download_items(
-                result.items, dest, plan.req.output_format, transport=self.download_transport
+                result.items,
+                dest,
+                plan.req.output_format.lower(),
+                transport=self.download_transport,
             )
             self._stage(job_id, "saving", DOWNLOAD_PROGRESS)
             cost = await asyncio.to_thread(self._persist, plan, result, saved)
@@ -313,28 +368,34 @@ class JobRunner:
         short transaction. The outputs root comes from the plan, so a settings change
         mid-job cannot make the relative paths unresolvable."""
         req = plan.req
-        params = {
-            "width": req.width,
-            "height": req.height,
-            "steps": req.steps,
-            "cfg": req.cfg_scale,
-            "seed": req.seed,
-            "strength": req.strength,
-            "output_format": req.output_format,
-            "number_results": req.number_results,
-        }
+        video = plan.is_video
+        dims = resolution_wh(req.resolution) if video else None
+        params = _params(req, dims)
         extra = {"task_sent": result.task_sent, "dropped_params": result.dropped}
+        if video:
+            extra["duration"] = req.duration
         meta = outputs_svc.OutputMeta(
             job_id=plan.job_id,
             project_id=plan.project_id,
             project_slug=plan.slug,
-            kind="image",
+            kind=plan.kind,
             model_air=plan.model_air,
             prompt_text=str(result.task_sent.get("positivePrompt") or ""),
             negative_prompt=plan.negative,
         )
         root = projects.outputs_root(self.paths, plan.outputs_dir)
-        prepared = outputs_svc.prepare(self.paths, meta, saved, params, extra, root=root)
+        prepared = outputs_svc.prepare(
+            self.paths,
+            meta,
+            saved,
+            params,
+            extra,
+            root=root,
+            dims=dims,
+            duration_s=req.duration if video else None,
+            thumbnail=not video,  # a video still is a poster, not a Pillow thumbnail
+        )
+        task_type = "videoInference" if video else "imageInference"
         total = 0.0
         with db.session_scope(self.session_factory) as s:
             job = s.get(Job, plan.job_id)
@@ -343,7 +404,7 @@ class JobRunner:
                 c = float(f.item.cost or 0.0)
                 total += c
                 costs.record_usage(
-                    s, job=job, task_type="imageInference", cost=c, model_air=plan.model_air
+                    s, job=job, task_type=task_type, cost=c, model_air=plan.model_air
                 )
             if result.duration_ms is not None:  # retries/backoff would poison the average
                 costs.observe_latency(s, plan.model_air, result.duration_ms)

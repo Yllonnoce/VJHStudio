@@ -164,7 +164,7 @@ async def test_job_upload_failure_fails_with_upload_code(env):
     with db.session_scope(f) as s:
         j = s.get(models.Job, job.id)
         assert j.status == "failed" and j.error_code == "upload"
-        assert "bad-ref.png" in j.error_message
+        assert "bad-ref.png" in j.error_message and "Could not upload" in j.error_message
 
 
 async def test_job_malformed_media_reply_fails_with_upload_code(env):

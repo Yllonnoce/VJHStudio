@@ -3,9 +3,18 @@
 from __future__ import annotations
 
 from ..schemas.image import ImageRequest
+from ..schemas.video import VideoRequest
 from ..services import prompts
 
 PROTECTED = ("taskType", "taskUUID", "model")
+RESOLUTIONS: dict[str, tuple[int, int]] = {
+    "480p": (854, 480),
+    "720p": (1280, 720),
+    "1080p": (1920, 1080),
+    "4k": (3840, 2160),
+}
+DEFAULT_RESOLUTION = "720p"
+FRAME_ROLES = ("first", "last")
 
 
 def dim64(v: int) -> int:
@@ -66,5 +75,74 @@ def build_image_task(
             inputs["referenceImages"] = all_refs
     if inputs:
         task["inputs"] = inputs
+    task.update({k: v for k, v in (req.extra_json or {}).items() if k not in PROTECTED})
+    return task
+
+
+# ---- video ---------------------------------------------------------------
+def resolution_wh(resolution: str) -> tuple[int, int]:
+    """A preset name -> pixels. Unknown names fall back to 720p: the API is always sent
+    width/height, never the preset string, so a stray value must still be renderable."""
+    return RESOLUTIONS.get((resolution or "").strip().lower(), RESOLUTIONS[DEFAULT_RESOLUTION])
+
+
+def provider_key(air: str) -> str:
+    """``"google:3@2"`` -> ``"google"``: the key ``providerSettings`` is nested under."""
+    return (air or "").split(":", 1)[0]
+
+
+def _tidy(v: float) -> float | int:
+    return int(v) if float(v).is_integer() else float(v)
+
+
+def nearest(value: float, allowed: list) -> float | int | None:
+    """The closest of ``allowed`` to ``value``; ties go to the shorter (cheaper) option."""
+    choices = [c for c in allowed or [] if isinstance(c, (int, float)) and not isinstance(c, bool)]
+    if not choices:
+        return None
+    return min(choices, key=lambda c: (abs(float(c) - float(value)), float(c)))
+
+
+def build_video_task(
+    req: VideoRequest, task_uuid: str, media: dict[int, str], model_row: dict
+) -> dict:
+    """``model_row`` is a ``catalog.view()`` dict: its ``tiers.video`` block says which
+    durations and frame rates the provider will actually accept."""
+    video = dict(((model_row or {}).get("tiers") or {}).get("video") or {})
+    duration = nearest(req.duration, video.get("durations") or [])
+    width, height = resolution_wh(req.resolution)
+    task: dict = {
+        "taskType": "videoInference",
+        "taskUUID": task_uuid,
+        "model": req.model,
+        "positivePrompt": prompts.final_prompt(req),
+        "outputType": "URL",
+        "outputFormat": req.output_format,
+        "includeCost": True,
+        "duration": _tidy(duration if duration is not None else req.duration),
+        "width": width,
+        "height": height,
+    }
+    if req.fps is not None and video.get("fps"):
+        task["fps"] = int(req.fps)
+    if req.seed is not None:
+        task["seed"] = req.seed
+    inputs: dict = {}
+    frames = [
+        {"image": media[asset_id], "frame": role}
+        for role, asset_id in zip(
+            FRAME_ROLES, (req.first_frame_asset_id, req.last_frame_asset_id), strict=True
+        )
+        if asset_id is not None and asset_id in media
+    ]
+    if frames:
+        inputs["frameImages"] = frames
+    refs = [media[i] for i in req.reference_asset_ids if i in media]
+    if refs:
+        inputs["referenceImages"] = refs
+    if inputs:
+        task["inputs"] = inputs
+    if req.provider_settings:
+        task["providerSettings"] = {provider_key(req.model): dict(req.provider_settings)}
     task.update({k: v for k, v in (req.extra_json or {}).items() if k not in PROTECTED})
     return task

@@ -20,32 +20,7 @@ def _rows(request: Request, kind: str, include_hidden: bool) -> list[dict]:
         return [_view(m) for m in ms]
 
 
-def _view(m) -> dict:
-    return {
-        "id": m.id,
-        "air": m.air,
-        "name": m.name,
-        "kind": m.kind,
-        "label": catalog.label(m),
-        "price_primary": m.price_primary,
-        "price_unit": m.price_unit,
-        "price_in": m.price_in,
-        "price_out": m.price_out,
-        "family": catalog.family(m),
-        "is_favourite": m.is_favourite,
-        "is_hidden": m.is_hidden,
-        "capabilities": m.capabilities_json or [],
-        "tiers": m.price_tiers_json or {},
-        "source": m.source,
-        "creator": m.creator,
-        "provider_settings_schema": m.provider_settings_schema or [],
-        "default_width": m.default_width,
-        "default_height": m.default_height,
-        "default_steps": m.default_steps,
-        "default_cfg": m.default_cfg,
-        "slug": m.slug,
-        "architecture": m.architecture,
-    }
+_view = catalog.view  # one shape for /api/models, the row partials and the task builders
 
 
 def _list_ctx(request: Request, kind: str, include_hidden: bool = False) -> dict:
