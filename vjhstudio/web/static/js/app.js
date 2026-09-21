@@ -64,6 +64,7 @@ window.generateForm = function (initial) {
     setMode(mode) {
       if (mode !== 'image' && mode !== 'video') return;
       this.mode = mode;
+      if (mode === 'video') this.noText = false;  // the hidden box would still post `on`
       const allowed = VJH_MODE_ROLES[mode];
       this.refs = this.refs.filter((r) => allowed.indexOf(r.role) >= 0);
     },
@@ -146,7 +147,11 @@ window.generateForm = function (initial) {
       if (form) {
         form.addEventListener('htmx:afterRequest', (e) => {
           const d = e.detail;
-          if (d && d.successful && d.xhr && d.xhr.status === 200) this.finalPrompt = '';
+          if (!d || !d.successful || !d.xhr || d.xhr.status !== 200) return;
+          // every request from inside the form bubbles here — the estimate, the model
+          // options, the picker — but only a submit means the job took this prompt
+          const path = (d.pathInfo && d.pathInfo.requestPath) || '';
+          if (path.startsWith('/generate/')) this.finalPrompt = '';
         });
       }
     },
@@ -158,7 +163,11 @@ window.generateForm = function (initial) {
         const draft = JSON.parse(raw);
         if (draft && draft.fields) Object.assign(this.fields, draft.fields);
         if (draft && typeof draft.finalPrompt === 'string') this.finalPrompt = draft.finalPrompt;
-        if (draft && typeof draft.noText === 'boolean') this.noText = draft.noText;
+        // video mode must not send no_text (schemas/video.py flips the default), so a
+        // draft saved from the Image tab never restores that box here
+        if (draft && typeof draft.noText === 'boolean' && initial.mode !== 'video') {
+          this.noText = draft.noText;
+        }
         if (draft && typeof draft.useDefaultNegative === 'boolean') {
           this.useDefaultNegative = draft.useDefaultNegative;
         }

@@ -3,7 +3,7 @@
       hx-include="#generate-form" hx-swap="outerHTML">
   {% if mode == 'video' %}
     {% if total is not none %}Estimated cost: <strong>≈${{ '%.2f'|format(total) }}</strong>
-      <small class="muted">({{ '%g'|format(duration) }}s × ${{ '%.3f'|format(rate) }}/s{% if audio %}, with audio{% endif %})</small>
+      <small class="muted">({{ '%g'|format(duration) }}s × ${{ '%.3f'|format(rate) }}/s{% if resolution %} at {{ resolution }}{% endif %}{% if audio %}, with audio{% endif %})</small>
     {% else %}Estimated cost: <strong>n/a</strong> <small class="muted">(no price for this model)</small>{% endif %}
   {% else %}
     {% if total is not none %}Estimated cost: <strong>≈${{ '%.4f'|format(total) }}</strong>

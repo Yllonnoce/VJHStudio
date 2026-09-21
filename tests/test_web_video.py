@@ -61,6 +61,26 @@ async def test_image_mode_still_ticks_no_text(client):
     assert 'name="no_text" value="on" x-model="noText" checked' in r.text
 
 
+async def test_form_keeps_a_default_submit_button_for_the_enter_key(client):
+    """The per-mode submits are type="button", so without this the form has no default
+    button and pressing Enter would do nothing at all."""
+    hidden = '<button type="submit" hidden tabindex="-1" aria-hidden="true"></button>'
+    assert hidden in (await client.get("/generate")).text
+    assert hidden in (await client.get("/generate?mode=video")).text
+
+
+async def test_both_mode_submits_ask_htmx_to_validate(client):
+    for url in ("/generate", "/generate?mode=video"):
+        text = (await client.get(url)).text
+        assert text.count('hx-validate="true"') == 2
+        assert 'hx-post="/generate/image"' in text and 'hx-post="/generate/video"' in text
+
+
+async def test_no_text_checkbox_is_hidden_in_video_mode(client):
+    text = (await client.get("/generate")).text
+    assert '<label x-show="mode === \'image\'"><input type="hidden" name="no_text"' in text
+
+
 async def test_generate_video_alias_renders_the_video_tab(client):
     r = await client.get("/generate/video")
     assert r.status_code == 200 and r.text.count('name="duration"') == 1
@@ -94,6 +114,32 @@ async def test_video_estimate_uses_duration_and_the_audio_rate(client):
     assert "$2.00" in r.text
     r = await client.get("/hx/generate/estimate?mode=video&air=runware:100@1&duration=5")
     assert "n/a" in r.text
+
+
+async def test_first_render_prices_the_duration_the_select_defaults_to(client):
+    """Veo offers 4/6/8 s, so its select opens on 4 — the estimate beside it must not
+    keep quoting the schema's generic 5 s."""
+    await client.post("/settings", data={"defaults.video_model": VEO})
+    r = await client.get("/generate?mode=video")
+    assert 'value="4" selected' in r.text
+    # Veo's generateAudio defaults to on, so the ticked box's $0.40/s rate is the one
+    # the form would actually submit: 4 s x $0.40. The pre-fix bug quoted 5 s ($2.00).
+    assert "$1.60" in r.text and "$2.00" not in r.text
+    r = await client.get(f"/hx/generate/estimate?mode=video&air={VEO}&duration=4")
+    assert "$0.80" in r.text  # the same 4 s, with the audio box cleared
+
+
+async def test_estimate_uses_the_resolution_tier(client):
+    r = await client.get(f"/hx/generate/estimate?mode=video&air={LTX}&duration=5&resolution=1080p")
+    assert "$0.40" in r.text  # LTX is $0.04/s at 720p and $0.08/s at 1080p
+    r = await client.get(f"/hx/generate/estimate?mode=video&air={LTX}&duration=5&resolution=720p")
+    assert "$0.20" in r.text
+    # Veo prices one rate for "720p / 1080p", split by audio instead
+    r = await client.get(
+        f"/hx/generate/estimate?mode=video&air={VEO}&duration=5&resolution=1080p"
+        "&ps_generateAudio=off&ps_generateAudio=on"
+    )
+    assert "$2.00" in r.text
 
 
 async def test_video_estimate_tolerates_a_blank_duration(client):

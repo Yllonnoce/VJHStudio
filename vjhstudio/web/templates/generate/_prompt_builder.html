@@ -26,7 +26,7 @@
     {# the hidden field carries the "off" a cleared checkbox never posts; the last value wins #}
     {# stills default to suppressing on-screen text; clips default the other way, which
        is also what schemas/video.py does when the field is absent #}
-    <label><input type="hidden" name="no_text" value="off"><input type="checkbox" name="no_text" value="on" x-model="noText" {% if form.get('no_text', mode != 'video') %}checked{% endif %}> No text in <span x-text="mode === 'video' ? 'video' : 'image'">{{ 'video' if mode == 'video' else 'image' }}</span></label>
+    <label x-show="mode === 'image'"><input type="hidden" name="no_text" value="off"><input type="checkbox" name="no_text" value="on" x-model="noText" {% if form.get('no_text', mode != 'video') %}checked{% endif %}> No text in <span x-text="mode === 'video' ? 'video' : 'image'">{{ 'video' if mode == 'video' else 'image' }}</span></label>
     <label x-show="mode === 'image'"><input type="hidden" name="use_default_negative" value="off"><input type="checkbox" name="use_default_negative" value="on" x-model="useDefaultNegative" {% if form.get('use_default_negative', True) %}checked{% endif %}> Use default negative</label>
   </fieldset>
 

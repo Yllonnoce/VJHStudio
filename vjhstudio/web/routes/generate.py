@@ -322,21 +322,45 @@ def estimate_ctx(session, air: str, width=None, height=None, n=None) -> dict:
     }
 
 
-def audio_rate(m: CatalogModel | None) -> float | None:
-    """The per-second rate whose catalog label says "with audio" — never the "without
-    audio" one, whose label does not contain that phrase."""
-    for rate in ((m.price_tiers_json if m else None) or {}).get("rates") or []:
-        if "with audio" in str(rate.get("label") or "").lower():
-            amount = rate.get("amount")
-            if isinstance(amount, (int, float)):
-                return float(amount)
+def _amount(rate: dict) -> float | None:
+    value = rate.get("amount")
+    return float(value) if isinstance(value, (int, float)) else None
+
+
+def rate_for(m: CatalogModel | None, resolution: str = "", audio: bool = False) -> float | None:
+    """The per-second rate the catalog quotes for this resolution and audio setting.
+
+    ``tiers.rates`` labels are free text, so the match is by substring: first narrow to
+    the rows that name the chosen resolution ("1080p" for LTX and Wan, "480p" for
+    Seedance), then, when those rows distinguish audio at all (Veo's
+    "720p / 1080p · with audio"), pick the matching side. "with audio" never matches
+    "without audio", which spells the phrase differently. ``None`` means "no labelled
+    rate applies" and the caller falls back to ``price_primary``.
+    """
+    rows = [
+        (str(r.get("label") or "").lower(), _amount(r))
+        for r in (((m.price_tiers_json if m else None) or {}).get("rates") or [])
+        if isinstance(r, dict)
+    ]
+    res = (resolution or "").strip().lower()
+    narrowed = [row for row in rows if res and res in row[0]]
+    pool = narrowed or rows
+    if any("audio" in label for label, _ in pool):
+        wanted = "with audio" if audio else "without audio"
+        for label, amount in pool:
+            if wanted in label:
+                return amount
+    if narrowed:  # a resolution-only tier list: the narrowed row is the price
+        return narrowed[0][1]
     return None
 
 
-def video_estimate_ctx(session, air: str, duration=None, audio: bool = False) -> dict:
+def video_estimate_ctx(
+    session, air: str, duration=None, audio: bool = False, resolution: str = ""
+) -> dict:
     m = _model_row(session, air)
     seconds = _float_or(duration, DEFAULT_DURATION)
-    rate = audio_rate(m) if audio else None
+    rate = rate_for(m, resolution, audio)
     if rate is None:
         rate = float(m.price_primary) if m is not None and m.price_primary is not None else None
     total = rate * seconds if rate is not None else None
@@ -345,6 +369,7 @@ def video_estimate_ctx(session, air: str, duration=None, audio: bool = False) ->
         "air": air,
         "total": total,
         "duration": seconds,
+        "resolution": resolution,
         "rate": rate,
         "audio": audio,
     }
@@ -480,7 +505,15 @@ def _page(request: Request, remix: str, mode: str):
                 params["provider_settings"],
                 default_from_schema=True,
             )
-            estimate = video_estimate_ctx(s, air, values.get("duration"), audio)
+            # the selects render the model's own defaults, so the first estimate must
+            # price those and not the schema's generic 5 s / 720p
+            estimate = video_estimate_ctx(
+                s,
+                air,
+                values.get("duration") or params["defaults"]["duration"],
+                audio,
+                values.get("resolution") or params["defaults"]["resolution"],
+            )
         else:
             estimate = estimate_ctx(
                 s,
@@ -614,6 +647,7 @@ def hx_estimate(
     number_results: str = "",
     mode: str = "image",
     duration: str = "",
+    resolution: str = "",
 ):
     # strings on purpose: declaring ``int`` lets FastAPI answer a cleared Width box with a
     # 422 JSON body, which htmx (configured to swap 422s) would paste into #estimate.
@@ -621,7 +655,7 @@ def hx_estimate(
         if _mode(mode) == "video":
             schema = provider_schema(s, air or model)
             ctx = video_estimate_ctx(
-                s, air or model, duration, audio_on(request.query_params, schema)
+                s, air or model, duration, audio_on(request.query_params, schema), resolution
             )
         else:
             ctx = estimate_ctx(s, air or model, width, height, number_results)
