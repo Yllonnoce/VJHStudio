@@ -1,0 +1,2 @@
+{% for c in cards %}{% with a=c.a, url=c.url, thumb_url=c.thumb_url %}{% include "assets/_card.html" %}{% endwith %}{% endfor %}
+{% include "assets/_load_more.html" %}

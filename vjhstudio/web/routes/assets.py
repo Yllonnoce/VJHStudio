@@ -69,9 +69,12 @@ def assets_page(request: Request):
 
 @router.get("/hx/assets")
 def hx_assets(request: Request, page: int = 1):
+    """Page 1 replaces the whole grid (a filter change); later pages return the cards
+    alone, which the Load more button swaps in over itself so the earlier pages stay."""
     filters = _filters_from(request)
     ctx = _grid_ctx(request, filters, max(1, page))
-    return deps.render(request, "assets/_grid.html", ctx)
+    template = "assets/_grid.html" if ctx["page"] <= 1 else "assets/_grid_page.html"
+    return deps.render(request, template, ctx)
 
 
 @router.post("/assets/upload")

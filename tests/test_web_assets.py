@@ -213,3 +213,43 @@ async def test_filters_kind_and_q(client):
     assert "castle.png" in r.text
     r = await client.get("/hx/assets?kind=video")
     assert r.text.count('class="asset-card"') == 0
+
+
+def _bulk_assets(app, n: int) -> None:
+    """Rows only: paging is about the grid, not about 50 real files on disk."""
+    with db.session_scope(app.state.boot.session_factory) as s:
+        for i in range(n):
+            s.add(
+                models.Asset(
+                    filename=f"bulk{i:04d}.png",
+                    original_name=f"bulk-{i}.png",
+                    kind="image",
+                    mime="image/png",
+                    size_bytes=10,
+                    sha256=f"{i:064d}",
+                    tags=",bulk,",
+                )
+            )
+
+
+async def test_assets_load_more_appends_instead_of_replacing(client, app):
+    _bulk_assets(app, 50)
+    page1 = await client.get("/assets")
+    assert page1.status_code == 200
+    assert page1.text.count('class="asset-card"') == 48
+    assert 'id="asset-load-more"' in page1.text
+    # the button swaps itself out, so the 48 cards already rendered stay put
+    assert 'hx-target="this"' in page1.text
+
+    page2 = await client.get("/hx/assets?page=2")
+    assert page2.status_code == 200
+    assert page2.text.count('class="asset-card"') == 2
+    assert 'id="asset-grid"' not in page2.text
+    assert 'id="asset-load-more"' not in page2.text  # nothing left to load
+    assert "bulk-1.png" in page2.text and "bulk-49.png" not in page2.text
+
+
+async def test_hx_assets_page_one_still_returns_the_whole_grid(client, app):
+    _bulk_assets(app, 50)
+    r = await client.get("/hx/assets?page=1")
+    assert 'id="asset-grid"' in r.text and r.text.count('class="asset-card"') == 48
