@@ -154,7 +154,11 @@ def cmd_update(args: argparse.Namespace) -> int:
         return 0
     paths = config.resolve_paths()
     state = update.UpdateState(on_step=print_step)
-    if not update.run_update(state, paths):
+    # A terminal run must never re-exec itself: this process holds no database
+    # handle, so a restart here would only start the failing update over again.
+    if not update.run_update(state, paths, restart_on_restore=False):
+        if any(s.title == update.RESTORE_STEP for s in state.steps):
+            print("Database restored from the pre-update backup; start the app again.")
         print(state.message or "Update failed.", file=sys.stderr)
         return 1
     print(state.message or "Update complete.")

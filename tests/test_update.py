@@ -242,6 +242,42 @@ def test_run_update_restores_database_when_migration_fails(git_repo, paths, monk
     assert state.steps[-1].title == "Restarting to load the restored database"
 
 
+def test_run_update_skips_the_restart_when_the_caller_owns_it(git_repo, paths, monkeypatch):
+    """`vjhstudio update` in a terminal restores the database but must not re-exec."""
+    fake_uv(monkeypatch, fail=lambda cmd, calls: "vjhstudio.services.migrate" in cmd)
+    fired = restart_spy(monkeypatch)
+    state = update.UpdateState()
+
+    assert update.run_update(state, paths, repo=git_repo, restart_on_restore=False) is False
+
+    titles = [s.title for s in state.steps]
+    assert update.RESTORE_STEP in titles  # the database still came back
+    assert update.RESTART_STEP not in titles
+    assert fired == []
+    saved = next(iter(paths.backups.glob("vjh-*-pre-update.db")))
+    assert paths.db.read_bytes() == saved.read_bytes()
+
+
+def test_start_update_threads_the_restart_flag(paths, monkeypatch):
+    seen: list[dict] = []
+
+    def fake(state, _paths, **kwargs):
+        seen.append(dict(kwargs))
+        state.finish(True)
+        return True
+
+    monkeypatch.setattr(update, "run_update", fake)
+    state = update.UpdateState()
+
+    assert update.start_update(paths, state) is True  # web default: the app restarts itself
+    assert wait_until(lambda: len(seen) == 1 and not state.running)
+    assert seen[0] == {"restart_on_restore": True}
+
+    assert update.start_update(paths, state, restart_on_restore=False) is True
+    assert wait_until(lambda: len(seen) == 2 and not state.running)
+    assert seen[1] == {"restart_on_restore": False}
+
+
 def test_run_update_does_not_restart_when_the_restore_fails(git_repo, paths, monkeypatch):
     fake_uv(monkeypatch, fail=lambda cmd, calls: "vjhstudio.services.migrate" in cmd)
     fired = restart_spy(monkeypatch)
@@ -343,7 +379,7 @@ def test_run_update_never_pops_a_pre_existing_stash(git_repo, paths, monkeypatch
 def test_start_update_refuses_a_second_run(paths, monkeypatch):
     gate = threading.Event()
 
-    def slow(state, _paths, repo=None):
+    def slow(state, _paths, **_kwargs):
         state.add("working")
         gate.wait(5)
         state.finish(True)  # run_update closes its own state
@@ -370,7 +406,7 @@ def test_start_update_runs_again_after_a_finished_run(paths, monkeypatch):
     reopen — or close — run 2's log."""
     runs: list[int] = []
 
-    def quick(state, _paths, repo=None):
+    def quick(state, _paths, **_kwargs):
         runs.append(len(runs) + 1)
         state.add(f"run {runs[-1]}")
         state.finish(True)

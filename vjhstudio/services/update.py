@@ -61,6 +61,9 @@ AUTH_MARKERS = (
     "host key verification failed",
 )
 
+RESTORE_STEP = "Database restored from the safety backup"
+RESTART_STEP = "Restarting to load the restored database"
+
 PULL_TIMEOUT = 300
 SYNC_TIMEOUT = 900
 MIGRATE_TIMEOUT = 600
@@ -222,12 +225,19 @@ STATE = UpdateState()
 # --- the update itself -----------------------------------------------------
 
 
-def run_update(state: UpdateState, paths: Paths, repo: Path | None = None) -> bool:
+def run_update(
+    state: UpdateState,
+    paths: Paths,
+    repo: Path | None = None,
+    restart_on_restore: bool = True,
+) -> bool:
+    """Run the update. `restart_on_restore` is False for a terminal run: the CLI
+    holds no database handle, and re-execing would just start the update again."""
     repo = REPO_ROOT if repo is None else Path(repo)
     if not state.running:
         state.begin()
     try:
-        ok = _update(state, paths, repo)
+        ok = _update(state, paths, repo, restart_on_restore)
     except Exception as e:  # noqa: BLE001 - a crash here must still close the log
         log.exception("update crashed")
         state.add("Update failed", str(e), ok=False)
@@ -237,7 +247,7 @@ def run_update(state: UpdateState, paths: Paths, repo: Path | None = None) -> bo
     return ok
 
 
-def _update(state: UpdateState, paths: Paths, repo: Path) -> bool:
+def _update(state: UpdateState, paths: Paths, repo: Path, restart_on_restore: bool) -> bool:
     if not (repo / ".git").exists():
         state.add("Not a git checkout", ZIP_INSTALL_HELP, ok=False)
         state.message = ZIP_INSTALL_HELP
@@ -316,11 +326,11 @@ def _update(state: UpdateState, paths: Paths, repo: Path) -> bool:
         _pop(state, repo, stashed)
         state.add("Rolled back to the previous version", old_sha[:12], ok=False)
         state.message = "Update failed during the database migration — rolled back."
-        if restored:
+        if restored and restart_on_restore:
             # The file under the live engine has just been swapped: every open
             # connection now points at a database that is no longer there.
             # Coming back up on the restored file is the only safe state.
-            state.add("Restarting to load the restored database", ok=False)
+            state.add(RESTART_STEP, ok=False)
             restart.request_restart()
         return False
 
@@ -367,7 +377,7 @@ def _restore_db(state: UpdateState, paths: Paths, saved: Path) -> bool:
     except OSError as e:
         state.add("Restoring the database failed", f"{e} (backup kept at {saved})", ok=False)
         return False
-    state.add("Database restored from the safety backup", saved.name, ok=False)
+    state.add(RESTORE_STEP, saved.name, ok=False)
     return True
 
 
@@ -387,12 +397,12 @@ def _chmod_scripts(state: UpdateState, repo: Path) -> None:
         state.add("Launcher scripts made executable", ", ".join(fixed))
 
 
-def _worker(state: UpdateState, paths: Paths) -> None:
+def _worker(state: UpdateState, paths: Paths, restart_on_restore: bool) -> None:
     # run_update closes the state itself. Finishing again here would let a late
     # thread clobber the *next* run's state, so the only finish on this path is
     # the one that covers a run_update that never returned at all.
     try:
-        run_update(state, paths)
+        run_update(state, paths, restart_on_restore=restart_on_restore)
     except BaseException as e:
         log.exception("update thread crashed")
         state.add("Update failed", str(e), ok=False)
@@ -400,12 +410,19 @@ def _worker(state: UpdateState, paths: Paths) -> None:
         raise
 
 
-def start_update(paths: Paths, state: UpdateState | None = None) -> bool:
+def start_update(
+    paths: Paths, state: UpdateState | None = None, restart_on_restore: bool = True
+) -> bool:
     """Start an update in the background. False when one is already running."""
     state = STATE if state is None else state
     if not state.begin():
         return False
-    threading.Thread(target=_worker, args=(state, paths), daemon=True, name="vjh-update").start()
+    threading.Thread(
+        target=_worker,
+        args=(state, paths, restart_on_restore),
+        daemon=True,
+        name="vjh-update",
+    ).start()
     return True
 
 

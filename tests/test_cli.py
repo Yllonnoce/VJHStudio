@@ -6,7 +6,7 @@ import uvicorn
 
 from vjhstudio import __version__, config, main
 from vjhstudio import boot as boot_mod
-from vjhstudio.services import migrate, update
+from vjhstudio.services import migrate, restart, update
 from vjhstudio.web.app import create_app
 
 
@@ -201,7 +201,7 @@ def test_update_check_prints_the_error_and_still_succeeds(monkeypatch, capsys):
 def test_update_command_streams_steps_and_reports_failure(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("VJHSTUDIO_DATA_DIR", str(tmp_path))
 
-    def fail(state, _paths):
+    def fail(state, _paths, **_kwargs):
         state.add("Downloading update", "boom", ok=False)
         return False
 
@@ -215,7 +215,7 @@ def test_update_command_streams_steps_and_reports_failure(tmp_path, monkeypatch,
 def test_update_command_asks_for_a_restart_on_success(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("VJHSTUDIO_DATA_DIR", str(tmp_path))
 
-    def succeed(state, _paths):
+    def succeed(state, _paths, **_kwargs):
         state.add("Update complete")
         return True
 
@@ -234,3 +234,27 @@ def test_migrate_module_cli_upgrades_and_reports(tmp_path, monkeypatch, capsys):
     assert migrate.main(["head"]) == 0
     assert capsys.readouterr().out.strip() == migrate.head()
     assert migrate.main(["nonsense"]) == 2
+
+
+def test_update_command_never_re_execs_after_a_database_restore(tmp_path, monkeypatch, capsys):
+    """The CLI holds no database handle: restarting would only re-run the update."""
+    monkeypatch.setenv("VJHSTUDIO_DATA_DIR", str(tmp_path))
+    fired = []
+    monkeypatch.setattr(restart, "request_restart", lambda *a, **k: fired.append("restart"))
+    seen = {}
+
+    def restored(state, _paths, **kwargs):
+        seen.update(kwargs)
+        state.add(update.RESTORE_STEP, "vjh-20260920-000000-pre-update.db", ok=False)
+        if kwargs.get("restart_on_restore", True):
+            restart.request_restart()
+        return False
+
+    monkeypatch.setattr(update, "run_update", restored)
+    assert main.main(["update"]) == 1
+    assert seen == {"restart_on_restore": False}
+    assert fired == []
+    assert (
+        "Database restored from the pre-update backup; start the app again."
+        in capsys.readouterr().out
+    )
