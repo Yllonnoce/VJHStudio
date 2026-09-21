@@ -35,6 +35,8 @@ __all__ = [
     "normalize_tags",
     "tags_list",
     "content_hash",
+    "hash_of",
+    "find_by_hash",
     "upsert",
     "for_request",
     "mark_used",
@@ -166,7 +168,12 @@ def content_hash(
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _find_by_hash(session: Session, project_id: int | None, hash_: str) -> Prompt | None:
+def find_by_hash(session: Session, project_id: int | None, hash_: str) -> Prompt | None:
+    """Lowest-id row for ``(project_id, content_hash)``, or ``None``. ``ix_prompts_hash``
+    is deliberately not unique: ``duplicate()`` writes a second row with the same hash on
+    purpose, and this ordering is what keeps ``upsert`` (and any future merge, e.g.
+    Phase 6's archive import) finding the original rather than a duplicate that would
+    otherwise shadow it."""
     return (
         session.execute(
             select(Prompt)
@@ -175,6 +182,19 @@ def _find_by_hash(session: Session, project_id: int | None, hash_: str) -> Promp
         )
         .scalars()
         .first()
+    )
+
+
+def hash_of(prompt: Prompt) -> str:
+    """``content_hash`` recomputed from a saved row's own stored columns -- never from
+    live settings (e.g. the current ``defaults.negative_prompt``), which can differ
+    machine-to-machine and would silently break a Phase 6 archive merge's dedupe."""
+    return content_hash(
+        prompt.kind,
+        prompt.composed_prompt,
+        prompt.final_prompt,
+        prompt.negative_prompt,
+        prompt.form_json or {},
     )
 
 
@@ -197,7 +217,7 @@ def upsert(
     ``use_count``/``last_used_at`` are left untouched."""
     composed = compose(form)
     hash_ = content_hash(kind, composed, final_prompt, negative_prompt, form)
-    existing = _find_by_hash(session, project_id, hash_)
+    existing = find_by_hash(session, project_id, hash_)
     if existing is not None:
         existing.tags = normalize_tags((existing.tags or "") + "," + (tags or ""))
         if polish_json is not None:

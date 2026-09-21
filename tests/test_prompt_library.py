@@ -15,6 +15,44 @@ def _project_id(f):
         return s.query(models.Project).filter_by(slug="default").one().id
 
 
+def test_hash_of_matches_the_stored_content_hash(tmp_path):
+    """Phase 6 merge note: an archive merge must recompute the hash from a saved row's
+    own stored columns, never from live settings (e.g. the local default negative
+    prompt), so ``hash_of`` reads ``form_json``/``composed_prompt``/``final_prompt``/
+    ``negative_prompt`` off the row itself and must agree with what ``upsert`` wrote."""
+    _, f = _env(tmp_path)
+    pid = _project_id(f)
+    form = PromptForm(subject="a fox")
+    with db.session_scope(f) as s:
+        p, created = prompts.upsert(
+            s,
+            project_id=pid,
+            kind="image",
+            title="Fox",
+            form=form,
+            final_prompt="a fox, in a forest",
+            negative_prompt="blurry",
+        )
+        assert created is True
+        assert prompts.hash_of(p) == p.content_hash
+
+
+def test_find_by_hash_is_public_and_returns_lowest_id_on_a_duplicate(tmp_path):
+    _, f = _env(tmp_path)
+    pid = _project_id(f)
+    form = PromptForm(subject="a fox")
+    with db.session_scope(f) as s:
+        original, _ = prompts.upsert(
+            s, project_id=pid, kind="image", title="Fox", form=form, final_prompt="a fox"
+        )
+        original_id = original.id
+        copy = prompts.duplicate(s, original_id)
+        assert copy.content_hash == original.content_hash
+    with db.session_scope(f) as s:
+        found = prompts.find_by_hash(s, pid, original.content_hash)
+        assert found.id == original_id
+
+
 def test_upsert_same_content_dedupes_within_a_project(tmp_path):
     _, f = _env(tmp_path)
     form = PromptForm(subject="a fox")
