@@ -56,6 +56,7 @@ SCALAR_FIELDS = (
     "steps",
     "cfg_scale",
     "scheduler",
+    "strength",
     "output_format",
     "title",
 )

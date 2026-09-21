@@ -25,8 +25,10 @@ async def test_generate_page_renders(client):
 async def test_model_options_diffusion_vs_instruction(client):
     r = await client.get("/hx/model-options?air=runware:101@1")
     assert 'name="steps"' in r.text and 'value="28"' in r.text
+    assert 'name="strength"' in r.text
     r = await client.get("/hx/model-options?air=google:4@2")
     assert 'name="steps"' not in r.text and "instruction" in r.text
+    assert 'name="strength"' not in r.text
 
 
 async def test_estimate(client):
@@ -97,6 +99,26 @@ async def test_remix_prefills_initial(client, fake, app):
     oid = (await client.get("/api/jobs")).json()[0]["outputs"][0]["id"]
     r = await client.get(f"/generate?remix={oid}")
     assert '"seed": 77' in r.text and '"subject": "a red fox"' in r.text
+
+
+async def test_strength_is_parsed_and_remixed(client, fake, app):
+    from sqlalchemy import select
+
+    from vjhstudio import db, models
+
+    await client.post("/settings/api-key", data={"api_key": "abcdefgh1234"})
+    fake.script["run"] = [[{"imageURL": "http://x/1.png", "seed": 77}]]
+    r = await client.post("/generate/image", data={**FORM, "strength": "0.6"})
+    assert r.status_code == 200
+    await app.state.runner.wait_idle()
+
+    with db.session_scope(app.state.boot.session_factory) as s:
+        job = s.execute(select(models.Job)).scalars().first()
+        assert job.request_json["strength"] == 0.6
+
+    oid = (await client.get("/api/jobs")).json()[0]["outputs"][0]["id"]
+    r = await client.get(f"/generate?remix={oid}")
+    assert '"strength": 0.6' in r.text
 
 
 async def test_ref_query_prefills_one_chip(client):
