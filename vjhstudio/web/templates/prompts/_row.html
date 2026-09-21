@@ -30,7 +30,7 @@
     {% if p.negative_prompt %}<p class="muted">Negative: {{ p.negative_prompt }}</p>{% endif %}
     {% if p.polish_json and p.polish_json.versions %}
     <div class="prompt-polish-versions">
-      <strong>Polished ({{ p.polish_json.mode }} · {{ p.polish_json.model }}):</strong>
+      <strong>Polished ({{ p.polish_json.mode or p.polish_json.source or '' }} · {{ p.polish_json.model }}):</strong>
       <ul>
         {% for v in p.polish_json.versions %}<li>{{ v }}</li>{% endfor %}
       </ul>

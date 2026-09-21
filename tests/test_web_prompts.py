@@ -77,6 +77,17 @@ async def test_missing_title_falls_back_to_composed_prompt(client):
     assert "a red fox, oil painting" in r.text
 
 
+async def test_saved_polish_mode_renders_from_the_stored_source_key(client):
+    """The hidden ``polish_json`` field the JS builds carries ``source`` (the mode), not
+    ``mode`` -- the row template must fall back to it (I2), or every polished prompt
+    shows a blank mode."""
+    blob = {"source": "promptEnhance", "model": "", "versions": ["a fox, refined"], "cost": 0.0}
+    data = {**PROMPT_FORM, "polish_json": json.dumps(blob)}
+    r = await client.post("/prompts", data=data)
+    assert r.status_code == 200
+    assert "Polished (promptEnhance" in r.text
+
+
 async def test_missing_project_is_422_with_inline_message(client):
     data = {**PROMPT_FORM, "project_id": "999"}
     r = await client.post("/prompts", data=data)
