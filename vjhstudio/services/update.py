@@ -36,7 +36,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from .. import db
 from ..config import REPO_ROOT, Paths
 from ..models import utcnow
-from . import backup, gitinfo, meta
+from . import backup, gitinfo, meta, restart
 
 log = logging.getLogger(__name__)
 
@@ -246,12 +246,16 @@ def _update(state: UpdateState, paths: Paths, repo: Path) -> bool:
     # 1. Safety backup first: no backup, no update. Nothing has been touched yet.
     try:
         saved = backup.backup_db(paths, "pre-update")
-        backup.rotate(paths, "pre-update")
     except Exception as e:  # noqa: BLE001
         state.add("Safety backup failed", str(e), ok=False)
         state.message = "Stopping — refusing to update without a safety backup."
         return False
     state.add("Safety backup", saved.name)
+    try:
+        # Housekeeping only: an unlinkable old backup must never abort an update.
+        backup.rotate(paths, "pre-update")
+    except OSError:
+        log.warning("pre-update backup rotation failed", exc_info=True)
 
     # 2. Remember where to roll back to.
     head = _git(["rev-parse", "HEAD"], repo)
@@ -261,16 +265,23 @@ def _update(state: UpdateState, paths: Paths, repo: Path) -> bool:
         return False
     old_sha = head.stdout.strip()
 
-    # 3. Set local edits to tracked files aside (untracked data/ is never touched).
+    # 3. Set local edits to *tracked* files aside. Untracked files (data/, a
+    #    stray note in the folder) are not git's business and are left alone —
+    #    `git stash` would refuse to take them anyway, and stashing nothing and
+    #    then popping would restore whatever an older stash happened to hold.
     stashed = False
-    status = _git(["status", "--porcelain"], repo)
+    status = _git(["status", "--porcelain", "--untracked-files=no"], repo)
     if status.returncode == 0 and status.stdout.strip():
+        before = _stash_ref(repo)
         stash = _git(["stash"], repo, timeout=60)
-        stashed = stash.returncode == 0
-        state.add("Protecting local changes", _detail(stash), ok=stashed)
-        if not stashed:
+        if stash.returncode != 0:
+            state.add("Protecting local changes", _detail(stash), ok=False)
             state.message = "Stopping — local changes could not be set aside."
             return False
+        # Trust the ref, not the exit code: "No local changes to save" is a success.
+        stashed = _stash_ref(repo) != before
+        if stashed:
+            state.add("Protecting local changes", _detail(stash))
 
     # 4. Fast-forward only: a diverged history stops here instead of auto-merging.
     pull = _git(["pull", "--ff-only"], repo, timeout=PULL_TIMEOUT)
@@ -301,16 +312,27 @@ def _update(state: UpdateState, paths: Paths, repo: Path) -> bool:
     state.add("Database migration", _detail(mig), ok=mig.returncode == 0)
     if mig.returncode != 0:
         _rollback_code(state, repo, old_sha)
-        _restore_db(state, paths, saved)
+        restored = _restore_db(state, paths, saved)
         _pop(state, repo, stashed)
         state.add("Rolled back to the previous version", old_sha[:12], ok=False)
         state.message = "Update failed during the database migration — rolled back."
+        if restored:
+            # The file under the live engine has just been swapped: every open
+            # connection now points at a database that is no longer there.
+            # Coming back up on the restored file is the only safe state.
+            state.add("Restarting to load the restored database", ok=False)
+            restart.request_restart()
         return False
 
     _pop(state, repo, stashed)
     _chmod_scripts(state, repo)
     state.message = "Update complete — restarting VJHStudio."
     return True
+
+
+def _stash_ref(repo: Path) -> str:
+    """The sha of the newest stash entry, or "" when the stash is empty."""
+    return _git(["rev-parse", "--verify", "--quiet", "refs/stash"], repo).stdout.strip()
 
 
 def _pop(state: UpdateState, repo: Path, stashed: bool) -> None:
@@ -336,7 +358,7 @@ def _rollback_code(state: UpdateState, repo: Path, old_sha: str) -> None:
     state.add("Reinstalling the previous packages", _detail(resync), ok=False)
 
 
-def _restore_db(state: UpdateState, paths: Paths, saved: Path) -> None:
+def _restore_db(state: UpdateState, paths: Paths, saved: Path) -> bool:
     """Put the pre-update database back; WAL sidecars of the failed migration must go."""
     try:
         for suffix in ("-wal", "-shm"):
@@ -344,8 +366,9 @@ def _restore_db(state: UpdateState, paths: Paths, saved: Path) -> None:
         shutil.copy2(saved, paths.db)
     except OSError as e:
         state.add("Restoring the database failed", f"{e} (backup kept at {saved})", ok=False)
-        return
+        return False
     state.add("Database restored from the safety backup", saved.name, ok=False)
+    return True
 
 
 def _chmod_scripts(state: UpdateState, repo: Path) -> None:
@@ -365,13 +388,16 @@ def _chmod_scripts(state: UpdateState, repo: Path) -> None:
 
 
 def _worker(state: UpdateState, paths: Paths) -> None:
+    # run_update closes the state itself. Finishing again here would let a late
+    # thread clobber the *next* run's state, so the only finish on this path is
+    # the one that covers a run_update that never returned at all.
     try:
-        ok = run_update(state, paths)
-    except Exception as e:  # noqa: BLE001
+        run_update(state, paths)
+    except BaseException as e:
         log.exception("update thread crashed")
         state.add("Update failed", str(e), ok=False)
-        ok = False
-    state.finish(ok)
+        state.finish(False)
+        raise
 
 
 def start_update(paths: Paths, state: UpdateState | None = None) -> bool:

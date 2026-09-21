@@ -70,10 +70,10 @@ def main(argv: list[str] | None = None) -> int:
     """
     args = list(sys.argv[1:] if argv is None else argv)
     cmd = args[0] if args else "upgrade"
-    paths = resolve_paths()
-    if cmd == "head":
+    if cmd == "head":  # a pure question about the code, no data dir needed
         print(head())
         return 0
+    paths = resolve_paths()
     if cmd == "current":
         print(current(paths.db) or "")
         return 0

@@ -1,6 +1,7 @@
 """Self-update service. No network: every git test runs against a temp bare repo."""
 
 import json
+import os
 import subprocess
 import threading
 import time
@@ -11,6 +12,10 @@ import pytest
 from vjhstudio import config, db
 from vjhstudio.services import gitinfo, meta, migrate, restart, update
 
+# The developer's own ~/.gitconfig (hooks, signing, default branch, aliases)
+# must not reach these repos: every test repo configures what it needs itself.
+TEST_GIT_ENV = dict(gitinfo.GIT_ENV, GIT_CONFIG_GLOBAL=os.devnull)
+
 
 def git(*args, cwd=None) -> str:
     p = subprocess.run(
@@ -18,7 +23,7 @@ def git(*args, cwd=None) -> str:
         cwd=cwd,
         capture_output=True,
         text=True,
-        env=gitinfo.GIT_ENV,
+        env=TEST_GIT_ENV,
         check=False,
     )
     assert p.returncode == 0, f"git {' '.join(args)}: {p.stderr}"
@@ -83,10 +88,20 @@ def fake_uv(monkeypatch, fail=None) -> list[list[str]]:
     return calls
 
 
-def no_restart(monkeypatch) -> list[float]:
-    fired: list[float] = []
-    monkeypatch.setattr(restart, "request_restart", lambda *a, **k: fired.append(0.0))
+def restart_spy(monkeypatch) -> list[str]:
+    """Never let a test execv the test runner; record the request instead."""
+    fired: list[str] = []
+    monkeypatch.setattr(restart, "request_restart", lambda *a, **k: fired.append("restart"))
     return fired
+
+
+def wait_until(pred, timeout: float = 5.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if pred():
+            return True
+        time.sleep(0.01)
+    return pred()
 
 
 # --- check_updates ---------------------------------------------------------
@@ -166,7 +181,7 @@ def test_uv_bin_prefers_env(monkeypatch):
 def test_run_update_happy_path(git_repo, paths, monkeypatch):
     upstream_commit(git_repo, "second commit")
     calls = fake_uv(monkeypatch)
-    fired = no_restart(monkeypatch)
+    fired = restart_spy(monkeypatch)
     state = update.UpdateState()
 
     assert update.run_update(state, paths, repo=git_repo) is True
@@ -192,7 +207,7 @@ def test_run_update_rolls_back_when_uv_sync_fails(git_repo, paths, monkeypatch):
     upstream_commit(git_repo, "second commit")
     old_sha = git("rev-parse", "HEAD", cwd=git_repo)
     calls = fake_uv(monkeypatch, fail=lambda cmd, calls: cmd[1] == "sync" and len(calls) == 1)
-    fired = no_restart(monkeypatch)
+    fired = restart_spy(monkeypatch)
     state = update.UpdateState()
 
     assert update.run_update(state, paths, repo=git_repo) is False
@@ -212,6 +227,7 @@ def test_run_update_restores_database_when_migration_fails(git_repo, paths, monk
     wal.write_bytes(b"")
     shm.write_bytes(b"")
     fake_uv(monkeypatch, fail=lambda cmd, calls: "vjhstudio.services.migrate" in cmd)
+    fired = restart_spy(monkeypatch)
     state = update.UpdateState()
 
     assert update.run_update(state, paths, repo=git_repo) is False
@@ -221,6 +237,24 @@ def test_run_update_restores_database_when_migration_fails(git_repo, paths, monk
     assert paths.db.read_bytes() == saved.read_bytes()
     assert not wal.exists() and not shm.exists()
     assert state.ok is False
+    # The database file under the live engine was swapped: come back up on it.
+    assert fired == ["restart"]
+    assert state.steps[-1].title == "Restarting to load the restored database"
+
+
+def test_run_update_does_not_restart_when_the_restore_fails(git_repo, paths, monkeypatch):
+    fake_uv(monkeypatch, fail=lambda cmd, calls: "vjhstudio.services.migrate" in cmd)
+    fired = restart_spy(monkeypatch)
+
+    def boom(_saved, _db, **_kw):
+        raise OSError("read-only data dir")
+
+    monkeypatch.setattr(update.shutil, "copy2", boom)
+    state = update.UpdateState()
+
+    assert update.run_update(state, paths, repo=git_repo) is False
+    assert fired == []
+    assert any(s.title == "Restoring the database failed" for s in state.steps)
 
 
 def test_run_update_stops_when_backup_fails(git_repo, tmp_path, monkeypatch):
@@ -248,17 +282,59 @@ def test_run_update_refuses_zip_install(tmp_path, paths):
     assert update.ZIP_INSTALL_HELP in state.steps[0].detail
 
 
-def test_run_update_keeps_local_edits(git_repo, paths, monkeypatch):
+def test_run_update_stashes_and_restores_modified_tracked_files(git_repo, paths, monkeypatch):
     upstream_commit(git_repo, "second commit")
     readme = git_repo / "README.md"
     readme.write_text("local tinkering", encoding="utf-8")
     fake_uv(monkeypatch)
+    restart_spy(monkeypatch)
     state = update.UpdateState()
 
     assert update.run_update(state, paths, repo=git_repo) is True
 
+    titles = [s.title for s in state.steps]
+    assert "Protecting local changes" in titles
+    assert "Restoring local changes" in titles
     assert readme.read_text(encoding="utf-8") == "local tinkering"
     assert (git_repo / "second_commit.txt").exists()
+    assert git("stash", "list", cwd=git_repo) == ""  # the stash was popped, not left behind
+
+
+def test_run_update_ignores_untracked_files(git_repo, paths, monkeypatch):
+    """`git stash` refuses untracked files: stashing nothing and then popping
+    would restore an unrelated older stash over the user's checkout."""
+    upstream_commit(git_repo, "second commit")
+    git("stash", "list", cwd=git_repo)
+    (git_repo / "notes.txt").write_text("my own scratch file", encoding="utf-8")
+    fake_uv(monkeypatch)
+    restart_spy(monkeypatch)
+    state = update.UpdateState()
+
+    assert update.run_update(state, paths, repo=git_repo) is True
+
+    titles = [s.title for s in state.steps]
+    assert "Protecting local changes" not in titles
+    assert "Restoring local changes" not in titles
+    assert "Local changes kept in the git stash" not in titles
+    assert git("stash", "list", cwd=git_repo) == ""
+    assert (git_repo / "notes.txt").read_text(encoding="utf-8") == "my own scratch file"
+
+
+def test_run_update_never_pops_a_pre_existing_stash(git_repo, paths, monkeypatch):
+    """An old stash entry from the user plus an untracked-only checkout: the
+    update must leave that entry exactly where it is."""
+    (git_repo / "README.md").write_text("earlier experiment", encoding="utf-8")
+    git("stash", cwd=git_repo)
+    kept = git("rev-parse", "refs/stash", cwd=git_repo)
+    upstream_commit(git_repo, "second commit")
+    (git_repo / "notes.txt").write_text("untracked", encoding="utf-8")
+    fake_uv(monkeypatch)
+    restart_spy(monkeypatch)
+    state = update.UpdateState()
+
+    assert update.run_update(state, paths, repo=git_repo) is True
+    assert git("rev-parse", "refs/stash", cwd=git_repo) == kept
+    assert git("status", "--porcelain", "--untracked-files=no", cwd=git_repo) == ""
 
 
 # --- state -----------------------------------------------------------------
@@ -270,15 +346,14 @@ def test_start_update_refuses_a_second_run(paths, monkeypatch):
     def slow(state, _paths, repo=None):
         state.add("working")
         gate.wait(5)
+        state.finish(True)  # run_update closes its own state
         return True
 
     monkeypatch.setattr(update, "run_update", slow)
     state = update.UpdateState()
     try:
         assert update.start_update(paths, state) is True
-        deadline = time.monotonic() + 5
-        while not state.steps and time.monotonic() < deadline:
-            time.sleep(0.01)
+        assert wait_until(lambda: bool(state.steps))
         assert update.start_update(paths, state) is False
         assert len(state.steps) == 1
         snap = state.snapshot()
@@ -286,10 +361,32 @@ def test_start_update_refuses_a_second_run(paths, monkeypatch):
         assert snap["running"] is True and snap["steps"][0]["title"] == "working"
     finally:
         gate.set()
-    deadline = time.monotonic() + 5
-    while state.running and time.monotonic() < deadline:
-        time.sleep(0.01)
-    assert state.running is False and state.ok is True
+    assert wait_until(lambda: not state.running)
+    assert state.ok is True
+
+
+def test_start_update_runs_again_after_a_finished_run(paths, monkeypatch):
+    """The worker must not finish a state twice: a late finish from run 1 would
+    reopen — or close — run 2's log."""
+    runs: list[int] = []
+
+    def quick(state, _paths, repo=None):
+        runs.append(len(runs) + 1)
+        state.add(f"run {runs[-1]}")
+        state.finish(True)
+        return True
+
+    monkeypatch.setattr(update, "run_update", quick)
+    state = update.UpdateState()
+
+    assert update.start_update(paths, state) is True
+    assert wait_until(lambda: not state.running and len(runs) == 1)
+
+    assert update.start_update(paths, state) is True
+    assert wait_until(lambda: not state.running and len(runs) == 2)
+
+    assert [s.title for s in state.steps] == ["run 2"]  # begin() reset the log
+    assert state.ok is True and state.finished_at is not None
 
 
 def test_state_streams_steps_to_the_callback():
