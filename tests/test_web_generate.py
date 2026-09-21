@@ -220,6 +220,15 @@ async def test_retry_errors_render_html_not_json(client, fake, app):
     assert r.headers["content-type"].startswith("text/html") and 'id="queue-panel"' in r.text
 
 
+async def test_generate_form_has_no_dead_polish_versions_attribute(client):
+    """M6/promoted-T4: Task 5 never wired ``polishVersions`` into ``generateForm``, so
+    ``data-polish-versions`` was dead -- the version select's value comes straight from
+    the template's ``polish_versions`` context var, read live via ``hx-include``."""
+    r = await client.get("/generate")
+    assert "data-polish-versions" not in r.text
+    assert 'id="polish-versions-select"' in r.text
+
+
 async def test_polish_route_is_async_but_compose_stays_sync():
     assert inspect.iscoroutinefunction(generate_routes.hx_polish) is True
     assert inspect.iscoroutinefunction(generate_routes.hx_compose) is False

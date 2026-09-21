@@ -12,7 +12,6 @@
         data-default-negative="{{ default_negative|default('', true) }}"
         data-no-text-tokens="{{ no_text_tokens|default('', true) }}"
         data-polish-mode="{{ polish_mode|default('promptEnhance', true) }}"
-        data-polish-versions="{{ polish_versions|default(3, true) }}"
         @submit.prevent="submitActive()">
     {# The real submit buttons are type="button" (each mode needs its own hx-post), which
        would leave the form with no default button and no implicit submission at all. This
