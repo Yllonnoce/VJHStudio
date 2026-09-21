@@ -11,6 +11,9 @@
   <form id="generate-form" x-data="generateForm()"
         data-default-negative="{{ default_negative|default('', true) }}"
         data-no-text-tokens="{{ no_text_tokens|default('', true) }}"
+        data-polish-mode="{{ polish_mode|default('promptEnhance', true) }}"
+        data-polish-model="{{ polish_model|default('', true) }}"
+        data-polish-versions="{{ polish_versions|default(3, true) }}"
         @submit.prevent="submitActive()">
     {# The real submit buttons are type="button" (each mode needs its own hx-post), which
        would leave the form with no default button and no implicit submission at all. This
@@ -18,6 +21,12 @@
        submitActive(). It is never focusable and never announced. #}
     <button type="submit" hidden tabindex="-1" aria-hidden="true"></button>
     <input type="hidden" name="mode" value="{{ mode }}" :value="mode">
+    {# Both live outside the two mode fieldsets: the inactive one is `disabled`, and a
+       disabled fieldset posts none of its inputs. `prompt_id` links the submit back to
+       the row it was loaded from; `polish_json` carries the chosen polish version. #}
+    <input type="hidden" name="prompt_id" id="prompt-id-input"
+           value="{{ prompt_id|default('', true) }}" :value="promptId">
+    <input type="hidden" name="polish_json" id="polish-json-input" value="" :value="polishJson">
     <div class="gen-modes" role="tablist" aria-label="Generation mode">
       <button type="button" role="tab" class="gen-mode-tab" id="mode-tab-image"
               :aria-selected="mode === 'image'" aria-selected="{{ 'true' if mode == 'image' else 'false' }}"

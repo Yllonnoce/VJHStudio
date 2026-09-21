@@ -43,4 +43,7 @@
     <textarea name="final_prompt" rows="3" x-model="finalPrompt"
               placeholder="Leave empty to use the composed prompt">{{ final_prompt|default('', true) }}</textarea>
   </label>
+
+  {% include "generate/_polish.html" %}
+  {% include "generate/_save_prompt.html" %}
 </section>

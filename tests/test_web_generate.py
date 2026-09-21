@@ -1,4 +1,5 @@
 import inspect
+import json
 import re
 
 from runware import RunwareError
@@ -266,3 +267,156 @@ async def test_polish_promptenhance_success_renders_cards_and_records_usage(clie
         entry = s.query(models.UsageEntry).one()
         assert entry.task_type == "promptEnhance" and entry.project_id == 1
         assert abs(entry.cost - 0.0004) < 1e-9
+
+
+# ---- ?prompt= prefill and auto-history -----------------------------------
+PROMPT_SAVE = {
+    "project_id": "1",
+    "mode": "image",
+    "subject": "a red fox",
+    "style": "oil painting",
+    "final_prompt": "a red fox, oil painting",
+    "title": "Fox portrait",
+    "use_default_negative": "on",
+    "no_text": "on",
+}
+
+
+async def _save_prompt(client, **extra) -> int:
+    r = await client.post("/prompts", data={**PROMPT_SAVE, **extra})
+    assert r.status_code == 200
+    return json.loads(r.headers["HX-Trigger"])["prompt-saved"]["id"]
+
+
+async def test_prompt_query_prefills_the_form_and_posts_the_id(client, app):
+    pid = await _save_prompt(client)
+    r = await client.get(f"/generate?prompt={pid}")
+    assert r.status_code == 200
+    assert f'"prompt_id": {pid}' in r.text  # the initial blob (Task 5's draft guard reads it)
+    assert '"subject": "a red fox"' in r.text and '"style": "oil painting"' in r.text
+    assert '"final_prompt": "a red fox, oil painting"' in r.text
+    assert 'value="a red fox"' in r.text and "a red fox, oil painting</textarea>" in r.text
+    assert _has_attr_pair(r.text, "prompt_id", str(pid))
+    with db.session_scope(app.state.boot.session_factory) as s:
+        assert s.get(models.Prompt, pid).use_count == 1  # loading counts as a use
+
+
+async def test_prompt_query_404s_on_an_unknown_id(client):
+    assert (await client.get("/generate?prompt=999999")).status_code == 404
+    assert (await client.get("/generate?prompt=nonsense")).status_code == 404
+    assert (await client.get("/generate")).status_code == 200
+
+
+async def test_prompt_query_opens_the_video_tab(client):
+    pid = await _save_prompt(client, mode="video", final_prompt="a fox running, slow pan")
+    r = await client.get(f"/generate?prompt={pid}")
+    assert r.status_code == 200 and '"mode": "video"' in r.text
+    assert re.search(r'id="mode-tab-video"[^>]*\saria-selected="true"', r.text)
+    assert 'name="duration"' in r.text  # the video parameter pane, not the image one
+
+
+async def test_loaded_prompt_page_still_renders_the_ref_chips_block(client):
+    """A saved prompt carries no assets, so ``refs`` is empty and nothing is re-derived."""
+    pid = await _save_prompt(client)
+    r = await client.get(f"/generate?prompt={pid}")
+    assert '"refs": []' in r.text and 'id="gen-refs"' in r.text
+
+
+async def test_prompt_id_and_polish_controls_are_outside_the_mode_fieldsets(client):
+    """The inactive mode's fieldset is ``disabled``, which would stop its inputs posting."""
+    html = (await client.get("/generate")).text
+    first_pane = html.index('<fieldset class="gen-pane"')
+    for name in ("prompt_id", "polish_json", "polish_mode", "polish_versions", "polish_model"):
+        assert f'name="{name}"' in html, name
+        assert html.index(f'name="{name}"') < first_pane, name
+    assert 'id="polish-results"' in html and 'id="save-prompt"' in html
+
+
+async def test_polish_model_select_is_hidden_until_the_setting_asks_for_it(client):
+    html = (await client.get("/generate")).text
+    field = html[html.index('id="polish-model-field"') : html.index('name="polish_model"')]
+    assert "display:none" in field
+    assert "(use promptEnhance)" in html and "Claude Sonnet 4.6" in html
+
+    await client.post("/settings", data={"prompt.polish_mode": "textInference"})
+    html = (await client.get("/generate")).text
+    field = html[html.index('id="polish-model-field"') : html.index('name="polish_model"')]
+    assert "display:none" not in field
+
+
+async def test_submit_records_the_prompt_and_links_the_job(client, fake, app):
+    await client.post("/settings/api-key", data={"api_key": "abcdefgh1234"})
+    fake.script["run"] = [[{"imageURL": "http://x/1.png"}]]
+    assert (await client.post("/generate/image", data=FORM)).status_code == 200
+    await app.state.runner.wait_idle()
+    with db.session_scope(app.state.boot.session_factory) as s:
+        prompt = s.query(models.Prompt).one()
+        assert prompt.kind == "image" and prompt.use_count == 1
+        assert prompt.composed_prompt == "a red fox, oil painting"
+        assert "low quality" in prompt.negative_prompt  # the built negative, as /prompts does
+        assert s.query(models.Job).one().prompt_id == prompt.id
+
+
+async def test_submitting_the_same_text_twice_keeps_one_prompt_row(client, fake, app):
+    await client.post("/settings/api-key", data={"api_key": "abcdefgh1234"})
+    fake.script["run"] = [[{"imageURL": "http://x/1.png"}], [{"imageURL": "http://x/2.png"}]]
+    assert (await client.post("/generate/image", data=FORM)).status_code == 200
+    assert (await client.post("/generate/image", data=FORM)).status_code == 200
+    await app.state.runner.wait_idle()
+    with db.session_scope(app.state.boot.session_factory) as s:
+        prompt = s.query(models.Prompt).one()
+        assert prompt.use_count == 2
+        jobs = s.query(models.Job).all()
+        assert len(jobs) == 2 and {j.prompt_id for j in jobs} == {prompt.id}
+
+
+async def test_submit_with_a_prompt_id_reuses_that_row(client, fake, app):
+    await client.post("/settings/api-key", data={"api_key": "abcdefgh1234"})
+    fake.script["run"] = [[{"imageURL": "http://x/1.png"}]]
+    pid = await _save_prompt(client, final_prompt="")  # same text the FORM submit builds
+    r = await client.post("/generate/image", data={**FORM, "prompt_id": str(pid)})
+    assert r.status_code == 200
+    await app.state.runner.wait_idle()
+    with db.session_scope(app.state.boot.session_factory) as s:
+        prompt = s.query(models.Prompt).one()
+        assert prompt.id == pid and prompt.use_count == 1 and prompt.title == "Fox portrait"
+        assert s.query(models.Job).one().prompt_id == pid
+
+
+async def test_submit_stores_the_polish_blob_and_ignores_junk(client, fake, app):
+    await client.post("/settings/api-key", data={"api_key": "abcdefgh1234"})
+    fake.script["run"] = [[{"imageURL": "http://x/1.png"}], [{"imageURL": "http://x/2.png"}]]
+    blob = {"source": "promptEnhance", "model": "m", "versions": ["a fox"], "chosen_index": 0}
+    r = await client.post("/generate/image", data={**FORM, "polish_json": json.dumps(blob)})
+    assert r.status_code == 200
+    with db.session_scope(app.state.boot.session_factory) as s:
+        assert s.query(models.Prompt).one().polish_json == blob
+
+    r = await client.post(
+        "/generate/image", data={**FORM, "subject": "a blue hare", "polish_json": "not json"}
+    )
+    assert r.status_code == 200  # junk is dropped, never a 500
+    await app.state.runner.wait_idle()
+    with db.session_scope(app.state.boot.session_factory) as s:
+        row = (
+            s.query(models.Prompt).filter(models.Prompt.composed_prompt.like("a blue hare%")).one()
+        )
+        assert row.polish_json is None
+
+
+async def test_submit_stores_the_polish_blob_on_a_reused_row(client, fake, app):
+    """Reusing the row ``prompt_id`` names must still record a polish blob the submit
+    carries -- ``prompts.upsert`` treats an existing row the same way."""
+    await client.post("/settings/api-key", data={"api_key": "abcdefgh1234"})
+    fake.script["run"] = [[{"imageURL": "http://x/1.png"}]]
+    pid = await _save_prompt(client, final_prompt="")
+    blob = {"source": "textInference", "model": "openai:gpt@5.5", "versions": ["a fox"]}
+    r = await client.post(
+        "/generate/image",
+        data={**FORM, "prompt_id": str(pid), "polish_json": json.dumps(blob)},
+    )
+    assert r.status_code == 200
+    await app.state.runner.wait_idle()
+    with db.session_scope(app.state.boot.session_factory) as s:
+        prompt = s.query(models.Prompt).one()
+        assert prompt.id == pid and prompt.polish_json == blob

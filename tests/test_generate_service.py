@@ -72,3 +72,50 @@ def test_enqueue_title_falls_back_and_uses_observed_latency(env):
     with db.session_scope(f) as s:
         j = s.get(models.Job, job.id)
         assert j.title == "Untitled" and j.expected_ms == 8000
+
+
+def _req(pid: int, **extra) -> ImageRequest:
+    return ImageRequest(
+        project_id=pid, model="runware:101@1", form=PromptForm(subject="a fox", **extra)
+    )
+
+
+def test_enqueue_records_prompt_history_and_links_the_job(env):
+    paths, f = env
+    with db.session_scope(f) as s:
+        pid = s.query(models.Project).filter_by(slug="default").one().id
+    job = generate.enqueue_image(f, paths, _req(pid), default_negative="low quality")
+    with db.session_scope(f) as s:
+        prompt = s.query(models.Prompt).one()
+        assert prompt.kind == "image" and prompt.use_count == 1 and prompt.project_id == pid
+        assert prompt.composed_prompt == "a fox"
+        assert prompt.negative_prompt.startswith("low quality")
+        assert s.get(models.Job, job.id).prompt_id == prompt.id
+
+
+def test_enqueue_dedupes_identical_text_and_keeps_the_polish_blob(env):
+    paths, f = env
+    with db.session_scope(f) as s:
+        pid = s.query(models.Project).filter_by(slug="default").one().id
+    blob = {"source": "promptEnhance", "versions": ["a fox, refined"], "chosen_index": 0}
+    j1 = generate.enqueue_image(f, paths, _req(pid), default_negative="", polish_json=blob)
+    j2 = generate.enqueue_image(f, paths, _req(pid), default_negative="")
+    with db.session_scope(f) as s:
+        prompt = s.query(models.Prompt).one()
+        assert prompt.use_count == 2 and prompt.polish_json == blob
+        assert s.get(models.Job, j1.id).prompt_id == prompt.id
+        assert s.get(models.Job, j2.id).prompt_id == prompt.id
+
+
+def test_enqueue_video_links_a_video_prompt_row(env):
+    from vjhstudio.schemas.video import VideoRequest
+
+    paths, f = env
+    with db.session_scope(f) as s:
+        pid = s.query(models.Project).filter_by(slug="default").one().id
+    req = VideoRequest(project_id=pid, model="google:3@2", form=PromptForm(subject="a fox runs"))
+    job = generate.enqueue_video(f, paths, req)
+    with db.session_scope(f) as s:
+        prompt = s.query(models.Prompt).one()
+        assert prompt.kind == "video" and prompt.negative_prompt == ""
+        assert s.get(models.Job, job.id).prompt_id == prompt.id

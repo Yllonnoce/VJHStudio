@@ -45,6 +45,12 @@ window.generateForm = function (initial) {
     mode: initial.mode === 'video' ? 'video' : 'image',
     refs: Array.isArray(initial.refs) ? initial.refs.slice() : [],
     pickerRole: 'reference',
+    // the prompt library: the row this form was loaded from (posted back so the job
+    // links it instead of creating a second one) and the polish blob to store on it
+    promptId: initial.prompt_id || '',
+    polishJson: '',
+    polishMode: 'promptEnhance',
+    savedTitle: initial.title || '',
 
     get composed() {
       return window.composePrompt ? window.composePrompt(this.fields) : '';
@@ -119,9 +125,21 @@ window.generateForm = function (initial) {
       if (btn && !btn.disabled) btn.click();
     },
 
+    // ── save-prompt dialog ──────────────────────────────────────────────────
+    openSaveDialog() {
+      const d = document.getElementById('save-prompt');
+      if (d && d.showModal) d.showModal();
+    },
+
+    closeSaveDialog() {
+      const d = document.getElementById('save-prompt');
+      if (d && d.close) d.close();
+    },
+
     init() {
       this.defaultNegative = this.$el.dataset.defaultNegative || '';
       this.noTextTokens = this.$el.dataset.noTextTokens || '';
+      this.polishMode = this.$el.dataset.polishMode || 'promptEnhance';
       window.addEventListener('ref-picked', (e) => this.addRef(e.detail || {}));
 
       if (initial.form) {

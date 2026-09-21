@@ -85,6 +85,7 @@ SIZE_PRESETS = (
 SCHEDULERS = ("", "Default", "DPM++ 2M", "DPM++ 2M Karras", "Euler", "Euler a", "DDIM", "UniPC")
 TRUTHY = ("on", "1", "true", "yes")
 REF_PX = 1024 * 1024
+POLISH_JSON_MAX = 8000
 
 PARAMS_TEMPLATES = {
     "image": "generate/_model_params.html",
@@ -466,7 +467,24 @@ def _ref_initial(session, ref: str, role: str) -> dict:
     return data
 
 
-def _initial(session, remix: str, ref: str = "", role: str = "") -> dict:
+def _prompt_initial(session, prompt: str) -> dict:
+    """``?prompt=<id>`` -> the saved prompt's raw fields, final text, mode and id. Loading
+    one counts as a use, and the ``prompt_id`` rides along in the ``initial`` blob so the
+    form posts it back (and the draft guard knows not to overwrite a loaded prompt)."""
+    try:
+        row = prompts.get(session, int(prompt))
+    except (TypeError, ValueError) as e:
+        raise LookupError(prompt) from e
+    if row is None:
+        raise LookupError(prompt)
+    prompts.mark_used(session, row.id)
+    return prompts.to_initial(row)
+
+
+def _initial(session, remix: str, ref: str = "", role: str = "", prompt: str = "") -> dict:
+    """Precedence: ``remix`` > ``prompt`` > ``ref`` -- one link, one source of truth."""
+    if not remix and prompt:
+        return _prompt_initial(session, prompt)
     if ref and not remix:
         return _ref_initial(session, ref, role)
     if not remix:
@@ -500,18 +518,19 @@ class _QueryLike:
         return ["on" if self._data[key] else "off"]
 
 
-def _page(request: Request, remix: str, mode: str, ref: str = "", role: str = ""):
+def _page(request: Request, remix: str, mode: str, ref: str = "", role: str = "", prompt: str = ""):
     app = request.app
     with db.session_scope(app.state.boot.session_factory) as s:
         try:
-            initial = _initial(s, remix, ref, role)
+            initial = _initial(s, remix, ref, role, prompt)
         except LookupError as e:
-            raise HTTPException(status_code=404, detail="unknown output or asset") from e
+            raise HTTPException(status_code=404, detail="unknown output, asset or prompt") from e
         mode = _mode(initial.get("mode") or mode)
         initial["mode"] = mode
         initial.setdefault("refs", [])
         models = catalog.list_models(s, "image")
         video_models = catalog.list_models(s, "video")
+        text_models = catalog.list_models(s, "text")
         chosen = str(initial.get("model") or "")
         image_air = (chosen if mode == "image" and chosen else "") or settings_svc.get(
             s, "defaults.image_model", app.state.env
@@ -561,7 +580,8 @@ def _page(request: Request, remix: str, mode: str, ref: str = "", role: str = ""
             "mode": mode,
             "models": models,
             "video_models": video_models,
-            "labels": {m.air: catalog.label(m) for m in models + video_models},
+            "text_models": text_models,
+            "labels": {m.air: catalog.label(m) for m in models + video_models + text_models},
             "selected": image_air,
             "video_selected": video_air,
             "projects": projects.list_active(s),
@@ -574,6 +594,11 @@ def _page(request: Request, remix: str, mode: str, ref: str = "", role: str = ""
             "estimate": estimate,
             "default_negative": settings_svc.get(s, "defaults.negative_prompt", app.state.env),
             "no_text_tokens": prompts.NO_TEXT_NEGATIVE,
+            "polish_mode": settings_svc.get(s, "prompt.polish_mode", app.state.env),
+            "polish_model": settings_svc.get(s, "defaults.polish_model", app.state.env),
+            "polish_versions": polish_svc.VERSIONS_MAX,
+            "prompt_id": initial.get("prompt_id") or "",
+            "prompt_title": initial.get("title") or "",
         }
     ctx.update(panel_ctx(request))
     ctx["oob"] = False  # the page already carries the header badge
@@ -589,7 +614,7 @@ def generate_page(
     ref: str = "",
     role: str = "",
 ):
-    return _page(request, remix, _mode(mode), ref, role)
+    return _page(request, remix, _mode(mode), ref, role, prompt)
 
 
 @router.get("/generate/video")
@@ -597,7 +622,21 @@ def generate_video_page(
     request: Request, remix: str = "", prompt: str = "", ref: str = "", role: str = ""
 ):
     """Bookmarkable alias for ``/generate?mode=video``."""
-    return _page(request, remix, "video", ref, role)
+    return _page(request, remix, "video", ref, role, prompt)
+
+
+def polish_json_of(form) -> dict | None:
+    """The hidden ``polish_json`` field, as stashed by the polish cards. Anything that is
+    not a reasonably sized JSON object is dropped: a submit must never fail over polish
+    metadata (``routes/prompts.save_prompt`` treats it the same way)."""
+    raw = str(form.get("polish_json", "") or "").strip()
+    if not raw or len(raw) > POLISH_JSON_MAX:
+        return None
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
 
 
 @router.post("/generate/image")
@@ -615,7 +654,11 @@ def submit_image(request: Request, form: deps.Form):
         default_negative = settings_svc.get(s, "defaults.negative_prompt", app.state.env)
     try:
         job = generate.enqueue_image(
-            app.state.boot.session_factory, app.state.paths, req, default_negative=default_negative
+            app.state.boot.session_factory,
+            app.state.paths,
+            req,
+            default_negative=default_negative,
+            polish_json=polish_json_of(form),
         )
     except ValueError as e:
         return _params_422(request, "image", air, form, {"model": str(e)})
@@ -636,7 +679,12 @@ def submit_video(request: Request, form: deps.Form):
     except ValidationError as e:
         return _params_422(request, "video", air, form, error_map(e))
     try:
-        job = generate.enqueue_video(app.state.boot.session_factory, app.state.paths, req)
+        job = generate.enqueue_video(
+            app.state.boot.session_factory,
+            app.state.paths,
+            req,
+            polish_json=polish_json_of(form),
+        )
     except ValueError as e:
         return _params_422(request, "video", air, form, {"model": str(e)})
     return _submitted(request, job)

@@ -277,3 +277,15 @@ async def test_remix_resolves_frame_assets_into_ref_chips(client, fake, app):
     r = await client.get(f"/generate?remix={oid}")
     assert '"role": "first"' in r.text and "first.png" in r.text
     assert "/files/asset-thumbs/" in r.text
+
+
+async def test_video_submit_links_a_video_prompt_row(client, fake, app):
+    r = await _run_video(client, fake, app)
+    assert r.status_code == 200
+    with db.session_scope(app.state.boot.session_factory) as s:
+        prompt = s.query(models.Prompt).one()
+        assert prompt.kind == "video" and prompt.use_count == 1
+        assert prompt.composed_prompt == "a fox running"
+        # video requests omit negativePrompt, so the row records no negative either
+        assert prompt.negative_prompt == ""
+        assert s.query(models.Job).one().prompt_id == prompt.id

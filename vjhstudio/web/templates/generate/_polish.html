@@ -1,0 +1,35 @@
+{# "Polish with AI": hand the composed prompt to RunWare for a rewrite and offer the
+   versions back as cards. This block lives in the prompt column, outside both mode
+   fieldsets, so the text-model select is never inside a `disabled` fieldset and keeps
+   posting on either tab. The results panel is swapped whole (outerHTML): the partial's
+   own root *is* #polish-results, which is also where the route retargets its 422s. #}
+<section class="gen-polish" id="gen-polish">
+  <h4>Polish with AI</h4>
+  <div class="grid">
+    <label>Polish mode
+      <select name="polish_mode" id="polish-mode-select" x-model="polishMode">
+        <option value="promptEnhance" {% if polish_mode != 'textInference' %}selected{% endif %}>promptEnhance (fast, ≤300 chars)</option>
+        <option value="textInference" {% if polish_mode == 'textInference' %}selected{% endif %}>textInference (a text model)</option>
+      </select>
+    </label>
+    <label>Versions
+      <select name="polish_versions" id="polish-versions-select">
+        {% for n in range(1, (polish_versions|default(3, true)) + 1) %}
+        <option value="{{ n }}" {% if n == polish_versions %}selected{% endif %}>{{ n }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </div>
+  {# server-rendered visibility matches the saved setting; Alpine takes over the moment
+     the mode select is touched #}
+  <label id="polish-model-field" x-show="polishMode === 'textInference'"
+         {% if polish_mode != 'textInference' %}style="display:none"{% endif %}>Text model
+    {% with name='polish_model', select_id='polish-model-select', options=text_models, selected=polish_model, allow_empty=True %}{% include "catalog/_model_select.html" %}{% endwith %}
+  </label>
+  <button type="button" class="secondary" id="polish-button"
+          hx-post="/hx/prompt/polish" hx-include="#generate-form"
+          hx-target="#polish-results" hx-swap="outerHTML" hx-indicator="#polish-spinner"
+          {% if not has_api_key %}disabled{% endif %}>Polish with AI</button>
+  <span id="polish-spinner" class="htmx-indicator" aria-hidden="true">Polishing…</span>
+  <div id="polish-results" class="polish-results" aria-live="polite"></div>
+</section>

@@ -1,0 +1,28 @@
+{# Save the prompt as it stands into the library. The dialog's inputs sit inside
+   #generate-form on purpose: hx-include then carries the builder fields, the project,
+   the final prompt and the polish blob along with the title and tags, which is exactly
+   the contract POST /prompts expects. #}
+<div class="gen-save-prompt">
+  <button type="button" class="secondary outline" id="save-prompt-open"
+          @click="openSaveDialog()">Save prompt</button>
+  <dialog id="save-prompt">
+    <article>
+      <header>
+        <button type="button" class="ref-picker-close" aria-label="Close"
+                @click="closeSaveDialog()">&times;</button>
+        <strong>Save prompt</strong>
+      </header>
+      <label>Title
+        <input type="text" name="title" id="save-prompt-title" x-model="savedTitle"
+               value="{{ prompt_title|default('', true) }}" placeholder="Fox portrait">
+      </label>
+      <label>Tags
+        <input type="text" name="tags" id="save-prompt-tags" placeholder="tag1, tag2">
+      </label>
+      <button type="button" id="save-prompt-submit"
+              hx-post="/prompts" hx-include="#generate-form"
+              hx-target="#save-prompt-result" hx-swap="innerHTML">Save to library</button>
+      <div id="save-prompt-result" aria-live="polite"></div>
+    </article>
+  </dialog>
+</div>
