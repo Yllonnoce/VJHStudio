@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -63,6 +64,9 @@ AUTH_MARKERS = (
 
 RESTORE_STEP = "Database restored from the safety backup"
 RESTART_STEP = "Restarting to load the restored database"
+
+# https://user:token@host -> https://***@host ; git echoes the remote URL on a failure.
+CREDENTIAL_RE = re.compile(r"://[^/\s:@]+:[^/\s@]+@")
 
 PULL_TIMEOUT = 300
 SYNC_TIMEOUT = 900
@@ -107,14 +111,21 @@ def _uv(args: list[str], repo: Path, timeout: int) -> subprocess.CompletedProces
         return _failed(cmd, e)
 
 
+def redact(text: str) -> str:
+    """Strip an embedded git credential out of a message before it is shown or logged.
+    A remote URL like https://user:token@host/repo.git is echoed verbatim by git on a
+    failure, and the step log ends up on screen and in the console."""
+    return CREDENTIAL_RE.sub("://***@", text or "")
+
+
 def _msg(p: subprocess.CompletedProcess[str]) -> str:
     """The line that explains a failure: stderr if there is any, else stdout."""
-    return (p.stderr or "").strip() or (p.stdout or "").strip()
+    return redact((p.stderr or "").strip() or (p.stdout or "").strip())
 
 
 def _detail(p: subprocess.CompletedProcess[str]) -> str:
     """Everything the command said, trimmed to something a UI can show."""
-    return ((p.stdout or "") + "\n" + (p.stderr or "")).strip()[-DETAIL_CHARS:]
+    return redact(((p.stdout or "") + "\n" + (p.stderr or "")).strip())[-DETAIL_CHARS:]
 
 
 # --- read-only check -------------------------------------------------------
@@ -195,6 +206,18 @@ class UpdateState:
             self.running = False
             self.ok = ok
             self.finished_at = utcnow()
+
+    def reset(self) -> bool:
+        """Forget a finished run's log. False (and nothing cleared) while one runs."""
+        with self._lock:
+            if self.running:
+                return False
+            self.ok = None
+            self.steps = []
+            self.started_at = None
+            self.finished_at = None
+            self.message = ""
+            return True
 
     def add(self, title: str, detail: str = "", ok: bool = True) -> Step:
         step = Step(title=title, detail=detail, ok=ok)

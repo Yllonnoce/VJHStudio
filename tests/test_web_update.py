@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import threading
 
 import httpx
 import pytest
@@ -20,6 +21,15 @@ from vjhstudio.services import update as update_svc
 from vjhstudio.web import app as app_module
 from vjhstudio.web.app import create_app
 from vjhstudio.web.routes import system as system_routes
+
+HX = {"HX-Request": "true"}
+
+
+@pytest.fixture
+def git_install(monkeypatch):
+    """The panel hides its button on a ZIP install. These tests are about the *other*
+    reasons it shows or hides, so they must not depend on this checkout having a .git."""
+    monkeypatch.setattr(gitinfo, "is_git_install", lambda: True)
 
 
 def _state(steps, running=True, ok=None, message=""):
@@ -53,7 +63,7 @@ async def test_settings_page_has_an_updates_section(client, app):
     assert "Check for updates" in r.text
 
 
-async def test_updates_partial_shows_the_cached_notice(client, app):
+async def test_updates_partial_shows_the_cached_notice(client, app, git_install):
     _set_meta(app, "update.behind", "2")
     _set_meta(app, "update.commits", '["first subject", "second subject"]')
     r = await client.get("/hx/system/updates")
@@ -63,7 +73,7 @@ async def test_updates_partial_shows_the_cached_notice(client, app):
     assert "Update now" in r.text
 
 
-async def test_check_lists_the_new_commits(client, monkeypatch):
+async def test_check_lists_the_new_commits(client, monkeypatch, git_install):
     def fake_check(session_factory, repo=None):
         return {
             "git": True,
@@ -82,7 +92,7 @@ async def test_check_lists_the_new_commits(client, monkeypatch):
     assert "Update now" in r.text
 
 
-async def test_check_with_no_new_commits_offers_no_update(client, monkeypatch):
+async def test_check_with_no_new_commits_offers_no_update(client, monkeypatch, git_install):
     monkeypatch.setattr(
         update_svc,
         "check_and_store",
@@ -100,7 +110,9 @@ async def test_check_with_no_new_commits_offers_no_update(client, monkeypatch):
     assert "Update now" not in r.text
 
 
-async def test_check_renders_the_login_help_and_hides_the_update_button(client, monkeypatch):
+async def test_check_renders_the_login_help_and_hides_the_update_button(
+    client, monkeypatch, git_install
+):
     monkeypatch.setattr(
         update_svc,
         "check_and_store",
@@ -157,7 +169,7 @@ async def test_log_mid_run_lists_the_steps_and_does_not_redirect(client, monkeyp
     monkeypatch.setattr(
         system_routes.restart_svc, "request_restart", lambda: fired.append("restart")
     )
-    r = await client.get("/hx/system/update-log")
+    r = await client.get("/hx/system/update-log", headers=HX)
     assert r.status_code == 200
     assert "Safety backup" in r.text and "Downloading update" in r.text
     assert "HX-Redirect" not in r.headers
@@ -177,8 +189,8 @@ async def test_a_finished_run_redirects_and_restarts_exactly_once(client, monkey
     monkeypatch.setattr(
         system_routes.restart_svc, "request_restart", lambda: fired.append("restart")
     )
-    r1 = await client.get("/hx/system/update-log")
-    r2 = await client.get("/hx/system/update-log")
+    r1 = await client.get("/hx/system/update-log", headers=HX)
+    r2 = await client.get("/hx/system/update-log", headers=HX)
     assert r1.status_code == 200 and r2.status_code == 200
     assert r1.headers["HX-Redirect"] == "/restarting"
     assert r2.headers["HX-Redirect"] == "/restarting"
@@ -202,12 +214,72 @@ async def test_a_failed_run_shows_the_failing_step_and_never_restarts(client, mo
     monkeypatch.setattr(
         system_routes.restart_svc, "request_restart", lambda: fired.append("restart")
     )
-    r = await client.get("/hx/system/update-log")
+    r = await client.get("/hx/system/update-log", headers=HX)
     assert r.status_code == 200
     assert "Rolled back to the previous version" in r.text
     assert "Update aborted" in r.text
     assert "HX-Redirect" not in r.headers
     assert fired == []
+
+
+async def test_concurrent_polls_of_a_finished_run_restart_once(client, monkeypatch):
+    """Every poll is a sync handler in the threadpool, so several can be inside the
+    claim at the same time; re-execing the app twice would be a very bad race."""
+    st = _state([("Downloading update", "", True)], running=False, ok=True, message="done")
+    monkeypatch.setattr(update_svc, "STATE", st)
+    fired = []
+    lock = threading.Lock()
+
+    def slow_restart():
+        with lock:
+            fired.append("restart")
+
+    monkeypatch.setattr(system_routes.restart_svc, "request_restart", slow_restart)
+    results = await asyncio.gather(
+        *(client.get("/hx/system/update-log", headers=HX) for _ in range(8))
+    )
+    assert [r.status_code for r in results] == [200] * 8
+    assert all(r.headers["HX-Redirect"] == "/restarting" for r in results)
+    assert fired == ["restart"]
+
+
+async def test_a_plain_get_of_a_finished_log_never_restarts(client, monkeypatch):
+    """GET is reachable from an <img src> on any page the user has open, and the CSRF
+    middleware only guards the unsafe methods, so only htmx's own poll may finish a run."""
+    st = _state([("Downloading update", "", True)], running=False, ok=True, message="done")
+    monkeypatch.setattr(update_svc, "STATE", st)
+    fired = []
+    monkeypatch.setattr(
+        system_routes.restart_svc, "request_restart", lambda: fired.append("restart")
+    )
+    r = await client.get("/hx/system/update-log")
+    assert r.status_code == 200
+    assert "HX-Redirect" not in r.headers
+    assert fired == []
+    # …and the real poll right after it still works.
+    hx = await client.get("/hx/system/update-log", headers=HX)
+    assert hx.headers["HX-Redirect"] == "/restarting"
+    assert fired == ["restart"]
+
+
+async def test_dismiss_clears_a_finished_log(client, monkeypatch, git_install):
+    st = _state([("Downloading update", "", False)], running=False, ok=False, message="broke")
+    monkeypatch.setattr(update_svc, "STATE", st)
+    r = await client.post("/system/update/dismiss")
+    assert r.status_code == 200
+    assert "Downloading update" not in r.text and "broke" not in r.text
+    assert st.snapshot() == {"running": False, "ok": None, "message": "", "steps": []}
+    # The panel comes back whole, not just the log.
+    assert "Check for updates" in r.text
+
+
+async def test_dismiss_is_refused_while_a_run_is_in_flight(client, monkeypatch, git_install):
+    st = _state([("Downloading update", "", True)])
+    monkeypatch.setattr(update_svc, "STATE", st)
+    r = await client.post("/system/update/dismiss")
+    assert r.status_code == 409
+    assert "Downloading update" in r.text
+    assert st.snapshot()["steps"]
 
 
 # --- the header badge ------------------------------------------------------
@@ -249,10 +321,27 @@ async def test_restarting_page_carries_the_current_boot_id(client, app):
     assert "/settings#updates" in r.text
 
 
-async def test_restarting_page_only_accepts_a_local_return_path(client):
-    r = await client.get("/restarting", params={"return": "https://evil.example/x"})
+@pytest.mark.parametrize(
+    "hostile",
+    [
+        "https://evil.example/x",
+        "//evil.example/x",
+        # Browsers normalise the backslash to "/", so this is "//evil.example" too.
+        "/\\evil.example/x",
+        "\\\\evil.example/x",
+        "  //evil.example",
+        # Browsers strip a tab out of a URL, so this is "//evil.example" as well.
+        "/\t/evil.example",
+    ],
+)
+async def test_restarting_page_only_accepts_a_local_return_path(client, hostile):
+    r = await client.get("/restarting", params={"return": hostile})
     assert r.status_code == 200
     assert "evil.example" not in r.text
+    assert "/settings#updates" in r.text
+
+
+async def test_restarting_page_keeps_a_real_path(client):
     ok = await client.get("/restarting", params={"return": "/gallery"})
     assert "/gallery" in ok.text
 

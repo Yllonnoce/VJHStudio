@@ -4,7 +4,7 @@ import asyncio
 import logging
 import os
 from collections.abc import Mapping
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -108,10 +108,13 @@ def create_app(
         )
         app.state.update_task = asyncio.create_task(_update_watch()) if watch_updates else None
         yield
-        if task:
-            task.cancel()
-        if app.state.update_task:
-            app.state.update_task.cancel()
+        for background in (task, app.state.update_task):
+            if background:
+                background.cancel()
+                # Let the cancellation land before the engine goes: a check still in
+                # to_thread would otherwise touch a disposed engine on its way out.
+                with suppress(asyncio.CancelledError):
+                    await background
         await app.state.runner.stop()
         app.state.boot.engine.dispose()
 

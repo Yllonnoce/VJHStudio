@@ -16,5 +16,8 @@
     <p aria-live="polite"><small>Updating… this can take a few minutes. Leave this page open.</small></p>
   {% elif update_state.steps %}
     <p class="{{ 'ok' if update_state.ok else 'error' }}">{{ update_state.message or ('Update finished.' if update_state.ok else 'Update failed.') }}</p>
+    {# Without this the last run's log greets the user on every Settings visit. #}
+    <button type="button" class="secondary outline update-dismiss"
+            hx-post="/system/update/dismiss" hx-target="#updates-panel" hx-swap="outerHTML">Dismiss</button>
   {% endif %}
 </div>

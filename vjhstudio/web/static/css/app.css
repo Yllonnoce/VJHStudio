@@ -275,5 +275,6 @@ video.lightbox-image{width:100%;max-height:70vh;background:#000}
 .update-steps li{margin-bottom:.35rem}
 .update-steps pre{margin:.25rem 0 0;padding:.35rem .5rem;font-size:.8rem;white-space:pre-wrap}
 .update-steps .step-warn strong{color:var(--sp-warning)}
+.update-dismiss{width:auto;margin:0;padding:.2rem .7rem;font-size:.8rem}
 .restart-page{max-width:40rem;margin-top:3rem}
 .restart-page progress{margin:.5rem 0 1rem}

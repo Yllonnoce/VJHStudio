@@ -168,6 +168,38 @@ def test_git_auth_needed_phrases():
     assert update.git_auth_needed("fatal: not a git repository") is False
 
 
+def test_redact_hides_an_embedded_git_credential():
+    """A remote URL with a token in it is echoed back by git on a failure, and the
+    step log is shown on screen and written to the console log."""
+    text = (
+        "fatal: unable to access 'https://eric:ghp_supersecret@github.com/x/y.git/': 403\n"
+        "hint: try ssh://deploy:hunter2@code.example/x.git instead"
+    )
+    out = update.redact(text)
+    assert "ghp_supersecret" not in out and "hunter2" not in out and "eric" not in out
+    assert "https://***@github.com/x/y.git/" in out
+    assert "ssh://***@code.example/x.git" in out
+    # A URL with no credentials, and a plain sentence with a colon, are left alone.
+    assert update.redact("https://github.com/x/y.git") == "https://github.com/x/y.git"
+    assert update.redact("error: could not read: no such file") == (
+        "error: could not read: no such file"
+    )
+    assert update.redact("") == ""
+
+
+def test_a_failing_command_reports_no_credentials(git_repo, monkeypatch):
+    """The redaction is wired into the messages, not just available as a helper."""
+    leak = "fatal: unable to access 'https://eric:ghp_supersecret@github.com/x.git/'"
+
+    def fake(args, timeout=30, cwd=None):
+        return subprocess.CompletedProcess(args, 1, leak, leak)
+
+    monkeypatch.setattr(gitinfo, "run_git", fake)
+    info = update.check_updates(repo=git_repo)
+    assert "ghp_supersecret" not in info["error"]
+    assert "***@github.com" in info["error"]
+
+
 def test_uv_bin_prefers_env(monkeypatch):
     monkeypatch.setenv("VJHSTUDIO_UV", "/opt/uv")
     assert update.uv_bin() == "/opt/uv"

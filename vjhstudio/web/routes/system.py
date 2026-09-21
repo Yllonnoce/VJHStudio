@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import threading
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
@@ -125,34 +126,62 @@ def update_now(request: Request):
     return deps.render(request, "settings/_update_log.html", ctx, 200 if started else 409)
 
 
-def _restart_once(request: Request) -> None:
-    """Restart at most once per finished run: the log goes on polling until the
-    browser follows HX-Redirect, and a second poll must not re-exec the app."""
+@router.post("/system/update/dismiss")
+def update_dismiss(request: Request):
+    """Forget a finished run's log so Settings stops showing it. Refused (409, with
+    the live log) while a run is in flight."""
+    _local_only(request)
+    cleared = update.STATE.reset()
+    return deps.render(
+        request, "settings/_updates.html", updates_context(request), 200 if cleared else 409
+    )
+
+
+# The log is polled once a second and every poll lands in the threadpool, so two of
+# them can be inside this function at the same time. Read-and-claim therefore happens
+# under a lock: without it both would see "not restarted yet" and re-exec the app twice.
+_restart_lock = threading.Lock()
+
+
+def _claim_restart(request: Request) -> bool:
+    """True for the first caller that finishes this particular run, False after."""
     state = request.app.state
-    token = (id(update.STATE), getattr(update.STATE, "started_at", None))
-    if getattr(state, "update_restart_token", None) == token:
-        return
-    state.update_restart_token = token
-    restart_svc.request_restart()
+    with _restart_lock:
+        token = (id(update.STATE), getattr(update.STATE, "started_at", None))
+        if getattr(state, "update_restart_token", None) == token:
+            return False
+        state.update_restart_token = token
+        return True
 
 
 @router.get("/hx/system/update-log")
 def update_log(request: Request):
     snap = update.STATE.snapshot()
     response = deps.render(request, "settings/_update_log.html", {"update_state": snap})
-    if not snap["running"] and snap["ok"]:
-        _restart_once(request)
+    # A GET that restarts the app must not be reachable from an <img src> on a
+    # hostile page: only htmx's own poll (HX-Request) may finish the run. The CSRF
+    # middleware cannot help here, it guards the unsafe methods only.
+    if deps.is_hx(request) and not snap["running"] and snap["ok"]:
+        if _claim_restart(request):
+            restart_svc.request_restart()
         response.headers["HX-Redirect"] = "/restarting"
     return response
+
+
+def _safe_return(raw: str) -> str:
+    """A path on this app, or the default. Anything that could send the browser to
+    another origin — a scheme, "//host", or the backslash browsers normalise to "/" —
+    is dropped rather than repaired."""
+    wanted = "".join(c for c in (raw or "") if c.isprintable()).strip()
+    if not wanted.startswith("/") or wanted[1:2] in ("/", "\\"):
+        return RESTART_RETURN
+    return wanted
 
 
 @router.get("/restarting")
 def restarting(request: Request):
     """Standalone waiting page: the browser watches /api/health for a new boot_id."""
-    wanted = request.query_params.get("return") or RESTART_RETURN
-    # Only a path on this app: a full URL here would be an open redirect.
-    if not wanted.startswith("/") or wanted.startswith("//"):
-        wanted = RESTART_RETURN
+    wanted = _safe_return(request.query_params.get("return") or "")
     return deps.render(
         request,
         "pages/restarting.html",
