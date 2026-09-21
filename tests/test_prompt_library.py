@@ -137,6 +137,42 @@ def test_for_request_with_stale_prompt_id_creates_a_new_row(tmp_path):
         assert s.query(models.Prompt).count() == 2
 
 
+def test_for_request_ignores_a_stale_prompt_id_from_another_project(tmp_path):
+    """A prompt_id can outlive a project switch in the UI (loaded on a prompt from
+    project A, then the project select is changed to B before submit). Even when the
+    content hash still matches, reusing that row would bump A's use_count and link B's
+    job to A's prompt instead of creating B's own row -- I1."""
+    paths, f = _env(tmp_path)
+    pid_a = _project_id(f)
+    with db.session_scope(f) as s:
+        other = projects.create(s, paths, "Other")
+        pid_b = other.id
+
+    req_a = ImageRequest(project_id=pid_a, model="runware:101@1", form=PromptForm(subject="a fox"))
+    with db.session_scope(f) as s:
+        original = prompts.for_request(s, req_a, kind="image")
+        original_id = original.id
+        assert original.use_count == 1
+
+    req_b = ImageRequest(
+        project_id=pid_b,
+        prompt_id=original_id,
+        model="runware:101@1",
+        form=PromptForm(subject="a fox"),
+    )
+    with db.session_scope(f) as s:
+        new_prompt = prompts.for_request(s, req_b, kind="image")
+        assert new_prompt.id != original_id
+        assert new_prompt.project_id == pid_b
+        assert new_prompt.use_count == 1
+
+    with db.session_scope(f) as s:
+        old = prompts.get(s, original_id)
+        assert old.project_id == pid_a
+        assert old.use_count == 1  # A's row must not be bumped by B's submit
+        assert s.query(models.Prompt).count() == 2
+
+
 def test_list_prompts_filters_and_paginates(tmp_path):
     _, f = _env(tmp_path)
     pid = _project_id(f)

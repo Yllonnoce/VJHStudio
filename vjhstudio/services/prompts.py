@@ -247,7 +247,11 @@ def for_request(
     prompt: Prompt | None = None
     if req.prompt_id is not None:
         candidate = session.get(Prompt, req.prompt_id)
-        if candidate is not None and candidate.content_hash == hash_:
+        if (
+            candidate is not None
+            and candidate.content_hash == hash_
+            and candidate.project_id == req.project_id
+        ):
             prompt = candidate
             # the row is reused as-is, but a polish blob the submit carries is new
             # information about it -- ``upsert`` treats an existing row the same way
