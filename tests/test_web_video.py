@@ -3,6 +3,7 @@ gallery's video cards. The fake client returns a ``videoURL``; conftest's downlo
 MockTransport serves bytes for any URL, so the runner saves a real (if tiny) file."""
 
 import io
+import re
 
 from PIL import Image
 from starlette.datastructures import FormData
@@ -248,6 +249,20 @@ async def test_remix_of_a_video_output_prefills_the_video_tab(client, fake, app)
     assert r.status_code == 200
     assert '"mode": "video"' in r.text and '"duration": 5' in r.text
     assert r.text.count('name="duration"') == 1
+
+
+async def test_remix_marks_the_remixed_duration_selected(client, fake, app):
+    """Regression: the full page used to hand the params partial ``params.values`` via a
+    Jinja ``{% with %}``; since ``params`` is a plain dict, attribute-first lookup found
+    the dict's built-in ``.values`` method instead of the ``"values"`` key, so remixed
+    values (including duration) never reached the rendered form -- only the
+    /hx/model-options partial (rendered directly, no dict wrapping) was unaffected."""
+    r = await _run_video(client, fake, app, model=LTX, duration="5")
+    assert r.status_code == 200
+    oid = (await client.get("/api/jobs")).json()[0]["outputs"][0]["id"]
+    r = await client.get(f"/generate?remix={oid}")
+    assert r.status_code == 200
+    assert re.search(r'<option value="5"[^>]*\bselected\b[^>]*>', r.text)
 
 
 async def test_remix_resolves_frame_assets_into_ref_chips(client, fake, app):

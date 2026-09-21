@@ -1,3 +1,5 @@
+import re
+
 from runware import RunwareError
 
 FORM = {
@@ -119,6 +121,34 @@ async def test_strength_is_parsed_and_remixed(client, fake, app):
     oid = (await client.get("/api/jobs")).json()[0]["outputs"][0]["id"]
     r = await client.get(f"/generate?remix={oid}")
     assert '"strength": 0.6' in r.text
+
+
+def _has_attr_pair(html: str, name: str, value: str) -> bool:
+    """True if some tag carries both a ``name`` and a ``value`` attribute with these
+    exact values, regardless of which comes first."""
+    forward = rf'name="{re.escape(name)}"[^>]*\bvalue="{re.escape(value)}"'
+    backward = rf'value="{re.escape(value)}"[^>]*\bname="{re.escape(name)}"'
+    return bool(re.search(forward, html) or re.search(backward, html))
+
+
+async def test_remix_values_reach_the_full_page_inputs(client, fake, app):
+    """Regression: the params partial used to be handed ``params.values`` via a Jinja
+    ``{% with %}``, and since ``params`` is a plain dict, attribute-first lookup returned
+    the dict's built-in ``.values`` method instead of the ``"values"`` key -- so on the
+    full page (unlike the /hx/model-options partial, rendered directly) remix values
+    never reached the width/height/seed inputs."""
+    await client.post("/settings/api-key", data={"api_key": "abcdefgh1234"})
+    fake.script["run"] = [[{"imageURL": "http://x/1.png", "seed": 5}]]
+    r = await client.post("/generate/image", data={**FORM, "width": "512", "height": "512"})
+    assert r.status_code == 200
+    await app.state.runner.wait_idle()
+
+    oid = (await client.get("/api/jobs")).json()[0]["outputs"][0]["id"]
+    r = await client.get(f"/generate?remix={oid}")
+    assert r.status_code == 200
+    assert _has_attr_pair(r.text, "width", "512")
+    assert _has_attr_pair(r.text, "height", "512")
+    assert _has_attr_pair(r.text, "seed", "5")
 
 
 async def test_ref_query_prefills_one_chip(client):
