@@ -20,6 +20,7 @@ from ..services import jobs as jobs_svc
 from ..services import settings as settings_svc
 from .csrf import CrossSiteBlockMiddleware
 from .deps import STATIC_DIR
+from .routes import assets as assets_routes
 from .routes import catalog as catalog_routes
 from .routes import files as files_routes
 from .routes import gallery as gallery_routes
@@ -147,4 +148,5 @@ def create_app(
     app.include_router(files_routes.router)
     app.include_router(gallery_routes.router)
     app.include_router(projects_routes.router)
+    app.include_router(assets_routes.router)
     return app

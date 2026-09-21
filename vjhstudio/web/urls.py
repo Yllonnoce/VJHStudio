@@ -18,3 +18,13 @@ def thumb_url(thumb_rel_path: str | None) -> str | None:
         return None
     name = thumb_rel_path.rsplit("/", 1)[-1]
     return f"/files/thumbs/{name}"
+
+
+def asset_url(filename: str) -> str:
+    return f"/files/uploads/{filename}"
+
+
+def asset_thumb_url(thumb_name: str | None) -> str | None:
+    """``thumb_name`` is the bare filename ``services.assets.thumb_rel`` returns (already
+    just a name, unlike ``thumb_rel_path`` above); ``None`` for a video (no thumbnail)."""
+    return f"/files/asset-thumbs/{thumb_name}" if thumb_name else None

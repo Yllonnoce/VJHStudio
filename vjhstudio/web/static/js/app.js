@@ -192,3 +192,51 @@ document.addEventListener('keydown', (e) => {
     if (btn) btn.click();
   }
 });
+
+// ── Assets: dropzone drag/drop + upload progress ────────────────────────────────
+(function () {
+  const form = document.getElementById('asset-upload-form');
+  if (!form) return;
+  const input = document.getElementById('asset-files-input');
+
+  ['dragenter', 'dragover'].forEach((evt) => {
+    form.addEventListener(evt, (e) => {
+      e.preventDefault();
+      form.classList.add('is-dragover');
+    });
+  });
+  ['dragleave', 'drop'].forEach((evt) => {
+    form.addEventListener(evt, (e) => {
+      e.preventDefault();
+      form.classList.remove('is-dragover');
+    });
+  });
+  // Dropping files assigns them straight to the hidden <input type=file> and submits
+  // the form immediately; picking via the "choose files" label still requires the
+  // explicit Upload click.
+  form.addEventListener('drop', (e) => {
+    const files = e.dataTransfer && e.dataTransfer.files;
+    if (!files || !files.length || !input) return;
+    input.files = files;
+    if (typeof form.requestSubmit === 'function') form.requestSubmit();
+    else form.submit();
+  });
+})();
+
+// htmx dispatches htmx:xhr:progress on the requesting element itself (it bubbles),
+// with detail = {loaded, total, lengthComputable}; the upload form owns a <progress>
+// bar that fills during the request and hides again once it settles.
+document.body.addEventListener('htmx:xhr:progress', (e) => {
+  const d = e.detail || {};
+  if (!d.elt || d.elt.id !== 'asset-upload-form') return;
+  const bar = document.getElementById('asset-upload-progress');
+  if (!bar || !d.lengthComputable) return;
+  bar.hidden = false;
+  bar.value = Math.round((d.loaded / d.total) * 100);
+  if (d.loaded >= d.total) {
+    setTimeout(() => {
+      bar.hidden = true;
+      bar.value = 0;
+    }, 400);
+  }
+});

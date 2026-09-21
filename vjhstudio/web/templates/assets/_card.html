@@ -1,0 +1,23 @@
+<article class="asset-card" id="asset-{{ a.id }}" data-asset-id="{{ a.id }}">
+  <div class="asset-thumb">
+    {% if thumb_url %}<img src="{{ thumb_url }}" alt="{{ a.original_name }}" loading="lazy" width="200" height="200">
+    {% else %}<span class="chip">{{ a.kind }}</span>{% endif %}
+    {% if a.media_uuid %}<span class="asset-badge chip" title="{{ a.media_url or '' }}">uploaded to RunWare</span>{% endif %}
+  </div>
+  <div class="asset-card-body">
+    <small class="muted asset-name" title="{{ a.original_name }}">{{ a.original_name }}</small>
+    {% include "assets/_tag_editor.html" %}
+    <form class="asset-notes-form" hx-post="/assets/{{ a.id }}/notes" hx-trigger="change"
+          hx-target="closest article" hx-swap="outerHTML">
+      <textarea name="notes" placeholder="Notes" rows="2" aria-label="Notes for {{ a.original_name }}">{{ a.notes or '' }}</textarea>
+    </form>
+    {% if error %}<p class="error asset-error">{{ error }}</p>{% endif %}
+    <div class="asset-actions">
+      <button type="button" class="secondary outline" hx-post="/assets/{{ a.id }}/push"
+              hx-target="closest article" hx-swap="outerHTML">Push to RunWare</button>
+      <a href="{{ url }}?download=1" role="button" class="secondary outline">Download</a>
+      <button type="button" class="secondary outline" hx-delete="/assets/{{ a.id }}"
+              hx-target="closest article" hx-swap="outerHTML" hx-confirm="Delete this asset?">Delete</button>
+    </div>
+  </div>
+</article>

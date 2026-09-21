@@ -1,0 +1,10 @@
+{% for t in (toasts or []) %}{% with text=t.text, level=t.level %}{% include "partials/_toast.html" %}{% endwith %}{% endfor %}
+<div id="asset-grid" class="asset-grid">
+  {% for c in cards %}{% with a=c.a, url=c.url, thumb_url=c.thumb_url %}{% include "assets/_card.html" %}{% endwith %}{% endfor %}
+  {% if not cards %}<p class="muted" id="asset-empty">No assets match these filters.</p>{% endif %}
+  {% if has_more %}
+  <button type="button" id="asset-load-more" class="secondary outline gallery-load-more"
+          hx-get="/hx/assets" hx-include="#asset-filters" hx-vals='{"page": {{ next_page }}}'
+          hx-target="#asset-grid" hx-swap="outerHTML">Load more</button>
+  {% endif %}
+</div>

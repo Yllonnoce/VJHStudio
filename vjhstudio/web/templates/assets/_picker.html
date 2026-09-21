@@ -1,0 +1,11 @@
+<div id="asset-picker" class="asset-picker-grid">
+  {% for c in cards %}
+  <button type="button" class="asset-picker-item" data-asset-id="{{ c.a.id }}"
+          data-thumb="{{ c.thumb_url or '' }}" data-name="{{ c.a.original_name }}" data-role="{{ role }}">
+    {% if c.thumb_url %}<img src="{{ c.thumb_url }}" alt="{{ c.a.original_name }}" loading="lazy" width="96" height="96">
+    {% else %}<span class="chip">{{ c.a.kind }}</span>{% endif %}
+  </button>
+  {% else %}
+  <p class="muted">No matching assets.</p>
+  {% endfor %}
+</div>

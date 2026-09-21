@@ -38,3 +38,18 @@ def output_file(request: Request, slug: str, filename: str, download: int = 0):
 def thumb_file(request: Request, name: str, download: int = 0):
     thumbs = request.app.state.paths.thumbs
     return _serve(outputs_svc.contained(thumbs, name), bool(download))
+
+
+@router.get("/files/uploads/{filename}")
+def upload_file(request: Request, filename: str, download: int = 0):
+    uploads = request.app.state.paths.uploads
+    return _serve(outputs_svc.contained(uploads, filename), bool(download))
+
+
+@router.get("/files/asset-thumbs/{name}")
+def asset_thumb_file(request: Request, name: str, download: int = 0):
+    """Asset thumbnails live in the same ``paths.thumbs`` directory as output
+    thumbnails (named ``asset-<sha12>.jpg`` so the two never collide); the separate
+    URL prefix just keeps the asset library's own namespace."""
+    thumbs = request.app.state.paths.thumbs
+    return _serve(outputs_svc.contained(thumbs, name), bool(download))

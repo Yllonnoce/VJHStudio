@@ -1,0 +1,8 @@
+<form class="asset-tag-editor" hx-post="/assets/{{ a.id }}/tags" hx-target="closest article" hx-swap="outerHTML">
+  <div class="asset-tag-chips">
+    {% for t in a.tags.split(',') if t %}<span class="chip">{{ t }}</span>{% endfor %}
+  </div>
+  <input type="text" name="tags" value="{{ a.tags.strip(',') }}" placeholder="tag1, tag2"
+         aria-label="Tags for {{ a.original_name }}">
+  <button type="submit" class="secondary outline">Save tags</button>
+</form>

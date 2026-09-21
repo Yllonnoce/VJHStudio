@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Assets · VJHStudio{% endblock %}
+{% block content %}
+<h1>Assets</h1>
+
+<form id="asset-upload-form" class="asset-dropzone" hx-post="/assets/upload" hx-encoding="multipart/form-data"
+      hx-target="#asset-grid" hx-swap="outerHTML">
+  <div class="asset-dropzone-body">
+    <p>Drag files here, or
+      <label class="asset-dropzone-browse">choose files
+        <input type="file" name="files" id="asset-files-input" multiple hidden>
+      </label>
+    </p>
+    <input type="text" name="tags" placeholder="tags (comma separated)" aria-label="Tags for uploaded files">
+    <button type="submit" class="secondary outline">Upload</button>
+  </div>
+  <progress id="asset-upload-progress" value="0" max="100" hidden></progress>
+  <small class="muted">Max {{ max_mb }} MB per file. Images (PNG/JPEG/WebP) and video (MP4/WebM/MOV).</small>
+</form>
+
+<form id="asset-filters" class="gallery-filters-grid" hx-get="/assets" hx-select="#asset-grid"
+      hx-target="#asset-grid" hx-swap="outerHTML"
+      hx-trigger="change, submit, keyup changed delay:400ms from:[name=q]" hx-push-url="true">
+  <label>Kind
+    <select name="kind">
+      <option value="">All kinds</option>
+      <option value="image" {% if filters.kind == 'image' %}selected{% endif %}>Image</option>
+      <option value="video" {% if filters.kind == 'video' %}selected{% endif %}>Video</option>
+    </select>
+  </label>
+  <label>Tag <input type="text" name="tag" value="{{ filters.tag or '' }}" placeholder="tag"></label>
+  <label>Search <input type="search" name="q" value="{{ filters.q or '' }}" placeholder="filename or notes"></label>
+</form>
+
+{% include "assets/_grid.html" %}
+{% endblock %}
