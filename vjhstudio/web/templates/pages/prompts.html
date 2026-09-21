@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Prompts · VJHStudio{% endblock %}
+{% block content %}
+<h1>Prompts</h1>
+<form id="prompt-filters" class="gallery-filters-grid" hx-get="/prompts" hx-select="#prompt-list"
+      hx-target="#prompt-list" hx-swap="outerHTML"
+      hx-trigger="change, submit, keyup changed delay:400ms from:[name=q]" hx-push-url="true">
+  <label>Project
+    <select name="project_id">
+      <option value="">All projects</option>
+      {% for p in projects %}<option value="{{ p.id }}" {% if filters.project_id == p.id %}selected{% endif %}>{{ p.name }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Kind
+    <select name="kind">
+      <option value="">All kinds</option>
+      <option value="image" {% if filters.kind == 'image' %}selected{% endif %}>Image</option>
+      <option value="video" {% if filters.kind == 'video' %}selected{% endif %}>Video</option>
+    </select>
+  </label>
+  <label class="gallery-fav-filter">
+    <input type="checkbox" name="favourite" value="1" {% if filters.favourite %}checked{% endif %}> Favourites only
+  </label>
+  <label>Tag <input type="text" name="tag" value="{{ filters.tag or '' }}" placeholder="tag"></label>
+  <label>Search <input type="search" name="q" value="{{ filters.q or '' }}" placeholder="title or prompt text"></label>
+</form>
+
+{% include "prompts/_list.html" %}
+{% endblock %}

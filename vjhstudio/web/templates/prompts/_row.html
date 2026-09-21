@@ -1,0 +1,47 @@
+{% if toast %}{% with text=toast %}{% include "partials/_toast.html" %}{% endwith %}{% endif %}
+<article class="prompt-row" id="prompt-{{ p.id }}" data-prompt-id="{{ p.id }}">
+  <header class="prompt-row-head">
+    <strong>{{ p.title }}</strong>
+    <span class="chip">{{ p.kind }}</span>
+    {% if project_name %}<span class="muted">{{ project_name }}</span>{% endif %}
+    <button type="button" class="secondary outline" hx-post="/prompts/{{ p.id }}/favourite"
+            hx-target="closest article" hx-swap="outerHTML">
+      {{ '★ Favourited' if p.is_favourite else '☆ Favourite' }}
+    </button>
+  </header>
+  <form class="asset-tag-editor" hx-post="/prompts/{{ p.id }}/tags" hx-target="closest article" hx-swap="outerHTML">
+    <div class="asset-tag-chips">
+      {% for t in p.tags.split(',') if t %}<span class="chip">{{ t }}</span>{% endfor %}
+    </div>
+    <input type="text" name="tags" value="{{ p.tags.strip(',') }}" placeholder="tag1, tag2"
+           aria-label="Tags for {{ p.title }}">
+    <button type="submit" class="secondary outline">Save tags</button>
+  </form>
+  <small class="muted">used {{ p.use_count }} times</small>
+  <details>
+    <summary>Details</summary>
+    <table class="params-table">
+      <tbody>
+        {% for k, v in (p.form_json or {}).items() %}{% if v %}<tr><th>{{ k }}</th><td>{{ v }}</td></tr>{% endif %}{% endfor %}
+      </tbody>
+    </table>
+    <p><strong>Composed:</strong> {{ p.composed_prompt }}</p>
+    <p><strong>Final:</strong> {{ p.final_prompt }}</p>
+    {% if p.negative_prompt %}<p class="muted">Negative: {{ p.negative_prompt }}</p>{% endif %}
+    {% if p.polish_json and p.polish_json.versions %}
+    <div class="prompt-polish-versions">
+      <strong>Polished ({{ p.polish_json.mode }} · {{ p.polish_json.model }}):</strong>
+      <ul>
+        {% for v in p.polish_json.versions %}<li>{{ v }}</li>{% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+  </details>
+  <div class="prompt-actions">
+    <a href="/generate?prompt={{ p.id }}" role="button" class="secondary outline">Load into form</a>
+    <button type="button" class="secondary outline" hx-post="/prompts/{{ p.id }}/duplicate"
+            hx-target="#prompt-list" hx-swap="afterbegin">Duplicate</button>
+    <button type="button" class="secondary outline" hx-delete="/prompts/{{ p.id }}"
+            hx-target="closest article" hx-swap="outerHTML" hx-confirm="Delete this prompt?">Delete</button>
+  </div>
+</article>

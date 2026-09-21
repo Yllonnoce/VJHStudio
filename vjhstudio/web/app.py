@@ -28,6 +28,7 @@ from .routes import generate as generate_routes
 from .routes import jobs as jobs_routes
 from .routes import pages, system
 from .routes import projects as projects_routes
+from .routes import prompts as prompts_routes
 from .routes import settings as settings_routes
 
 log = logging.getLogger(__name__)
@@ -149,4 +150,5 @@ def create_app(
     app.include_router(gallery_routes.router)
     app.include_router(projects_routes.router)
     app.include_router(assets_routes.router)
+    app.include_router(prompts_routes.router)
     return app

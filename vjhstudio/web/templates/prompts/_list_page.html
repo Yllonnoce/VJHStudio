@@ -1,0 +1,6 @@
+{% for p in rows %}{% with project_name=project_names.get(p.project_id, '') %}{% include "prompts/_row.html" %}{% endwith %}{% endfor %}
+{% if has_more %}
+<button type="button" id="prompt-load-more" class="secondary outline gallery-load-more"
+        hx-get="/hx/prompts" hx-include="#prompt-filters" hx-vals='{"page": {{ next_page }}}'
+        hx-target="this" hx-swap="outerHTML">Load more</button>
+{% endif %}
