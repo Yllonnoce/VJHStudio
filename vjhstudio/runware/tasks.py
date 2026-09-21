@@ -7,6 +7,13 @@ from ..schemas.video import VideoRequest
 from ..services import prompts
 
 PROTECTED = ("taskType", "taskUUID", "model")
+PROMPT_ENHANCE_MODEL = "runware:llama-3-1-8b@prompt-enhancer"
+PROMPT_ENHANCE_MAX_CHARS = 300
+PROMPT_ENHANCE_MAX_LENGTH = 300
+POLISH_SYSTEM = (
+    "Rewrite the following into a single vivid image/video generation prompt of at most"
+    " 120 words. Output only the prompt."
+)
 RESOLUTIONS: dict[str, tuple[int, int]] = {
     "480p": (854, 480),
     "720p": (1280, 720),
@@ -77,6 +84,52 @@ def build_image_task(
         task["inputs"] = inputs
     task.update({k: v for k, v in (req.extra_json or {}).items() if k not in PROTECTED})
     return task
+
+
+# ---- prompt polish ---------------------------------------------------------
+def build_prompt_enhance(
+    prompt: str, task_uuid: str, *, versions: int = 3, max_length: int = PROMPT_ENHANCE_MAX_LENGTH
+) -> dict:
+    """RunWare's ``promptEnhance``: a small, fixed model that only ever takes a prompt
+    (<=300 chars, suffix-free — there is nothing to preserve past the cut, unlike
+    ``prompts.cap``'s NO_TEXT_SUFFIX case) and returns ``promptVersions`` rewrites."""
+    v = max(1, min(5, int(versions)))
+    ml = max(12, min(400, int(max_length)))
+    return {
+        "taskType": "promptEnhance",
+        "taskUUID": task_uuid,
+        "model": PROMPT_ENHANCE_MODEL,
+        "prompt": (prompt or "")[:PROMPT_ENHANCE_MAX_CHARS],
+        "promptMaxLength": ml,
+        "promptVersions": v,
+        "includeCost": True,
+    }
+
+
+def build_polish_text(
+    model: str, composed: str, task_uuid: str, *, versions: int = 3, system: str = POLISH_SYSTEM
+) -> dict:
+    """RunWare's ``textInference`` used as a rewrite: one round trip, one cost row.
+    Asking for more than one version appends a numbered-lines instruction so the single
+    reply can be split client-side (``polish.split_versions``) instead of firing N calls
+    or relying on an unverified ``numberResults`` knob."""
+    v = max(1, int(versions))
+    content = system
+    if v > 1:
+        content += (
+            f" Give {v} alternatives, each on its own line numbered 1., 2., 3., and nothing else."
+        )
+    return {
+        "taskType": "textInference",
+        "taskUUID": task_uuid,
+        "model": model,
+        "messages": [
+            {"role": "system", "content": content},
+            {"role": "user", "content": composed},
+        ],
+        "outputFormat": "TEXT",
+        "includeCost": True,
+    }
 
 
 # ---- video ---------------------------------------------------------------

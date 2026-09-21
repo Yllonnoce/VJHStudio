@@ -17,15 +17,18 @@ import json
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import ValidationError
+from runware import RunwareError
 
 from ... import db
 from ...models import CatalogModel
+from ...runware.errors import classify
 from ...runware.tasks import nearest
 from ...schemas.image import ImageRequest, PromptForm
 from ...schemas.video import VideoRequest
 from ...services import assets as assets_svc
-from ...services import catalog, generate, projects, prompts
+from ...services import catalog, costs, generate, projects, prompts
 from ...services import outputs as outputs_svc
+from ...services import polish as polish_svc
 from ...services import settings as settings_svc
 from .. import deps
 from ..urls import asset_thumb_url
@@ -639,13 +642,13 @@ def submit_video(request: Request, form: deps.Form):
     return _submitted(request, job)
 
 
-def _no_key(request: Request):
+def _no_key(request: Request, retarget: str = "#gen-errors"):
     if request.app.state.api_key():
         return None
     # the form targets #queue-panel; a missing key is not a queue event, so the
     # banner goes into the always-present error slot instead of eating the panel
     r = deps.render(request, "generate/_no_key.html", {}, 422)
-    r.headers["HX-Retarget"] = "#gen-errors"
+    r.headers["HX-Retarget"] = retarget
     r.headers["HX-Reswap"] = "innerHTML"
     return r
 
@@ -721,5 +724,78 @@ def hx_compose(request: Request, form: deps.Form):
             "composed": composed,
             "negative": prompts.build_negative(pf, default_negative, pf.no_text),
             "length": len(prompts.cap(composed, prompts.NO_TEXT_SUFFIX if pf.no_text else "")),
+        },
+    )
+
+
+def _int_or_none(raw) -> int | None:
+    try:
+        return int(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _polish_error(request: Request, message: str):
+    r = deps.render(request, "generate/_polish_results.html", {"error": message}, 422)
+    r.headers["HX-Retarget"] = "#polish-results"
+    return r
+
+
+@router.post("/hx/prompt/polish")
+async def hx_polish(request: Request, form: deps.Form):
+    """Send the composed prompt to RunWare's promptEnhance/textInference for a rewrite,
+    offered back as cards. Never writes to the prompt library itself (spec): that only
+    happens through Save-prompt or a generate submit that carries the result along."""
+    app = request.app
+    no_key = _no_key(request, "#polish-results")
+    if no_key is not None:
+        return no_key
+
+    pf = PromptForm(
+        **{k: str(form.get(k, "") or "") for k in PROMPT_FIELDS},
+        use_default_negative=_flag(form, "use_default_negative", True),
+        no_text=_flag(form, "no_text", True),
+    )
+    composed = prompts.compose(pf)
+    project_id = _int_or_none(form.get("project_id"))
+    mode = str(form.get("polish_mode", "") or "").strip() or app.state.setting("prompt.polish_mode")
+    model = str(form.get("polish_model", "") or "").strip() or app.state.setting(
+        "defaults.polish_model"
+    )
+    versions = polish_svc.clamp_versions(form.get("polish_versions"))
+
+    try:
+        result = await polish_svc.run(
+            app.state.client_factory,
+            app.state.api_key(),
+            app.state.setting("runware.transport"),
+            mode=mode,
+            composed=composed,
+            model=model,
+            versions=versions,
+        )
+    except ValueError as e:
+        return _polish_error(request, str(e))
+    except RunwareError as e:
+        return _polish_error(request, classify(e).message)
+
+    with db.session_scope(app.state.boot.session_factory) as s:
+        costs.record_usage(
+            s,
+            job=None,
+            task_type=result.mode,
+            cost=result.cost,
+            model_air=result.model,
+            project_id=project_id,
+        )
+    return deps.render(
+        request,
+        "generate/_polish_results.html",
+        {
+            "versions": result.versions,
+            "mode": result.mode,
+            "model": result.model,
+            "cost": result.cost,
+            "polish_json": safe_json(result.to_json()),
         },
     )

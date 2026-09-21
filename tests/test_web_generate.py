@@ -1,6 +1,10 @@
+import inspect
 import re
 
 from runware import RunwareError
+
+from vjhstudio import db, models
+from vjhstudio.web.routes import generate as generate_routes
 
 FORM = {
     "project_id": "1",
@@ -213,3 +217,52 @@ async def test_retry_errors_render_html_not_json(client, fake, app):
     r = await client.post(f"/jobs/{jid}/retry")
     assert r.status_code == 422 and "Retry failed" in r.text
     assert r.headers["content-type"].startswith("text/html") and 'id="queue-panel"' in r.text
+
+
+async def test_polish_route_is_async_but_compose_stays_sync():
+    assert inspect.iscoroutinefunction(generate_routes.hx_polish) is True
+    assert inspect.iscoroutinefunction(generate_routes.hx_compose) is False
+
+
+async def test_polish_requires_key_and_a_composed_prompt(client):
+    r = await client.post("/hx/prompt/polish", data={"project_id": "1"})
+    assert r.status_code == 422 and "API key" in r.text
+    assert r.headers.get("HX-Retarget") == "#polish-results"
+
+    await client.post("/settings/api-key", data={"api_key": "abcdefgh1234"})
+    r = await client.post("/hx/prompt/polish", data={"project_id": "1"})
+    assert r.status_code == 422 and "Write a prompt first." in r.text
+    assert r.headers.get("HX-Retarget") == "#polish-results"
+
+
+async def test_polish_runware_error_shows_classified_message(client, fake):
+    await client.post("/settings/api-key", data={"api_key": "abcdefgh1234"})
+    fake.script["run"] = [RunwareError("quotaExceeded", "no balance")]
+    r = await client.post(
+        "/hx/prompt/polish",
+        data={"project_id": "1", "subject": "a red fox", "polish_mode": "promptEnhance"},
+    )
+    assert r.status_code == 422 and "top up" in r.text.lower()
+    assert r.headers.get("HX-Retarget") == "#polish-results"
+
+
+async def test_polish_promptenhance_success_renders_cards_and_records_usage(client, fake, app):
+    await client.post("/settings/api-key", data={"api_key": "abcdefgh1234"})
+    fake.script["run"] = [
+        [{"text": "a fox, refined", "cost": 0.0002}, {"text": "a fox, alt", "cost": 0.0002}]
+    ]
+    r = await client.post(
+        "/hx/prompt/polish",
+        data={
+            "project_id": "1",
+            "subject": "a red fox",
+            "polish_mode": "promptEnhance",
+            "polish_versions": "2",
+        },
+    )
+    assert r.status_code == 200 and r.text.count("Use this") == 2
+    assert 'data-text="a fox, refined"' in r.text and 'data-text="a fox, alt"' in r.text
+    with db.session_scope(app.state.boot.session_factory) as s:
+        entry = s.query(models.UsageEntry).one()
+        assert entry.task_type == "promptEnhance" and entry.project_id == 1
+        assert abs(entry.cost - 0.0004) < 1e-9

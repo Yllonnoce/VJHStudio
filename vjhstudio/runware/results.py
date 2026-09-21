@@ -21,6 +21,7 @@ class TaskResult:
     dropped: list[dict] = field(default_factory=list)
     attempts: int = 1
     duration_ms: int | None = None  # the *successful* attempt alone, backoff excluded
+    rows: list[dict] = field(default_factory=list)  # the raw reply; text tasks carry no URL
 
 
 def parse_items(rows: list[dict]) -> list[ResultItem]:

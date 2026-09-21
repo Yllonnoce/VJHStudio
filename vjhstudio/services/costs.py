@@ -12,11 +12,19 @@ DEFAULT_EXPECTED_MS = 20000
 
 
 def record_usage(
-    session: Session, *, job: Job | None, task_type: str, cost: float, model_air: str | None
+    session: Session,
+    *,
+    job: Job | None,
+    task_type: str,
+    cost: float,
+    model_air: str | None,
+    project_id: int | None = None,
 ) -> UsageEntry:
+    """``project_id`` is only used for job-less usage (``job is None``): a job's own
+    project always wins when a job is given, so a caller can't misattribute its spend."""
     entry = UsageEntry(
         job_id=job.id if job is not None else None,
-        project_id=job.project_id if job is not None else None,
+        project_id=job.project_id if job is not None else project_id,
         task_type=task_type,
         model_air=model_air,
         cost=float(cost or 0.0),

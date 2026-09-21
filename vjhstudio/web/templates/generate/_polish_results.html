@@ -1,0 +1,18 @@
+<div id="polish-results" class="polish-results">
+  {% if error %}
+  <p class="error" id="polish-error">{{ error }}</p>
+  {% elif versions %}
+  <p class="muted">{{ mode }} &middot; {{ model }} &middot; ${{ "%.4f"|format(cost) }}</p>
+  <div class="polish-cards">
+    {% for v in versions %}
+    <article class="polish-card">
+      <p>{{ v.text }}</p>
+      <button type="button" class="use-polish" data-text="{{ v.text }}" data-index="{{ loop.index0 }}">Use this</button>
+    </article>
+    {% endfor %}
+  </div>
+  <script id="polish-json" type="application/json">{{ polish_json|safe }}</script>
+  {% else %}
+  <p class="muted">No versions returned.</p>
+  {% endif %}
+</div>

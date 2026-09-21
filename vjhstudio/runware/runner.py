@@ -125,7 +125,13 @@ async def run_with_policy(
             rows = await client.run(current, opts)
             duration_ms = int((time.monotonic() - attempt_started_at) * 1000)
             return TaskResult(
-                parse_items(rows), current["taskUUID"], current, dropped, attempt, duration_ms
+                parse_items(rows),
+                current["taskUUID"],
+                current,
+                dropped,
+                attempt,
+                duration_ms,
+                list(rows or []),
             )
         except RunwareError as e:
             last = e
