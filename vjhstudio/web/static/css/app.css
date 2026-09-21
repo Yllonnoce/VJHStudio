@@ -218,3 +218,25 @@ tr.archived{opacity:.6}
 .asset-picker-grid{display:grid;gap:.5rem;grid-template-columns:repeat(auto-fill, minmax(96px, 1fr))}
 .asset-picker-item{padding:0;border:2px solid transparent;background:var(--sp-surface-2);cursor:pointer}
 .asset-picker-item img{display:block;width:100%;height:96px;object-fit:cover}
+
+/* ── Generate: mode tabs, reference chips, video cards ────────────────── */
+.gen-modes{display:flex;gap:.4rem;margin-bottom:.75rem}
+.gen-mode-tab{width:auto;padding:.35rem 1.1rem;margin:0}
+.gen-pane{border:0;padding:0;margin:0}
+.gen-submit{width:100%}
+.gen-refs{margin:.75rem 0}
+.gen-refs h4{margin-bottom:.4rem}
+.ref-chips{display:flex;flex-direction:column;gap:.4rem}
+.ref-chip{display:flex;align-items:center;gap:.5rem;margin:0;padding:.35rem .5rem;background:var(--sp-surface-2);border-radius:var(--sp-radius)}
+.ref-chip img{width:48px;height:48px;object-fit:cover;border-radius:calc(var(--sp-radius) / 2)}
+.ref-chip-body{display:flex;flex-direction:column;min-width:0;flex:1 1 auto}
+.ref-chip-body small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ref-chip-remove{width:auto;padding:.15rem .6rem;margin:0;font-size:.75rem}
+.ref-add{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.5rem}
+.ref-add button{width:auto;padding:.2rem .7rem;margin:0;font-size:.8rem}
+#ref-picker article{max-width:min(46rem, 92vw)}
+#ref-picker header{display:flex;align-items:center;gap:.6rem}
+.ref-picker-close{width:auto;padding:.1rem .5rem;margin:0}
+.gallery-video video{display:block;width:100%;height:200px;object-fit:cover;background:var(--sp-surface-2)}
+.gallery-details{width:100%;margin:.35rem 0 0;padding:.2rem;font-size:.8rem}
+video.lightbox-image{width:100%;max-height:70vh;background:#000}

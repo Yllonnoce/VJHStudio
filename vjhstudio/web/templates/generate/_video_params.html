@@ -1,0 +1,81 @@
+{# Swapped onto itself and onto #model-params when the mode tabs switch: the root keeps
+   that id so a mode switch, a model change and a 422 retarget all land in one slot. #}
+{% set ps = posted_settings|default({}, true) %}
+<div id="model-params" class="gen-card"
+     hx-get="/hx/model-options?mode=video" hx-trigger="change from:#video-model-select"
+     hx-include="#video-model-select" hx-swap="outerHTML">
+  <h3>Parameters</h3>
+  {% if errors %}
+    <ul class="error" id="param-errors">{% for field, msg in errors.items() %}<li><strong>{{ field }}</strong>: {{ msg }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% set cur_duration = values.duration|default(defaults.duration, true) %}
+  <div class="grid">
+    <label>Duration
+      {% if durations %}
+      <select name="duration" aria-invalid="{{ 'true' if errors.get('duration') else 'false' }}">
+        {% for d in durations %}<option value="{{ d }}" {% if cur_duration|float == d|float %}selected{% endif %}>{{ d }} s</option>{% endfor %}
+      </select>
+      {% else %}
+      {# a search-added row carries no tiers.video block: fall back to the schema's range #}
+      <input type="number" name="duration" min="1" max="30" step="1" value="{{ cur_duration }}"
+             aria-invalid="{{ 'true' if errors.get('duration') else 'false' }}">
+      {% endif %}
+      {% if errors.get('duration') %}<small class="error">{{ errors['duration'] }}</small>{% endif %}
+    </label>
+    <label>Resolution
+      {% set cur_res = (values.resolution|default(defaults.resolution, true))|string|lower %}
+      <select name="resolution">
+        {% for r in resolutions %}<option value="{{ r }}" {% if cur_res == r|lower %}selected{% endif %}>{{ r }}</option>{% endfor %}
+      </select>
+      {% if errors.get('resolution') %}<small class="error">{{ errors['resolution'] }}</small>{% endif %}
+    </label>
+  </div>
+  {% if fps_options %}
+  <label>Frame rate
+    {% set cur_fps = values.fps|default('', true)|string %}
+    <select name="fps">
+      <option value="" {% if not cur_fps %}selected{% endif %}>(model default)</option>
+      {% for f in fps_options %}<option value="{{ f }}" {% if cur_fps == f|string %}selected{% endif %}>{{ f }} fps</option>{% endfor %}
+    </select>
+    {% if errors.get('fps') %}<small class="error">{{ errors['fps'] }}</small>{% endif %}
+  </label>
+  {% endif %}
+  {% if provider_settings %}
+  <fieldset class="provider-settings">
+    <legend><small class="muted">Provider settings</small></legend>
+    {% for e in provider_settings %}
+      {% set key = e['key'] %}
+      {% set kind = (e.get('type') or 'string')|lower %}
+      {% set cur = ps[key] if key in ps else e.get('default') %}
+      {% set label = e.get('label') or key %}
+      {% if kind == 'bool' %}
+        {# the hidden field carries the "off" a cleared checkbox never posts #}
+        <label><input type="hidden" name="ps_{{ key }}" value="off"><input type="checkbox" name="ps_{{ key }}" value="on" {% if cur %}checked{% endif %}> {{ label }}</label>
+      {% elif e.get('options') %}
+        <label>{{ label }}
+          <select name="ps_{{ key }}">
+            {% for o in e['options'] %}<option value="{{ o }}" {% if cur is not none and cur|string == o|string %}selected{% endif %}>{{ o }}</option>{% endfor %}
+          </select>
+        </label>
+      {% elif kind in ('int', 'integer', 'number', 'float') %}
+        <label>{{ label }}<input type="number" step="any" name="ps_{{ key }}" value="{{ cur if cur is not none else '' }}"></label>
+      {% else %}
+        <label>{{ label }}<input type="text" name="ps_{{ key }}" value="{{ cur if cur is not none else '' }}"></label>
+      {% endif %}
+    {% endfor %}
+  </fieldset>
+  {% endif %}
+  <div class="grid">
+    <label>Format
+      <select name="output_format">
+        {% for f in formats %}<option value="{{ f }}" {% if values.output_format == f %}selected{% endif %}>{{ f }}</option>{% endfor %}
+      </select>
+      {% if errors.get('output_format') %}<small class="error">{{ errors['output_format'] }}</small>{% endif %}
+    </label>
+    <label>Seed
+      <input type="text" inputmode="numeric" name="seed" placeholder="random" value="{{ values.seed|default('', true) }}">
+      {% if errors.get('seed') %}<small class="error">{{ errors['seed'] }}</small>{% endif %}
+    </label>
+  </div>
+  {% if capabilities %}<p class="muted"><small>Capabilities: {{ capabilities|join(', ') }}</small></p>{% endif %}
+</div>

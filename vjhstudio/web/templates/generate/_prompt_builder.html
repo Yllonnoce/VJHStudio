@@ -1,8 +1,8 @@
 {# The nine builder fields. The live preview is client-side (Alpine); the same
    composition runs server-side in services/prompts.py when the job is built. #}
-<section class="gen-col gen-prompt" x-data="generateForm()"
-         data-default-negative="{{ default_negative|default('', true) }}"
-         data-no-text-tokens="{{ no_text_tokens|default('', true) }}">
+{# x-data lives on <form id="generate-form"> (pages/generate.html) so the mode tabs, the
+   parameter column and the reference chips all share one component. #}
+<section class="gen-col gen-prompt">
   <h3>Prompt</h3>
   <label>Subject<input type="text" name="subject" x-model="fields.subject" value="{{ form.get('subject', '') }}" placeholder="a red fox in a snowy forest"></label>
   <div class="grid">
@@ -18,19 +18,25 @@
     <label>Colour<input type="text" name="colour" x-model="fields.colour" value="{{ form.get('colour', '') }}" placeholder="muted earth tones"></label>
   </div>
   <label>Extras<input type="text" name="extras" x-model="fields.extras" value="{{ form.get('extras', '') }}" placeholder="fine detail, sharp focus"></label>
-  <label>Negative<input type="text" name="negative" x-model="fields.negative" value="{{ form.get('negative', '') }}" placeholder="extra limbs, blurry"></label>
+  {# video models take no negative prompt: the field stays in the DOM for the shared
+     partial but is hidden (and ignored server-side) while the Video tab is active #}
+  <label x-show="mode === 'image'">Negative<input type="text" name="negative" x-model="fields.negative" value="{{ form.get('negative', '') }}" placeholder="extra limbs, blurry"></label>
 
   <fieldset>
     {# the hidden field carries the "off" a cleared checkbox never posts; the last value wins #}
-    <label><input type="hidden" name="no_text" value="off"><input type="checkbox" name="no_text" value="on" x-model="noText" {% if form.get('no_text', True) %}checked{% endif %}> No text in image</label>
-    <label><input type="hidden" name="use_default_negative" value="off"><input type="checkbox" name="use_default_negative" value="on" x-model="useDefaultNegative" {% if form.get('use_default_negative', True) %}checked{% endif %}> Use default negative</label>
+    {# stills default to suppressing on-screen text; clips default the other way, which
+       is also what schemas/video.py does when the field is absent #}
+    <label><input type="hidden" name="no_text" value="off"><input type="checkbox" name="no_text" value="on" x-model="noText" {% if form.get('no_text', mode != 'video') %}checked{% endif %}> No text in <span x-text="mode === 'video' ? 'video' : 'image'">{{ 'video' if mode == 'video' else 'image' }}</span></label>
+    <label x-show="mode === 'image'"><input type="hidden" name="use_default_negative" value="off"><input type="checkbox" name="use_default_negative" value="on" x-model="useDefaultNegative" {% if form.get('use_default_negative', True) %}checked{% endif %}> Use default negative</label>
   </fieldset>
 
   <div class="prompt-preview">
     <p><strong>Composed prompt</strong></p>
     <output x-text="composed"></output>
-    <p><strong>Negative</strong></p>
-    <output class="muted" x-text="negativePreview"></output>
+    <template x-if="mode === 'image'">
+      <div><p><strong>Negative</strong></p>
+      <output class="muted" x-text="negativePreview"></output></div>
+    </template>
   </div>
 
   <label>Final prompt

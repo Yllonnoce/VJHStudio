@@ -1,10 +1,22 @@
 <article class="gallery-card" id="output-{{ o.id }}">
+  {% if o.kind == 'video' %}
+  {# a clip plays in the card itself, so the controls cannot live inside a <button>:
+     the lightbox gets its own link below the player #}
+  <div class="gallery-thumb gallery-video">
+    <video src="{{ url }}" preload="metadata" muted controls playsinline width="200" height="200"
+           poster="/static/img/video-poster.svg" aria-label="{{ o.filename }}"></video>
+    {% if o.is_favourite %}<span class="gallery-fav" aria-label="Favourite">★</span>{% endif %}
+  </div>
+  <button type="button" class="secondary outline gallery-details" hx-get="/hx/outputs/{{ o.id }}"
+          hx-target="#lightbox-body" onclick="vjhOpenLightbox()">Details</button>
+  {% else %}
   <button type="button" class="gallery-thumb" hx-get="/hx/outputs/{{ o.id }}" hx-target="#lightbox-body"
           onclick="vjhOpenLightbox()" aria-label="Open {{ o.filename }}">
     {% if thumb %}<img src="{{ thumb }}" alt="{{ o.prompt_text|truncate(60) }}" loading="lazy" width="200" height="200">
     {% else %}<span class="chip">{{ o.filename }}</span>{% endif %}
     {% if o.is_favourite %}<span class="gallery-fav" aria-label="Favourite">★</span>{% endif %}
   </button>
+  {% endif %}
   <footer class="gallery-card-meta">
     <small class="muted">{{ o.created_at.strftime('%Y-%m-%d %H:%M') }}</small>
     {% if o.cost %}<small class="cost">${{ '%.4f'|format(o.cost) }}</small>{% endif %}

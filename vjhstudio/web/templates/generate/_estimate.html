@@ -1,7 +1,13 @@
 <span id="estimate" class="estimate"
       hx-get="/hx/generate/estimate" hx-trigger="change from:#generate-form delay:400ms"
       hx-include="#generate-form" hx-swap="outerHTML">
-  {% if total is not none %}Estimated cost: <strong>≈${{ '%.4f'|format(total) }}</strong>
-    <small class="muted">({{ width }}×{{ height }} × {{ number_results }})</small>
-  {% else %}Estimated cost: <strong>n/a</strong> <small class="muted">(no price for this model)</small>{% endif %}
+  {% if mode == 'video' %}
+    {% if total is not none %}Estimated cost: <strong>≈${{ '%.2f'|format(total) }}</strong>
+      <small class="muted">({{ '%g'|format(duration) }}s × ${{ '%.3f'|format(rate) }}/s{% if audio %}, with audio{% endif %})</small>
+    {% else %}Estimated cost: <strong>n/a</strong> <small class="muted">(no price for this model)</small>{% endif %}
+  {% else %}
+    {% if total is not none %}Estimated cost: <strong>≈${{ '%.4f'|format(total) }}</strong>
+      <small class="muted">({{ width }}×{{ height }} × {{ number_results }})</small>
+    {% else %}Estimated cost: <strong>n/a</strong> <small class="muted">(no price for this model)</small>{% endif %}
+  {% endif %}
 </span>

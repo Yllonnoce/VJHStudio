@@ -11,6 +11,13 @@ const VJH_DRAFT_KEY = 'vjh.generate.draft';
 const VJH_FIELD_KEYS = [
   'subject', 'style', 'mood', 'lighting', 'camera', 'composition', 'colour', 'extras', 'negative',
 ];
+// Reference roles, per mode. `reference` may be picked many times; every other role is a
+// single slot, so its "+ Add" button disappears once it is filled.
+const VJH_MODE_ROLES = { image: ['seed', 'reference'], video: ['first', 'last', 'reference'] };
+const VJH_ROLE_LABELS = {
+  seed: 'seed image', reference: 'reference', first: 'first frame', last: 'last frame',
+};
+const VJH_MULTI_ROLES = ['reference'];
 
 function vjhEmptyFields() {
   const f = {};
@@ -31,10 +38,13 @@ window.generateForm = function (initial) {
   return {
     fields: vjhEmptyFields(),
     finalPrompt: initial.final_prompt || '',
-    noText: true,
+    noText: initial.mode !== 'video',  // mirrors VideoRequest's flipped default
     useDefaultNegative: true,
     defaultNegative: '',
     noTextTokens: '',
+    mode: initial.mode === 'video' ? 'video' : 'image',
+    refs: Array.isArray(initial.refs) ? initial.refs.slice() : [],
+    pickerRole: 'reference',
 
     get composed() {
       return window.composePrompt ? window.composePrompt(this.fields) : '';
@@ -48,9 +58,70 @@ window.generateForm = function (initial) {
       );
     },
 
+    // ── mode ────────────────────────────────────────────────────────────────
+    // The tab button carries its own hx-get for #model-params; this only moves the
+    // client-side state, and drops any picked reference the new mode cannot use.
+    setMode(mode) {
+      if (mode !== 'image' && mode !== 'video') return;
+      this.mode = mode;
+      const allowed = VJH_MODE_ROLES[mode];
+      this.refs = this.refs.filter((r) => allowed.indexOf(r.role) >= 0);
+    },
+
+    // ── reference chips ─────────────────────────────────────────────────────
+    roleLabel(role) { return VJH_ROLE_LABELS[role] || role; },
+
+    openRoles() {
+      return VJH_MODE_ROLES[this.mode].filter((role) => (
+        VJH_MULTI_ROLES.indexOf(role) >= 0 || !this.refs.some((r) => r.role === role)
+      ));
+    },
+
+    addRef(detail) {
+      if (!detail || !detail.id) return;
+      const role = detail.role || 'reference';
+      if (VJH_MODE_ROLES[this.mode].indexOf(role) < 0) return;
+      const ref = {
+        id: String(detail.id), role, name: detail.name || String(detail.id), thumb: detail.thumb || '',
+      };
+      if (VJH_MULTI_ROLES.indexOf(role) < 0) {
+        this.refs = this.refs.filter((r) => r.role !== role);  // single slot: replace
+      } else if (this.refs.some((r) => r.role === role && r.id === ref.id)) {
+        return;  // the same asset twice in one role would just cost twice as much
+      }
+      this.refs.push(ref);
+    },
+
+    removeRef(index) { this.refs.splice(index, 1); },
+
+    openPicker(role) {
+      this.pickerRole = role;
+      const dlg = document.getElementById('ref-picker');
+      if (!dlg) return;
+      if (window.htmx) {
+        window.htmx.ajax('GET', '/hx/assets/picker?kind=image&role=' + encodeURIComponent(role),
+          { target: '#ref-picker-body', swap: 'innerHTML' });
+      }
+      if (typeof dlg.showModal === 'function' && !dlg.open) dlg.showModal();
+    },
+
+    closePicker() {
+      const dlg = document.getElementById('ref-picker');
+      if (dlg && dlg.open) dlg.close();
+    },
+
+    // The only submit path: <form> has no hx-post of its own, because htmx binds a
+    // verb and a URL once at process time and the mode can change afterwards. Each
+    // mode owns a button with its own hx-post, and Enter clicks the active one.
+    submitActive() {
+      const btn = this.$refs[this.mode === 'video' ? 'submitVideo' : 'submitImage'];
+      if (btn && !btn.disabled) btn.click();
+    },
+
     init() {
       this.defaultNegative = this.$el.dataset.defaultNegative || '';
       this.noTextTokens = this.$el.dataset.noTextTokens || '';
+      window.addEventListener('ref-picked', (e) => this.addRef(e.detail || {}));
 
       if (initial.form) {
         Object.assign(this.fields, initial.form);
@@ -239,4 +310,35 @@ document.body.addEventListener('htmx:xhr:progress', (e) => {
       bar.value = 0;
     }, 400);
   }
+});
+
+// ── Reference picker (Generate) ─────────────────────────────────────────────────
+// The picker grid is swapped into <dialog id="ref-picker"> by htmx, so the click
+// handler is delegated from the dialog rather than bound to the buttons themselves.
+// Each button carries the four data-* attributes assets/_picker.html renders; the
+// Alpine component listens for `ref-picked` on window and turns it into a chip.
+document.addEventListener('click', (e) => {
+  const dlg = document.getElementById('ref-picker');
+  if (!dlg || !dlg.open || !dlg.contains(e.target)) return;
+  const btn = e.target.closest('.asset-picker-item');
+  if (!btn) return;
+  e.preventDefault();
+  window.dispatchEvent(new CustomEvent('ref-picked', {
+    detail: {
+      id: btn.dataset.assetId,
+      thumb: btn.dataset.thumb || '',
+      name: btn.dataset.name || '',
+      role: btn.dataset.role || 'reference',
+    },
+  }));
+  dlg.close();
+});
+
+// Switching mode (or model) swaps #model-params for a partial whose fields the estimate
+// depends on; the swap itself fires no `change`, so nudge the form once it lands.
+document.body.addEventListener('htmx:afterSwap', (e) => {
+  const target = e.detail && e.detail.target;
+  if (!target || target.id !== 'model-params') return;
+  const form = document.getElementById('generate-form');
+  if (form && window.htmx) window.htmx.trigger(form, 'change');
 });

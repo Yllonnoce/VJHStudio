@@ -4,18 +4,55 @@
 <h1>Generate</h1>
 {% if not has_api_key %}{% include "generate/_no_key.html" %}{% endif %}
 <script id="generate-initial" type="application/json">{{ initial_json|safe }}</script>
+{# One form, two modes. The tabs flip Alpine's `mode` (which shows the matching model
+   select, submit button and reference roles) and re-fetch #model-params for that mode;
+   the inactive mode's fieldset is `disabled`, so none of its inputs is ever posted. #}
 <div class="gen-grid">
-  <form id="generate-form" hx-post="/generate/image" hx-target="#queue-panel"
-        hx-swap="outerHTML" hx-indicator="#gen-spinner">
+  <form id="generate-form" x-data="generateForm()"
+        data-default-negative="{{ default_negative|default('', true) }}"
+        data-no-text-tokens="{{ no_text_tokens|default('', true) }}"
+        @submit.prevent="submitActive()">
+    <input type="hidden" name="mode" value="{{ mode }}" :value="mode">
+    <div class="gen-modes" role="tablist" aria-label="Generation mode">
+      <button type="button" role="tab" class="gen-mode-tab" id="mode-tab-image"
+              :aria-selected="mode === 'image'" aria-selected="{{ 'true' if mode == 'image' else 'false' }}"
+              :class="mode === 'image' ? 'gen-mode-tab' : 'gen-mode-tab secondary outline'"
+              @click="setMode('image')"
+              hx-get="/hx/model-options" hx-target="#model-params" hx-swap="outerHTML"
+              hx-vals='js:{mode: "image", air: document.getElementById("model-select").value}'>Image</button>
+      <button type="button" role="tab" class="gen-mode-tab" id="mode-tab-video"
+              :aria-selected="mode === 'video'" aria-selected="{{ 'true' if mode == 'video' else 'false' }}"
+              :class="mode === 'video' ? 'gen-mode-tab' : 'gen-mode-tab secondary outline'"
+              @click="setMode('video')"
+              hx-get="/hx/model-options" hx-target="#model-params" hx-swap="outerHTML"
+              hx-vals='js:{mode: "video", air: document.getElementById("video-model-select").value}'>Video</button>
+    </div>
     {% include "generate/_prompt_builder.html" %}
     <section class="gen-col gen-params">
       <h3>Model</h3>
-      {% with name='model', select_id='model-select', options=models, selected=selected, allow_empty=False %}{% include "catalog/_model_select.html" %}{% endwith %}
+      <fieldset class="gen-pane" x-show="mode === 'image'" :disabled="mode !== 'image'"
+                {% if mode != 'image' %}disabled style="display:none"{% endif %}>
+        {% with name='model', select_id='model-select', options=models, selected=selected, allow_empty=False %}{% include "catalog/_model_select.html" %}{% endwith %}
+      </fieldset>
+      <fieldset class="gen-pane" x-show="mode === 'video'" :disabled="mode !== 'video'"
+                {% if mode != 'video' %}disabled style="display:none"{% endif %}>
+        {% with name='model', select_id='video-model-select', options=video_models, selected=video_selected, allow_empty=False %}{% include "catalog/_model_select.html" %}{% endwith %}
+      </fieldset>
       {% with projects=projects, selected_project=selected_project %}{% include "generate/_project_select.html" %}{% endwith %}
-      {% with model=params.model, air=params.air, family=params.family, capabilities=params.capabilities, defaults=params.defaults, size_presets=params.size_presets, schedulers=params.schedulers, values=params.values, errors=params.errors %}{% include "generate/_model_params.html" %}{% endwith %}
-      {% with total=estimate.total, width=estimate.width, height=estimate.height, number_results=estimate.number_results %}{% include "generate/_estimate.html" %}{% endwith %}
+      {% include "generate/_refs.html" %}
+      {% with model=params.model, air=params.air, mode=params.mode, family=params.family, capabilities=params.capabilities, defaults=params.defaults, size_presets=params.size_presets, schedulers=params.schedulers, durations=params.durations, resolutions=params.resolutions, fps_options=params.fps_options, provider_settings=params.provider_settings, posted_settings=params.posted_settings, formats=params.formats, values=params.values, errors=params.errors %}{% include params_template %}{% endwith %}
+      {% with mode=estimate.mode, total=estimate.total, width=estimate.width, height=estimate.height, number_results=estimate.number_results, duration=estimate.duration, rate=estimate.rate, audio=estimate.audio %}{% include "generate/_estimate.html" %}{% endwith %}
       <div id="gen-errors" role="alert"></div>
-      <button type="submit" {% if not has_api_key %}disabled{% endif %}>Generate</button>
+      <button type="button" class="gen-submit" x-ref="submitImage" x-show="mode === 'image'"
+              {% if mode != 'image' %}style="display:none"{% endif %}
+              hx-post="/generate/image" hx-include="#generate-form" hx-target="#queue-panel"
+              hx-swap="outerHTML" hx-indicator="#gen-spinner"
+              {% if not has_api_key %}disabled{% endif %}>Generate</button>
+      <button type="button" class="gen-submit" x-ref="submitVideo" x-show="mode === 'video'"
+              {% if mode != 'video' %}style="display:none"{% endif %}
+              hx-post="/generate/video" hx-include="#generate-form" hx-target="#queue-panel"
+              hx-swap="outerHTML" hx-indicator="#gen-spinner"
+              {% if not has_api_key %}disabled{% endif %}>Generate video</button>
       <span id="gen-spinner" class="htmx-indicator" aria-hidden="true">Submitting…</span>
     </section>
   </form>

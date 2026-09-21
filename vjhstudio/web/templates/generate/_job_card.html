@@ -16,6 +16,7 @@
     {% for o in j.outputs %}
       <a href="{{ o.url }}" target="_blank" rel="noopener">
         {% if o.thumb_url %}<img src="{{ o.thumb_url }}" alt="{{ j.title }}" loading="lazy" width="96" height="96">
+        {% elif j.kind == 'video' %}<img src="/static/img/video-poster.svg" alt="{{ j.title }}" width="96" height="96">
         {% else %}<span class="chip">{{ o.id }}</span>{% endif %}
       </a>
     {% endfor %}
@@ -24,7 +25,8 @@
   <footer class="job-actions">
     {% if j.status in ('queued', 'running') %}
       <button type="button" class="secondary outline" hx-post="/jobs/{{ j.id }}/cancel"
-              hx-target="#job-{{ j.id }}" hx-swap="outerHTML" {% if j.cancel_requested %}disabled{% endif %}>Cancel</button>
+              hx-target="#job-{{ j.id }}" hx-swap="outerHTML" {% if j.cancel_requested %}disabled{% endif %}>{#
+        #}{% if j.kind == 'video' %}Stop waiting{% else %}Cancel{% endif %}</button>
     {% else %}
       <button type="button" class="secondary outline" hx-post="/jobs/{{ j.id }}/retry"
               hx-target="#queue-panel" hx-swap="outerHTML">Retry</button>

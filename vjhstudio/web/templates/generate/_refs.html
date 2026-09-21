@@ -1,0 +1,43 @@
+{# Reference chips. The chips (and the hidden inputs that actually post the ids) are
+   rendered by Alpine from `refs` in generateForm(); the server only seeds that list, on
+   a remix, through the `initial` blob. Roles that the current mode does not accept are
+   dropped when the mode changes, so no stale id can ride along with a submit. #}
+<section class="gen-refs" id="gen-refs">
+  <h4>References</h4>
+  <div class="ref-chips">
+    <template x-for="(r, i) in refs" :key="r.role + '-' + r.id + '-' + i">
+      <article class="ref-chip">
+        <template x-if="r.thumb"><img :src="r.thumb" :alt="r.name" width="48" height="48" loading="lazy"></template>
+        <span class="ref-chip-body">
+          <strong x-text="roleLabel(r.role)"></strong>
+          <small class="muted" x-text="r.name"></small>
+        </span>
+        <template x-if="r.role === 'seed'"><input type="hidden" name="seed_image_asset_id" :value="r.id"></template>
+        <template x-if="r.role === 'first'"><input type="hidden" name="first_frame_asset_id" :value="r.id"></template>
+        <template x-if="r.role === 'last'"><input type="hidden" name="last_frame_asset_id" :value="r.id"></template>
+        <template x-if="r.role === 'reference'"><input type="hidden" name="reference_asset_ids" :value="r.id"></template>
+        <button type="button" class="secondary outline ref-chip-remove" @click="removeRef(i)"
+                :aria-label="'Remove ' + r.name">Remove</button>
+      </article>
+    </template>
+  </div>
+  <div class="ref-add">
+    <template x-for="role in openRoles()" :key="role">
+      <button type="button" class="secondary outline" @click="openPicker(role)"
+              x-text="'+ Add ' + roleLabel(role)"></button>
+    </template>
+  </div>
+
+  <dialog id="ref-picker">
+    <article>
+      <header>
+        <button type="button" class="ref-picker-close" aria-label="Close" @click="closePicker()">&times;</button>
+        <strong x-text="'Pick ' + roleLabel(pickerRole)"></strong>
+      </header>
+      {# filled by htmx from /hx/assets/picker; a click on a picked asset dispatches the
+         `ref-picked` window event that addRef() below listens for (see app.js) #}
+      <div id="ref-picker-body"><p class="muted">Loading…</p></div>
+      <footer><a href="/assets" target="_blank" rel="noopener">Manage assets</a></footer>
+    </article>
+  </dialog>
+</section>

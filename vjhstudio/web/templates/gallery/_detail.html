@@ -1,11 +1,17 @@
 <div class="lightbox-detail">
+  {% if o.kind == 'video' %}
+  <video src="{{ url }}" class="lightbox-image" preload="metadata" muted controls playsinline
+         poster="/static/img/video-poster.svg" aria-label="{{ o.filename }}"></video>
+  {% else %}
   <img src="{{ url }}" alt="{{ o.prompt_text|truncate(80) }}" class="lightbox-image">
+  {% endif %}
   <h3>{{ o.prompt_text }}</h3>
   {% if o.negative_prompt %}<p class="muted">Negative: {{ o.negative_prompt }}</p>{% endif %}
   <table class="params-table">
     <tbody>
       <tr><th>Model</th><td>{{ model_name }}</td></tr>
       <tr><th>Size</th><td>{{ o.width }}&times;{{ o.height }}</td></tr>
+      {% if o.kind == 'video' %}<tr><th>Duration</th><td>{% if o.duration_s %}{{ '%g'|format(o.duration_s) }}s{% else %}—{% endif %}</td></tr>{% endif %}
       <tr><th>Seed</th><td>{{ o.seed if o.seed is not none else '—' }}</td></tr>
       <tr><th>Cost</th><td>{% if o.cost %}${{ '%.4f'|format(o.cost) }}{% else %}n/a{% endif %}</td></tr>
       <tr><th>Job</th><td><a href="/api/jobs/{{ o.job_id }}" target="_blank" rel="noopener">{{ o.job_id }}</a></td></tr>

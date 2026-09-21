@@ -1,6 +1,6 @@
 {# Swapped onto itself: the root element keeps the id so HX-Retarget on a 422 lands here. #}
 <div id="model-params" class="gen-card"
-     hx-get="/hx/model-options" hx-trigger="change from:#model-select"
+     hx-get="/hx/model-options?mode=image" hx-trigger="change from:#model-select"
      hx-include="#model-select" hx-swap="outerHTML">
   <h3>Parameters</h3>
   {% if errors %}
