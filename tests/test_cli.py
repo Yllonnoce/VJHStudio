@@ -1,12 +1,13 @@
 import socket
 import sys
+from pathlib import Path
 
 import pytest
 import uvicorn
 
 from vjhstudio import __version__, config, main
 from vjhstudio import boot as boot_mod
-from vjhstudio.services import migrate, restart, update
+from vjhstudio.services import archive, migrate, restart, update
 from vjhstudio.web.app import create_app
 
 
@@ -258,3 +259,108 @@ def test_update_command_never_re_execs_after_a_database_restore(tmp_path, monkey
         "Database restored from the pre-update backup; start the app again."
         in capsys.readouterr().out
     )
+
+
+def test_backup_command_writes_an_archive(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("VJHSTUDIO_DATA_DIR", str(tmp_path))
+    assert main.main(["backup", "--uploads"]) == 0
+    printed = capsys.readouterr().out.strip()
+    path = Path(printed.split("  (")[0])
+    assert path.exists() and path.parent == tmp_path / "backups"
+    assert path.name.startswith(archive.ARCHIVE_PREFIX)
+    assert archive.manifest_of(path)["includes"] == ["db", "uploads"]
+
+
+def test_backup_command_passes_both_flags(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("VJHSTUDIO_DATA_DIR", str(tmp_path))
+    assert main.main(["backup", "--uploads", "--outputs"]) == 0
+    path = Path(capsys.readouterr().out.strip().split("  (")[0])
+    assert archive.manifest_of(path)["includes"] == ["db", "uploads", "outputs"]
+
+
+def _seeded_archive(tmp_path, monkeypatch):
+    """A data dir with one extra project, plus an archive of it."""
+    monkeypatch.setenv("VJHSTUDIO_DATA_DIR", str(tmp_path))
+    paths = config.resolve_paths()
+    info = boot_mod.boot(paths)
+    from vjhstudio import db as db_mod
+    from vjhstudio import models
+
+    with db_mod.session_scope(info.session_factory) as s:
+        s.add(models.Project(name="Keep", slug="keep"))
+    zip_path = archive.create_archive(info.session_factory, paths)
+    with db_mod.session_scope(info.session_factory) as s:
+        s.query(models.Project).filter_by(slug="keep").delete()
+    info.engine.dispose()
+    return paths, zip_path
+
+
+def _slugs(paths):
+    import sqlite3
+
+    with sqlite3.connect(paths.db) as conn:
+        return sorted(r[0] for r in conn.execute("select slug from projects"))
+
+
+def test_restore_command_with_yes(tmp_path, monkeypatch, capsys):
+    paths, zip_path = _seeded_archive(tmp_path, monkeypatch)
+    assert _slugs(paths) == ["default"]
+    assert main.main(["restore", str(zip_path), "--yes"]) == 0
+    out = capsys.readouterr().out
+    assert "safety backup:" in out and "Restart VJHStudio" in out
+    assert _slugs(paths) == ["default", "keep"]
+    assert list((tmp_path / "backups").glob("vjh-*-pre-restore.db"))
+
+
+def test_restore_command_declined_changes_nothing(tmp_path, monkeypatch, capsys):
+    paths, zip_path = _seeded_archive(tmp_path, monkeypatch)
+    monkeypatch.setattr("builtins.input", lambda *a: "no")
+    before = paths.db.read_bytes()
+    assert main.main(["restore", str(zip_path)]) == 1
+    assert "Cancelled." in capsys.readouterr().out
+    assert paths.db.read_bytes() == before
+    assert _slugs(paths) == ["default"]
+
+
+def test_restore_command_confirmed_at_the_prompt(tmp_path, monkeypatch, capsys):
+    paths, zip_path = _seeded_archive(tmp_path, monkeypatch)
+    monkeypatch.setattr("builtins.input", lambda *a: " YES ")
+    assert main.main(["restore", str(zip_path)]) == 0
+    out = capsys.readouterr().out
+    assert "This REPLACES the database" in out and "includes db" in out
+    assert _slugs(paths) == ["default", "keep"]
+
+
+def test_restore_command_rejects_a_non_archive(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("VJHSTUDIO_DATA_DIR", str(tmp_path))
+    junk = tmp_path / "junk.zip"
+    junk.write_bytes(b"not a zip")
+    assert main.main(["restore", str(junk), "--yes"]) == 1
+    assert "not a VJHStudio backup" in capsys.readouterr().err
+
+
+def test_restore_command_refuses_while_a_job_is_queued(tmp_path, monkeypatch, capsys):
+    paths, zip_path = _seeded_archive(tmp_path, monkeypatch)
+    import sqlite3
+
+    with sqlite3.connect(paths.db) as conn:
+        conn.execute(
+            "insert into jobs(id,project_id,kind,status,model_air,request_json,"
+            "dropped_params_json,progress,attempts,cancel_requested,created_at) "
+            "values('q',1,'image','queued','m','{}','[]',0,0,0,'2026-01-01')"
+        )
+    assert main.main(["restore", str(zip_path), "--yes"]) == 1
+    assert "Stop the running jobs first" in capsys.readouterr().err
+
+
+def test_restore_merge_is_not_available_yet(tmp_path, monkeypatch, capsys):
+    paths, zip_path = _seeded_archive(tmp_path, monkeypatch)
+    assert main.main(["restore", str(zip_path), "--merge", "--yes"]) == 1
+    assert "merge is not available yet" in capsys.readouterr().err
+    assert _slugs(paths) == ["default"]
+
+
+def test_human_size():
+    assert main.human_size(512) == "512 B"
+    assert main.human_size(2048) == "2.0 KB"
+    assert main.human_size(5 * 1024 * 1024) == "5.0 MB"

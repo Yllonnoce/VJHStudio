@@ -1,4 +1,4 @@
-"""CLI entry point: serve | migrate | update | version | doctor."""
+"""CLI entry point: serve | migrate | update | backup | restore | version | doctor."""
 
 from __future__ import annotations
 
@@ -10,11 +10,12 @@ import socket
 import sys
 import threading
 import webbrowser
+from pathlib import Path
 
 import httpx
 
 from . import __version__, config, secrets
-from .services import gitinfo, migrate, update
+from .services import archive, gitinfo, migrate, update
 
 log = logging.getLogger("vjhstudio")
 
@@ -166,6 +167,89 @@ def cmd_update(args: argparse.Namespace) -> int:
     return 0
 
 
+def human_size(n: int) -> str:
+    size = float(n)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} GB"
+
+
+def cmd_backup(args: argparse.Namespace) -> int:
+    from . import boot
+
+    paths = config.resolve_paths()
+    try:
+        info = boot.boot(paths)
+    except migrate.MigrationFailed as e:
+        print(str(e), file=sys.stderr)
+        return config.MIGRATION_FAIL_EXIT_CODE
+    try:
+        dest = archive.create_archive(
+            info.session_factory, paths, uploads=args.uploads, outputs=args.outputs
+        )
+    except (archive.ArchiveError, OSError) as e:
+        print(str(e), file=sys.stderr)
+        return 1
+    finally:
+        info.engine.dispose()
+    print(f"{dest}  ({human_size(dest.stat().st_size)})")
+    return 0
+
+
+def confirm(prompt: str = "Type yes to continue: ") -> bool:
+    try:
+        return input(prompt).strip().lower() == "yes"
+    except EOFError:
+        return False
+
+
+def cmd_restore(args: argparse.Namespace) -> int:
+    paths = config.resolve_paths()
+    config.ensure_dirs(paths)
+    zip_path = Path(args.zip)
+    if args.merge:
+        # Task 4 brings services/archive.merge; until then the flag is accepted and
+        # refused rather than silently doing the destructive thing instead.
+        print("merge is not available yet", file=sys.stderr)
+        return 1
+    try:
+        manifest = archive.manifest_of(zip_path)
+    except archive.ArchiveError as e:
+        print(f"{zip_path}: {e}", file=sys.stderr)
+        return 1
+    if not args.yes:
+        includes = ", ".join(str(x) for x in (manifest.get("includes") or ["db"]))
+        print(f"Restore {zip_path}")
+        print(
+            f"  created {manifest.get('created_at', '?')} | "
+            f"app {manifest.get('app_version', '?')} | "
+            f"schema {manifest.get('schema_revision', '?')} | includes {includes}"
+        )
+        print(f"This REPLACES the database at {paths.db} and overwrites the files in the archive.")
+        print("A safety backup of the current database is written first.")
+        if not confirm():
+            print("Cancelled.")
+            return 1
+    try:
+        result = archive.restore_replace(paths, zip_path)
+    except (archive.ArchiveError, migrate.MigrationFailed, OSError) as e:
+        print(str(e), file=sys.stderr)
+        return 1
+    if result.safety_backup is not None:
+        print(f"safety backup: {result.safety_backup}")
+    print("restored: " + ", ".join(f"{k}={v}" for k, v in sorted(result.counts.items())))
+    if result.missing_outputs or result.missing_assets:
+        print(
+            f"files not in the archive: {result.missing_outputs} outputs "
+            f"(marked missing), {result.missing_assets} assets"
+        )
+    if result.restart_required:
+        print("Restart VJHStudio to use the restored data.")
+    return 0
+
+
 def cmd_version(_args: argparse.Namespace) -> int:
     c = gitinfo.current_commit()
     print(f"VJHStudio {__version__}" + (f" ({c.short} {c.subject})" if c else ""))
@@ -217,6 +301,15 @@ def build_parser() -> argparse.ArgumentParser:
     u = sub.add_parser("update", help="update VJHStudio from git")
     u.add_argument("--check", action="store_true", help="only report what is available")
     u.set_defaults(func=cmd_update)
+    b = sub.add_parser("backup", help="write a backup archive to data/backups")
+    b.add_argument("--uploads", action="store_true", help="include the asset library files")
+    b.add_argument("--outputs", action="store_true", help="include the generated output files")
+    b.set_defaults(func=cmd_backup)
+    r = sub.add_parser("restore", help="restore a backup archive (replaces the database)")
+    r.add_argument("zip", help="path to a vjhstudio-backup-*.zip")
+    r.add_argument("--merge", action="store_true", help="merge instead of replace")
+    r.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
+    r.set_defaults(func=cmd_restore)
     sub.add_parser("version", help="print version").set_defaults(func=cmd_version)
     sub.add_parser("doctor", help="print environment diagnostics").set_defaults(func=cmd_doctor)
     return p
