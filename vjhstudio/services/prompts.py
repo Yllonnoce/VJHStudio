@@ -19,6 +19,7 @@ from .assets import _like_escape, normalize_tags, tags_list
 
 __all__ = [
     "FIELD_ORDER",
+    "POLISH_JSON_MAX",
     "PROMPT_MAX",
     "NO_TEXT_SUFFIX",
     "NO_TEXT_NEGATIVE",
@@ -29,6 +30,8 @@ __all__ = [
     "cap",
     "apply_no_text",
     "final_prompt",
+    "saved_texts",
+    "parse_polish_json",
     "normalize_tags",
     "tags_list",
     "content_hash",
@@ -46,6 +49,7 @@ __all__ = [
 ]
 
 PER_PAGE = 30
+POLISH_JSON_MAX = 8000
 
 FIELD_ORDER = ("subject", "style", "mood", "lighting", "camera", "composition", "colour", "extras")
 PROMPT_MAX = 2900
@@ -104,9 +108,41 @@ def apply_no_text(prompt: str) -> str:
     return cap(prompt, NO_TEXT_SUFFIX)
 
 
+def _final_text(form: PromptForm, final_raw: str = "") -> str:
+    """A typed final prompt wins over the composed one, but is cleaned and capped (and
+    given the no-text suffix) exactly the same way -- one implementation, so a saved
+    prompt and a submitted one can never hash differently over the same text."""
+    base = clean(final_raw) if final_raw else compose(form)
+    return cap(base, NO_TEXT_SUFFIX if form.no_text else "")
+
+
 def final_prompt(req: ImageRequest | VideoRequest) -> str:
-    base = clean(req.final_prompt) if req.final_prompt else compose(req.form)
-    return cap(base, NO_TEXT_SUFFIX if req.form.no_text else "")
+    return _final_text(req.form, req.final_prompt or "")
+
+
+def saved_texts(
+    kind: str, form: PromptForm, final_raw: str = "", default_negative: str = ""
+) -> tuple[str, str, str]:
+    """``(composed, final, negative)`` for one prompt, however it arrives: the Save-prompt
+    route and ``generate.enqueue_image``/``enqueue_video`` both go through here, so the
+    three strings a ``content_hash`` is built from are produced by one piece of code.
+    Video carries no negative at all (the request omits ``negativePrompt``)."""
+    negative = "" if kind == "video" else build_negative(form, default_negative, form.no_text)
+    return compose(form), _final_text(form, final_raw), negative
+
+
+def parse_polish_json(raw: str) -> dict | None:
+    """The hidden ``polish_json`` field as the polish cards stash it. Anything that is not
+    a JSON object of a sane size is dropped: neither a save nor a submit may fail over
+    polish metadata."""
+    raw = (raw or "").strip()
+    if not raw or len(raw) > POLISH_JSON_MAX:
+        return None
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
 
 
 # ---- prompt library -------------------------------------------------------

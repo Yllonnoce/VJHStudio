@@ -45,7 +45,11 @@ def enqueue_image(
     with db.session_scope(session_factory) as s:
         _require_kind(s, req.model, "image")
         project = _require_project(s, req.project_id)
-        negative = prompts.build_negative(req.form, default_negative, req.form.no_text)
+        # the same helper the Save-prompt route uses, so a saved prompt and this submit
+        # hash identically and dedupe onto one row
+        _, _, negative = prompts.saved_texts(
+            "image", req.form, req.final_prompt or "", default_negative
+        )
         # auto-history: every submit lands in the library, deduped by content hash, and
         # the job links the row that was actually used (a stale prompt_id makes a new one)
         prompt = prompts.for_request(
@@ -84,7 +88,10 @@ def enqueue_video(
     with db.session_scope(session_factory) as s:
         _require_kind(s, req.model, "video")
         project = _require_project(s, req.project_id)
-        prompt = prompts.for_request(s, req, kind="video", negative="", polish_json=polish_json)
+        _, _, negative = prompts.saved_texts("video", req.form, req.final_prompt or "")
+        prompt = prompts.for_request(
+            s, req, kind="video", negative=negative, polish_json=polish_json
+        )
         job = Job(
             id=str(uuid.uuid4()),
             project_id=project.id,

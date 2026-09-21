@@ -45,5 +45,10 @@
   </label>
 
   {% include "generate/_polish.html" %}
-  {% include "generate/_save_prompt.html" %}
+  {# the dialog itself lives outside the form (pages/generate.html); only its opener
+     belongs in the prompt column #}
+  <div class="gen-save-prompt">
+    <button type="button" class="secondary outline" id="save-prompt-open"
+            @click="openSaveDialog()">Save prompt</button>
+  </div>
 </section>

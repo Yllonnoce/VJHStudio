@@ -294,11 +294,13 @@ async def test_prompt_query_prefills_the_form_and_posts_the_id(client, app):
     assert r.status_code == 200
     assert f'"prompt_id": {pid}' in r.text  # the initial blob (Task 5's draft guard reads it)
     assert '"subject": "a red fox"' in r.text and '"style": "oil painting"' in r.text
-    assert '"final_prompt": "a red fox, oil painting"' in r.text
-    assert 'value="a red fox"' in r.text and "a red fox, oil painting</textarea>" in r.text
+    # the saved final carries the no-text suffix the submit path would have added
+    assert '"final_prompt": "a red fox, oil painting Pure artwork only' in r.text
+    assert 'value="a red fox"' in r.text and ">a red fox, oil painting Pure artwork only" in r.text
     assert _has_attr_pair(r.text, "prompt_id", str(pid))
     with db.session_scope(app.state.boot.session_factory) as s:
-        assert s.get(models.Prompt, pid).use_count == 1  # loading counts as a use
+        # opening a prompt is not using it: only a submit bumps use_count
+        assert s.get(models.Prompt, pid).use_count == 0
 
 
 async def test_prompt_query_404s_on_an_unknown_id(client):
@@ -420,3 +422,34 @@ async def test_submit_stores_the_polish_blob_on_a_reused_row(client, fake, app):
     with db.session_scope(app.state.boot.session_factory) as s:
         prompt = s.query(models.Prompt).one()
         assert prompt.id == pid and prompt.polish_json == blob
+
+
+async def test_a_saved_prompt_dedupes_against_the_generated_one(client, fake, app):
+    """A prompt saved from the dialog and the same prompt submitted must be one row --
+    both sides build (composed, final, negative) through ``prompts.saved_texts``. No
+    ``prompt_id`` is posted here on purpose: the match has to come from the hash."""
+    await client.post("/settings/api-key", data={"api_key": "abcdefgh1234"})
+    fake.script["run"] = [[{"imageURL": "http://x/1.png"}]]
+    pid = await _save_prompt(client)  # a typed final prompt, no_text on
+    r = await client.post(
+        "/generate/image", data={**FORM, "final_prompt": "a red fox, oil painting"}
+    )
+    assert r.status_code == 200
+    await app.state.runner.wait_idle()
+    with db.session_scope(app.state.boot.session_factory) as s:
+        prompt = s.query(models.Prompt).one()
+        assert prompt.id == pid and prompt.use_count == 1  # the save itself never counted
+        assert s.query(models.Job).one().prompt_id == pid
+
+
+async def test_save_dialog_sits_outside_the_generate_form(client):
+    """Its title/tags inputs would otherwise post with every Generate submit, and the
+    typed prompt title would quietly become the job title."""
+    html = (await client.get("/generate")).text
+    start = html.index('<form id="generate-form"')
+    end = html.index("</form>", start)
+    assert html.index('<dialog id="save-prompt"') > end
+    assert 'hx-include="#generate-form, #save-prompt"' in html
+    form_html = html[start:end]
+    assert 'name="title"' not in form_html and 'name="tags"' not in form_html
+    assert 'id="save-prompt-open"' in form_html  # the opener stays in the prompt column

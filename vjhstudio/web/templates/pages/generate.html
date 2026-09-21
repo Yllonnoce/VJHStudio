@@ -12,7 +12,6 @@
         data-default-negative="{{ default_negative|default('', true) }}"
         data-no-text-tokens="{{ no_text_tokens|default('', true) }}"
         data-polish-mode="{{ polish_mode|default('promptEnhance', true) }}"
-        data-polish-model="{{ polish_model|default('', true) }}"
         data-polish-versions="{{ polish_versions|default(3, true) }}"
         @submit.prevent="submitActive()">
     {# The real submit buttons are type="button" (each mode needs its own hx-post), which
@@ -72,4 +71,5 @@
   </form>
   {% include "generate/_queue_panel.html" %}
 </div>
+{% include "generate/_save_prompt.html" %}
 {% endblock %}

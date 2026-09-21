@@ -50,7 +50,6 @@ window.generateForm = function (initial) {
     promptId: initial.prompt_id || '',
     polishJson: '',
     polishMode: 'promptEnhance',
-    savedTitle: initial.title || '',
 
     get composed() {
       return window.composePrompt ? window.composePrompt(this.fields) : '';

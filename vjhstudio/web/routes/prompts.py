@@ -99,23 +99,15 @@ def hx_prompts(request: Request, page: int = 1):
     return deps.render(request, template, ctx)
 
 
-def _parse_form(form) -> PromptForm:
+def _parse_form(form, no_text_default: bool = True) -> PromptForm:
+    """``no_text_default`` mirrors the two submit parsers: stills default to suppressing
+    on-screen text, clips default the other way (``parse_video_request``), so a form that
+    omits the box produces the same ``PromptForm`` -- and the same hash -- either way."""
     return PromptForm(
         **{k: str(form.get(k, "") or "") for k in PROMPT_FIELDS},
         use_default_negative=_flag(form, "use_default_negative", True),
-        no_text=_flag(form, "no_text", True),
+        no_text=_flag(form, "no_text", no_text_default),
     )
-
-
-def _parse_polish_json(raw: str) -> dict | None:
-    raw = raw.strip()
-    if not raw:
-        return None
-    try:
-        data = json.loads(raw)
-    except ValueError:
-        return None
-    return data if isinstance(data, dict) else None
 
 
 class _TitleShim:
@@ -138,15 +130,13 @@ def save_prompt(request: Request, form: deps.Form):
     dialog can tell the two apart without a second round trip."""
     app = request.app
     project_id = _int_or_none(str(form.get("project_id", "") or ""))
-    pf = _parse_form(form)
     mode = str(form.get("mode", "") or "").strip().lower()
     kind = "video" if mode == "video" else "image"
+    pf = _parse_form(form, no_text_default=kind != "video")
     final_raw = str(form.get("final_prompt", "") or "").strip()
-    composed = prompts_svc.compose(pf)
-    final = final_raw or prompts_svc.cap(composed, prompts_svc.NO_TEXT_SUFFIX if pf.no_text else "")
     title = str(form.get("title", "") or "").strip()
     tags = str(form.get("tags", "") or "")
-    polish_json = _parse_polish_json(str(form.get("polish_json", "") or ""))
+    polish_json = prompts_svc.parse_polish_json(str(form.get("polish_json", "") or ""))
 
     with db.session_scope(app.state.boot.session_factory) as s:
         if project_id is None:
@@ -164,7 +154,9 @@ def save_prompt(request: Request, form: deps.Form):
                 422,
             )
         default_negative = settings_svc.get(s, "defaults.negative_prompt", app.state.env)
-        negative = prompts_svc.build_negative(pf, default_negative, pf.no_text)
+        # one helper, shared with generate.enqueue_image/enqueue_video: a prompt saved
+        # here and the same prompt submitted there hash alike and dedupe onto one row
+        _, final, negative = prompts_svc.saved_texts(kind, pf, final_raw, default_negative)
         if not title:
             title = generate_svc.title_for(_TitleShim(None, pf))
         prompt, created = prompts_svc.upsert(

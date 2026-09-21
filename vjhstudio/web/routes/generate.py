@@ -85,7 +85,6 @@ SIZE_PRESETS = (
 SCHEDULERS = ("", "Default", "DPM++ 2M", "DPM++ 2M Karras", "Euler", "Euler a", "DDIM", "UniPC")
 TRUTHY = ("on", "1", "true", "yes")
 REF_PX = 1024 * 1024
-POLISH_JSON_MAX = 8000
 
 PARAMS_TEMPLATES = {
     "image": "generate/_model_params.html",
@@ -468,8 +467,9 @@ def _ref_initial(session, ref: str, role: str) -> dict:
 
 
 def _prompt_initial(session, prompt: str) -> dict:
-    """``?prompt=<id>`` -> the saved prompt's raw fields, final text, mode and id. Loading
-    one counts as a use, and the ``prompt_id`` rides along in the ``initial`` blob so the
+    """``?prompt=<id>`` -> the saved prompt's raw fields, final text, mode and id. Opening
+    a prompt is not using it -- ``use_count`` is bumped by a submit (``prompts.for_request``)
+    and by nothing else -- but the ``prompt_id`` rides along in the ``initial`` blob so the
     form posts it back (and the draft guard knows not to overwrite a loaded prompt)."""
     try:
         row = prompts.get(session, int(prompt))
@@ -477,7 +477,6 @@ def _prompt_initial(session, prompt: str) -> dict:
         raise LookupError(prompt) from e
     if row is None:
         raise LookupError(prompt)
-    prompts.mark_used(session, row.id)
     return prompts.to_initial(row)
 
 
@@ -625,20 +624,6 @@ def generate_video_page(
     return _page(request, remix, "video", ref, role, prompt)
 
 
-def polish_json_of(form) -> dict | None:
-    """The hidden ``polish_json`` field, as stashed by the polish cards. Anything that is
-    not a reasonably sized JSON object is dropped: a submit must never fail over polish
-    metadata (``routes/prompts.save_prompt`` treats it the same way)."""
-    raw = str(form.get("polish_json", "") or "").strip()
-    if not raw or len(raw) > POLISH_JSON_MAX:
-        return None
-    try:
-        data = json.loads(raw)
-    except ValueError:
-        return None
-    return data if isinstance(data, dict) else None
-
-
 @router.post("/generate/image")
 def submit_image(request: Request, form: deps.Form):
     app = request.app
@@ -658,7 +643,7 @@ def submit_image(request: Request, form: deps.Form):
             app.state.paths,
             req,
             default_negative=default_negative,
-            polish_json=polish_json_of(form),
+            polish_json=prompts.parse_polish_json(str(form.get("polish_json", "") or "")),
         )
     except ValueError as e:
         return _params_422(request, "image", air, form, {"model": str(e)})
@@ -683,7 +668,7 @@ def submit_video(request: Request, form: deps.Form):
             app.state.boot.session_factory,
             app.state.paths,
             req,
-            polish_json=polish_json_of(form),
+            polish_json=prompts.parse_polish_json(str(form.get("polish_json", "") or "")),
         )
     except ValueError as e:
         return _params_422(request, "video", air, form, {"model": str(e)})

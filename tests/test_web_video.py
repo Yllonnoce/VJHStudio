@@ -3,6 +3,7 @@ gallery's video cards. The fake client returns a ``videoURL``; conftest's downlo
 MockTransport serves bytes for any URL, so the runner saves a real (if tiny) file."""
 
 import io
+import json
 import re
 
 from PIL import Image
@@ -289,3 +290,22 @@ async def test_video_submit_links_a_video_prompt_row(client, fake, app):
         # video requests omit negativePrompt, so the row records no negative either
         assert prompt.negative_prompt == ""
         assert s.query(models.Job).one().prompt_id == prompt.id
+
+
+async def test_a_saved_video_prompt_dedupes_against_the_generated_one(client, fake, app):
+    """The save route records no negative for a video prompt (the request omits one) and
+    defaults ``no_text`` the way ``parse_video_request`` does, so one row serves both."""
+    save = {
+        "project_id": "1",
+        "mode": "video",
+        "subject": "a fox running",
+        "title": "Fox clip",
+    }
+    r = await client.post("/prompts", data=save)
+    assert r.status_code == 200
+    pid = json.loads(r.headers["HX-Trigger"])["prompt-saved"]["id"]
+    await _run_video(client, fake, app)
+    with db.session_scope(app.state.boot.session_factory) as s:
+        prompt = s.query(models.Prompt).one()
+        assert prompt.id == pid and prompt.kind == "video" and prompt.use_count == 1
+        assert s.query(models.Job).one().prompt_id == pid

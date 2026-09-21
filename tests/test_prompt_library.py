@@ -267,3 +267,32 @@ def test_to_initial_round_trips_a_video_prompt(tmp_path):
         assert set(["form", "final_prompt", "prompt_id", "project_id", "title", "mode"]) <= set(
             initial.keys()
         )
+
+
+def test_saved_texts_matches_what_a_request_would_hash():
+    """The save route and the submit path must derive (composed, final, negative) from
+    one implementation, or the same prompt hashes twice and dedupe silently fails."""
+    form = PromptForm(subject="a fox", style="oil painting", no_text=True)
+    composed, final, negative = prompts.saved_texts("image", form, "a fox, oil painting", "blurry")
+    assert composed == "a fox, oil painting"
+    assert final == "a fox, oil painting" + prompts.NO_TEXT_SUFFIX  # typed finals are capped too
+    assert negative.startswith("blurry") and "watermark" in negative
+
+    req = ImageRequest(
+        project_id=1, model="runware:101@1", form=form, final_prompt="  a fox, oil painting  "
+    )
+    assert prompts.final_prompt(req) == final
+
+    # video carries no negative at all: the request omits negativePrompt
+    _, _, video_negative = prompts.saved_texts("video", form, "", "blurry")
+    assert video_negative == ""
+
+
+def test_parse_polish_json_takes_objects_only_and_caps_the_size():
+    assert prompts.parse_polish_json('{"a": 1}') == {"a": 1}
+    assert prompts.parse_polish_json("") is None
+    assert prompts.parse_polish_json("   ") is None
+    assert prompts.parse_polish_json("not json") is None
+    assert prompts.parse_polish_json('["a"]') is None  # a list is not a blob
+    big = '{"a": "' + "x" * prompts.POLISH_JSON_MAX + '"}'
+    assert prompts.parse_polish_json(big) is None
