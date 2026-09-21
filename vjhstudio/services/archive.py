@@ -12,7 +12,6 @@ carries no API key.
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import json
 import logging
 import os
@@ -47,6 +46,7 @@ from ..models import (
 )
 from . import backup, migrate, projects
 from . import outputs as outputs_svc
+from . import prompts as prompts_svc
 from . import settings as settings_svc
 
 log = logging.getLogger(__name__)
@@ -295,6 +295,16 @@ def info_for(path: Path) -> ArchiveInfo:
         app_version=str(m.get("app_version") or ""),
         schema_revision=str(m.get("schema_revision") or ""),
     )
+
+
+def human_size(n: int) -> str:
+    """An archive size as the CLI and the Settings table both print it: "512 B", "4.2 MB"."""
+    size = float(n)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} GB"
 
 
 def list_archives(paths: Paths) -> list[ArchiveInfo]:
@@ -651,39 +661,16 @@ class _Merge:
     copies: list[_Copy] = field(default_factory=list)
 
 
-def prompt_key(
-    kind: str,
-    final_prompt: str,
-    negative_prompt: str,
-    form_json: dict | None,
-    composed_prompt: str = "",
-) -> str:
+def _prompt_key(p: Prompt) -> str:
     """The natural key two prompts are the same by: everything the prompt *says*, and
     nothing about how it is filed (title, project, favourite, use count, timestamps).
 
-    This is byte-for-byte the formula main's Phase 5 uses for the stored
-    `prompts.content_hash` column:
-
-        sha256(json.dumps([kind, composed, final, negative, form_canonical],
-                          sort_keys=True, separators=(",", ":")))
-        form_canonical = {k: v for k, v in form.items() if v != ""}
-
-    An empty form field is dropped, so a prompt saved before a field existed hashes the
-    same as one where the user left it blank. The two branches must not drift: when the
-    column lands, `_prompt_key` reads it instead and this function goes away.
+    That key is the app's own `prompts.content_hash`, read straight off the stored
+    column so the merge and the app can never drift. An archive written before the
+    column existed carries `""`, so it is recomputed from the row's own columns -
+    which is exactly what `prompts.hash_of` does.
     """
-    form = form_json if isinstance(form_json, dict) else {}
-    canonical = {k: v for k, v in form.items() if v != ""}
-    payload = json.dumps(
-        [kind, composed_prompt, final_prompt, negative_prompt, canonical],
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
-def _prompt_key(p: Prompt) -> str:
-    return prompt_key(p.kind, p.final_prompt, p.negative_prompt, p.form_json, p.composed_prompt)
+    return p.content_hash or prompts_svc.hash_of(p)
 
 
 def _columns(model: type) -> list[str]:
@@ -819,7 +806,14 @@ def _merge_prompts(m: _Merge) -> None:
             m.prompt_ids[p.id] = local[key]
             t.existing += 1
             continue
-        values = {**_values(p, exclude=("id",)), "project_id": m.project_ids.get(p.project_id)}
+        values = {
+            **_values(p, exclude=("id",)),
+            "project_id": m.project_ids.get(p.project_id),
+            # An archive older than the column carries "". `key` is what
+            # `prompts.hash_of` makes of exactly these columns, so storing it here is
+            # what lets the app's own `prompts.find_by_hash` see a merged row at all.
+            "content_hash": p.content_hash or key,
+        }
         row = Prompt(**values)
         m.session.add(row)
         m.session.flush()

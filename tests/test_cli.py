@@ -393,9 +393,9 @@ def test_restore_merge_rejects_a_non_archive(tmp_path, monkeypatch, capsys):
 
 
 def test_human_size():
-    assert main.human_size(512) == "512 B"
-    assert main.human_size(2048) == "2.0 KB"
-    assert main.human_size(5 * 1024 * 1024) == "5.0 MB"
+    assert archive.human_size(512) == "512 B"
+    assert archive.human_size(2048) == "2.0 KB"
+    assert archive.human_size(5 * 1024 * 1024) == "5.0 MB"
 
 
 def test_restore_command_reports_skipped_members(tmp_path, monkeypatch, capsys):

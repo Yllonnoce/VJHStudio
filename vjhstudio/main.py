@@ -167,15 +167,6 @@ def cmd_update(args: argparse.Namespace) -> int:
     return 0
 
 
-def human_size(n: int) -> str:
-    size = float(n)
-    for unit in ("B", "KB", "MB", "GB"):
-        if size < 1024 or unit == "GB":
-            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
-        size /= 1024
-    return f"{size:.1f} GB"
-
-
 def cmd_backup(args: argparse.Namespace) -> int:
     from . import boot
 
@@ -194,7 +185,7 @@ def cmd_backup(args: argparse.Namespace) -> int:
         return 1
     finally:
         info.engine.dispose()
-    print(f"{dest}  ({human_size(dest.stat().st_size)})")
+    print(f"{dest}  ({archive.human_size(dest.stat().st_size)})")
     return 0
 
 

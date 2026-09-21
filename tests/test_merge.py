@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from vjhstudio import boot, config, db, models
 from vjhstudio.config import Paths
-from vjhstudio.services import archive, assets, projects
+from vjhstudio.services import archive, assets, projects, prompts
 from vjhstudio.services import settings as settings_svc
 
 
@@ -175,21 +175,36 @@ def seeded_source(make_install) -> tuple[Install, Path]:
     return a, zip_path
 
 
-# --- prompt_key -------------------------------------------------------------
+# --- the prompt merge key ---------------------------------------------------
 
 
-def test_prompt_key_is_stable_and_ignores_dict_order():
-    one = archive.prompt_key("image", "a fox", "blurry", {"a": 1, "b": 2}, "a fox")
-    two = archive.prompt_key("image", "a fox", "blurry", {"b": 2, "a": 1}, "a fox")
-    assert one == two and len(one) == 64
+def _prompt_row(**over) -> models.Prompt:
+    values = {
+        "kind": "image",
+        "title": "A fox",
+        "composed_prompt": "a fox, calm",
+        "final_prompt": "a fox, calm, 8k",
+        "negative_prompt": "blurry",
+        "form_json": {"subject": "a fox", "mood": "calm", "style": ""},
+        "content_hash": "",
+    }
+    return models.Prompt(**{**values, **over})
 
 
-def test_prompt_key_changes_with_every_field():
-    base = archive.prompt_key("image", "a fox", "blurry", {"a": 1}, "a fox")
-    assert archive.prompt_key("video", "a fox", "blurry", {"a": 1}, "a fox") != base
-    assert archive.prompt_key("image", "a cat", "blurry", {"a": 1}, "a fox") != base
-    assert archive.prompt_key("image", "a fox", "ugly", {"a": 1}, "a fox") != base
-    assert archive.prompt_key("image", "a fox", "blurry", {"a": 2}, "a fox") != base
+def test_prompt_key_is_the_stored_content_hash():
+    """The merge reads the app's own column rather than re-deriving it, so the two can
+    never drift apart."""
+    row = _prompt_row(content_hash="d" * 64)
+    assert archive._prompt_key(row) == "d" * 64
+
+
+def test_prompt_key_falls_back_to_the_apps_formula_when_the_column_is_empty():
+    """An archive written before the column existed carries "" for every prompt."""
+    row = _prompt_row()
+    assert archive._prompt_key(row) == prompts.hash_of(row)
+    assert archive._prompt_key(row) == prompts.content_hash(
+        "image", "a fox, calm", "a fox, calm, 8k", "blurry", row.form_json
+    )
 
 
 # --- preview ----------------------------------------------------------------
@@ -556,9 +571,9 @@ def test_a_file_already_on_disk_is_not_missing_even_in_a_db_only_archive(make_in
 # --- fix round 1 ------------------------------------------------------------
 
 
-def test_prompt_key_is_the_apps_content_hash_formula():
-    """Pinned to the exact digest main's Phase 5 `prompts.content_hash` produces. If this
-    fails, the two branches have drifted and a merge would duplicate every prompt."""
+def test_the_merge_key_is_the_apps_content_hash_formula():
+    """Pinned to the exact digest `prompts.content_hash` produces. If this fails, the
+    merge key has drifted from the app's and a merge would duplicate every prompt."""
     form = {"subject": "a fox", "style": "", "mood": "calm", "lens": ""}
     canonical = {k: v for k, v in form.items() if v != ""}
     expected = hashlib.sha256(
@@ -568,14 +583,28 @@ def test_prompt_key_is_the_apps_content_hash_formula():
             separators=(",", ":"),
         ).encode("utf-8")
     ).hexdigest()
-    assert archive.prompt_key("image", "a fox, calm, 8k", "blurry", form, "a fox, calm") == expected
+    row = _prompt_row(form_json=form)
+    assert archive._prompt_key(row) == expected
 
 
-def test_prompt_key_drops_empty_form_fields():
-    filled = archive.prompt_key("image", "a fox", "blurry", {"a": "1", "b": ""}, "a fox")
-    absent = archive.prompt_key("image", "a fox", "blurry", {"a": "1"}, "a fox")
+def test_the_merge_key_drops_empty_form_fields():
+    filled = archive._prompt_key(_prompt_row(form_json={"a": "1", "b": ""}))
+    absent = archive._prompt_key(_prompt_row(form_json={"a": "1"}))
     assert filled == absent
-    assert archive.prompt_key("image", "a fox", "blurry", {"a": "1", "b": "x"}, "a fox") != absent
+    assert archive._prompt_key(_prompt_row(form_json={"a": "1", "b": "x"})) != absent
+
+
+def test_a_merged_prompt_stores_a_content_hash_the_app_can_find(make_install):
+    """An archive from before the column existed still lands rows the library's own
+    dedupe (`prompts.find_by_hash`) can see."""
+    _a, zip_path = seeded_source(make_install)
+    b = make_install("b")
+    archive.merge(b.factory, b.paths, zip_path)
+    with db.session_scope(b.factory) as s:
+        rows = s.query(models.Prompt).all()
+        assert rows and all(r.content_hash == prompts.hash_of(r) for r in rows)
+        for r in rows:
+            assert prompts.find_by_hash(s, r.project_id, r.content_hash) is not None
 
 
 def test_a_prompt_that_only_differs_by_an_empty_form_field_is_not_reimported(make_install):
