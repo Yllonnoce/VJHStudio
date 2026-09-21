@@ -23,7 +23,11 @@ class Prompt(TimestampMixin, Base):
     is_favourite: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     use_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime)
+    tags: Mapped[str] = mapped_column(String(400), default=",", nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     __table_args__ = (
         Index("ix_prompts_project", "project_id"),
         Index("ix_prompts_fav", "is_favourite"),
+        Index("ix_prompts_tags", "tags"),
+        Index("ix_prompts_hash", "project_id", "content_hash"),
     )
