@@ -81,11 +81,11 @@ folders like Program Files or /usr. The app writes files constantly and cloud sy
 
 Step 1 — open a terminal (see "The terminal" above if you have not already).
 
-Step 2 — this one line installs Git and uv if you do not have them yet, downloads VJHStudio into
-`%USERPROFILE%\VJHStudio`, and starts it. It asks you two quick questions along the way (see
-below).
+Step 2 — copy the line below. It installs Git and uv if you do not have them yet, downloads
+VJHStudio into `%USERPROFILE%\VJHStudio`, and starts it. It asks you two quick questions along
+the way (see below).
 
-Step 3 — paste it and press Enter:
+Step 3 — paste the line into the terminal and press Enter:
 
 ```
 curl.exe -fsSLo %TEMP%\install.bat https://raw.githubusercontent.com/yllonnoce/VJHStudio/main/install.bat && %TEMP%\install.bat
@@ -95,10 +95,11 @@ curl.exe -fsSLo %TEMP%\install.bat https://raw.githubusercontent.com/yllonnoce/V
 
 Step 1 — open a terminal (see "The terminal" above if you have not already).
 
-Step 2 — this one line installs Git and uv if you do not have them yet, downloads VJHStudio into
-`~/VJHStudio`, and starts it. It asks you two quick questions along the way (see below).
+Step 2 — copy the line below. It installs Git and uv if you do not have them yet, downloads
+VJHStudio into `~/VJHStudio`, and starts it. It asks you two quick questions along the way (see
+below).
 
-Step 3 — paste it and press Enter:
+Step 3 — paste the line into the terminal and press Enter:
 
 ```
 curl -fsSL https://raw.githubusercontent.com/yllonnoce/VJHStudio/main/install.sh | bash
