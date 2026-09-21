@@ -7,6 +7,7 @@ main() {
 
   local DIR PURGE PORT TRIES SERVICE DESKTOP INFO REPLY
   DIR="$(cd "$(dirname "$0")" && pwd)"   # the folder this script sits in
+  [ -n "$DIR" ] || { echo "Cannot find my own folder."; exit 1; }
   PURGE="no"
   case "${1:-}" in
     --purge) PURGE="yes" ;;

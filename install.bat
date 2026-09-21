@@ -103,6 +103,7 @@ set "DESKTOPDIR=%USERPROFILE%\Desktop"
 if exist "%USERPROFILE%\OneDrive\Desktop" set "DESKTOPDIR=%USERPROFILE%\OneDrive\Desktop"
 set "VBS=%TEMP%\vjh_shortcut.vbs"
 if not "%DESKTOP_JSON%"=="true" goto :nodesktop
+if not exist "%DESKTOPDIR%" mkdir "%DESKTOPDIR%"
 where cscript >nul 2>&1
 if errorlevel 1 goto :urlshortcut
 rem Write a tiny script that makes the shortcut, run it, then delete it again.
@@ -123,6 +124,7 @@ rem cscript is missing on this computer, so make a simple clickable link instead
 :nodesktop
 
 rem --- Step 9: write down what we did, so uninstall.bat can undo exactly that -
+rem installed_at uses the computer's own date format; nothing reads it, it is just a note.
 if not exist "%DIR%\data" mkdir "%DIR%\data"
 > "%DIR%\data\install.json" echo {"version": 1,
 >> "%DIR%\data\install.json" echo  "home": "%DIR:\=\\%",

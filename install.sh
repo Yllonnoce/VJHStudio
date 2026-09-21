@@ -15,8 +15,8 @@ main() {
 
   while [ $# -gt 0 ]; do
     case "$1" in
-      --dir) DIR="${2:-}"; shift 2 ;;
-      --branch) BRANCH="${2:-}"; shift 2 ;;
+      --dir) [ $# -ge 2 ] || { echo "--dir needs a folder after it."; exit 1; }; DIR="$2"; shift 2 ;;
+      --branch) [ $# -ge 2 ] || { echo "--branch needs a name after it."; exit 1; }; BRANCH="$2"; shift 2 ;;
       --no-start) START="no"; shift ;;
       --service) SERVICE="yes"; shift ;;
       --no-service) SERVICE="no"; shift ;;
@@ -81,7 +81,7 @@ main() {
   # --- Step 3: download the app, or update the copy that is already there ------
   if [ -d "$DIR/.git" ]; then
     echo "A copy is already in $DIR. Updating it..."
-    git -C "$DIR" pull --ff-only || { echo "Could not update $DIR. Move it aside and try again."; exit 1; }
+    git -C "$DIR" checkout "$BRANCH" && git -C "$DIR" pull --ff-only || { echo "Could not update $DIR. Move it aside and try again."; exit 1; }
   else
     echo "Downloading VJHStudio..."
     git clone --branch "$BRANCH" https://github.com/yllonnoce/VJHStudio.git "$DIR" \
@@ -163,7 +163,7 @@ EOF
 Type=Application
 Name=VJHStudio
 Comment=Make pictures with VJHStudio
-Exec=$DIR/start.sh
+Exec="$DIR/start.sh"
 Path=$DIR
 Icon=$DIR/vjhstudio/web/static/img/favicon.svg
 Terminal=true
