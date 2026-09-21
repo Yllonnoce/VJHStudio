@@ -423,6 +423,56 @@ async def test_media_map_wraps_upload_failure_with_asset_name(booted):
     assert isinstance(exc.value.cause, RunwareError)
 
 
+async def test_ensure_media_uuid_reply_missing_media_url_stores_none(booted):
+    paths, f = booted
+    with db.session_scope(f) as s:
+        asset, _ = assets.store_upload(
+            s, paths, original_name="fox.png", content=_png(), mime="image/png"
+        )
+        aid = asset.id
+
+    fake = FakeRunware({"media_storage": [[{"mediaUUID": "u1"}]]})
+    uuid = await assets.ensure_media_uuid(fake, f, paths, aid)
+    assert uuid == "u1"
+    with db.session_scope(f) as s:
+        a = assets.get(s, aid)
+        assert a.media_uuid == "u1" and a.media_url is None
+
+
+async def test_ensure_media_uuid_reply_missing_media_uuid_raises(booted):
+    paths, f = booted
+    with db.session_scope(f) as s:
+        asset, _ = assets.store_upload(
+            s, paths, original_name="fox.png", content=_png(), mime="image/png"
+        )
+        aid = asset.id
+
+    fake = FakeRunware({"media_storage": [[{}]]})
+    with pytest.raises(assets.MediaUploadError) as exc:
+        await assets.ensure_media_uuid(fake, f, paths, aid)
+    assert "fox.png" in exc.value.message
+    with db.session_scope(f) as s:
+        a = assets.get(s, aid)
+        assert a.media_uuid is None  # the failed attempt never wrote a cache entry
+
+
+async def test_ensure_media_uuid_missing_file_raises_media_upload_error(booted):
+    paths, f = booted
+    with db.session_scope(f) as s:
+        asset, _ = assets.store_upload(
+            s, paths, original_name="fox.png", content=_png(), mime="image/png"
+        )
+        aid = asset.id
+        path = assets.abs_path(paths, asset)
+    path.unlink()
+
+    fake = FakeRunware({})
+    with pytest.raises(assets.MediaUploadError) as exc:
+        await assets.ensure_media_uuid(fake, f, paths, aid)
+    assert "fox.png" in exc.value.message and "missing on disk" in exc.value.message
+    assert fake.calls == []  # the file check runs before any RunWare call
+
+
 def test_abs_path_and_public_urls(booted):
     paths, f = booted
     with db.session_scope(f) as s:

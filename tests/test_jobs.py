@@ -165,7 +165,62 @@ async def test_job_upload_failure_fails_with_upload_code(env):
         j = s.get(models.Job, job.id)
         assert j.status == "failed" and j.error_code == "upload"
         assert "bad-ref.png" in j.error_message
-        assert "Could not upload" in j.error_message
+
+
+async def test_job_malformed_media_reply_fails_with_upload_code(env):
+    paths, f, _ = env
+    with db.session_scope(f) as s:
+        asset, _ = assets.store_upload(
+            s, paths, original_name="bad-reply.png", content=_png(), mime="image/png"
+        )
+        aid = asset.id
+        pid = s.query(models.Project).filter_by(slug="default").one().id
+    fake = FakeRunware({"media_storage": [[{}]]})  # no mediaUUID in the reply
+    r = _runner(env, fake, concurrency=1)
+    await r.start()
+    req = ImageRequest(
+        project_id=pid,
+        model="runware:101@1",
+        form=PromptForm(subject="fox"),
+        seed_image_asset_id=aid,
+    )
+    job = generate.enqueue_image(f, paths, req, default_negative="")
+    r.submit(job.id)
+    await r.wait_idle()
+    await r.stop()
+    with db.session_scope(f) as s:
+        j = s.get(models.Job, job.id)
+        assert j.status == "failed" and j.error_code == "upload"
+        assert "bad-reply.png" in j.error_message
+
+
+async def test_job_missing_file_fails_with_upload_code(env):
+    paths, f, _ = env
+    with db.session_scope(f) as s:
+        asset, _ = assets.store_upload(
+            s, paths, original_name="gone.png", content=_png(), mime="image/png"
+        )
+        aid = asset.id
+        pid = s.query(models.Project).filter_by(slug="default").one().id
+        path = assets.abs_path(paths, asset)
+    path.unlink()
+    fake = FakeRunware({})
+    r = _runner(env, fake, concurrency=1)
+    await r.start()
+    req = ImageRequest(
+        project_id=pid,
+        model="runware:101@1",
+        form=PromptForm(subject="fox"),
+        seed_image_asset_id=aid,
+    )
+    job = generate.enqueue_image(f, paths, req, default_negative="")
+    r.submit(job.id)
+    await r.wait_idle()
+    await r.stop()
+    with db.session_scope(f) as s:
+        j = s.get(models.Job, job.id)
+        assert j.status == "failed" and j.error_code == "upload"
+        assert "gone.png" in j.error_message and "missing on disk" in j.error_message
 
 
 async def test_download_failure_is_reported(env):

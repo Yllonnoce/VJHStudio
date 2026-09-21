@@ -293,10 +293,7 @@ class JobRunner:
             cost = await asyncio.to_thread(self._persist, plan, result, saved)
             self._succeed(job_id, cost)
         except assets.MediaUploadError as e:
-            err = classify(e.cause)
-            self._fail(
-                job_id, "upload", f"Could not upload {e.original_name} to RunWare: {err.message}"
-            )
+            self._fail(job_id, "upload", e.message)
         except RunwareError as e:
             err = classify(e)
             self._fail(job_id, err.code, err.message, cancelled=err.code == "aborted")

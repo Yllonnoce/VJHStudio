@@ -24,6 +24,7 @@ from .. import db
 from ..config import Paths
 from ..models import Asset, Job, JobStatus, utcnow
 from ..runware.download import make_thumbnail
+from ..runware.errors import classify
 
 PER_PAGE = 48
 MEDIA_TTL_DAYS = 6
@@ -53,14 +54,21 @@ class UploadError(Exception):
 
 
 class MediaUploadError(Exception):
-    """Raised by ``media_map`` when a RunWare upload fails: names the asset so a caller
-    can build a user-facing message without a second lookup. ``.cause`` is the original
-    ``RunwareError`` (see ``runware.errors.classify``)."""
+    """Raised when an asset's media can't be made available to RunWare: a missing file
+    on disk, a malformed ``media_storage`` reply, or (via ``media_map``) a wrapped
+    ``RunwareError`` from the upload call itself. ``.message`` is ready to show the
+    user; ``JobRunner`` fails the job with ``error_code="upload"`` and this text."""
 
-    def __init__(self, original_name: str, cause: RunwareError):
-        super().__init__(f"upload of {original_name!r} failed: {cause}")
+    def __init__(self, original_name: str, message: str, cause: BaseException | None = None):
+        super().__init__(message)
         self.original_name = original_name
+        self.message = message
         self.cause = cause
+
+    @classmethod
+    def from_runware_error(cls, original_name: str, cause: RunwareError) -> MediaUploadError:
+        message = f"Could not upload {original_name} to RunWare: {classify(cause).message}"
+        return cls(original_name, message, cause=cause)
 
 
 def normalize_tags(text: str) -> str:
@@ -307,7 +315,8 @@ async def ensure_media_uuid(client, session_factory, paths: Paths, asset_id: int
     ``media_uploaded_at`` is newer than ``MEDIA_TTL_DAYS``, otherwise upload the file
     (``client.media_storage``) and cache the fresh uuid/url/timestamp. Never holds a
     session across an ``await``. Raises ``LookupError`` for an unknown asset; a
-    ``RunwareError`` from the upload propagates unchanged."""
+    ``RunwareError`` from the upload call itself propagates unchanged; a missing file
+    on disk or a reply with no ``mediaUUID`` raises ``MediaUploadError`` instead."""
     with db.session_scope(session_factory) as s:
         asset = s.get(Asset, asset_id)
         if asset is None:
@@ -316,11 +325,20 @@ async def ensure_media_uuid(client, session_factory, paths: Paths, asset_id: int
             return asset.media_uuid
         path = abs_path(paths, asset)
         mime = asset.mime
+        name = asset.original_name
+        filename = asset.filename
 
-    data_uri = await asyncio.to_thread(_data_uri, path, mime)
+    try:
+        data_uri = await asyncio.to_thread(_data_uri, path, mime)
+    except FileNotFoundError:
+        raise MediaUploadError(name, f"File for {name} is missing on disk ({filename})") from None
+
     reply = await client.media_storage({"operation": "upload", "media": data_uri})
-    media_uuid = reply[0]["mediaUUID"]
-    media_url = reply[0]["mediaURL"]
+    row = (reply or [{}])[0]
+    media_uuid = row.get("mediaUUID")
+    media_url = row.get("mediaURL")
+    if not media_uuid:
+        raise MediaUploadError(name, f"RunWare returned no media id for {name}")
 
     with db.session_scope(session_factory) as s:
         asset = s.get(Asset, asset_id)
@@ -333,8 +351,9 @@ async def ensure_media_uuid(client, session_factory, paths: Paths, asset_id: int
 
 async def media_map(client, session_factory, paths: Paths, ids: Iterable[int]) -> dict[int, str]:
     """Resolve each of ``ids`` to a live RunWare ``mediaUUID`` via ``ensure_media_uuid``,
-    uploading and caching lazily. Unknown ids are skipped. An upload failure raises
-    ``MediaUploadError`` naming the asset, wrapping the original ``RunwareError``."""
+    uploading and caching lazily. Unknown ids are skipped. A ``RunwareError`` from the
+    upload call is wrapped as ``MediaUploadError``; ``ensure_media_uuid``'s own
+    ``MediaUploadError`` (missing file, malformed reply) passes through as-is."""
     out: dict[int, str] = {}
     for asset_id in ids:
         with db.session_scope(session_factory) as s:
@@ -345,5 +364,5 @@ async def media_map(client, session_factory, paths: Paths, ids: Iterable[int]) -
         try:
             out[asset_id] = await ensure_media_uuid(client, session_factory, paths, asset_id)
         except RunwareError as e:
-            raise MediaUploadError(name, e) from e
+            raise MediaUploadError.from_runware_error(name, e) from e
     return out
