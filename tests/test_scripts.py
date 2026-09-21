@@ -5,7 +5,16 @@ from vjhstudio.config import REPO_ROOT
 
 
 def test_scripts_exist_and_have_no_powershell():
-    for name in ("start.sh", "start.bat", "scripts/restart_helper.bat", "run.py"):
+    for name in (
+        "start.sh",
+        "start.bat",
+        "scripts/restart_helper.bat",
+        "run.py",
+        "install.sh",
+        "install.bat",
+        "uninstall.sh",
+        "uninstall.bat",
+    ):
         p = REPO_ROOT / name
         assert p.exists(), name
         text = p.read_text(encoding="utf-8", errors="replace").lower()
