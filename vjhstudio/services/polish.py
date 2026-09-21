@@ -95,7 +95,10 @@ async def run(
     task_uuid = str(uuid.uuid4())
 
     if mode == "promptEnhance":
-        used_model = tasks.PROMPT_ENHANCE_MODEL
+        # No model AIR: the live API takes no `model` for promptEnhance (it's a fixed
+        # server-side model). Record the task type itself so the usage row's
+        # `model_air` stays non-null and stable.
+        used_model = "promptEnhance"
         task = tasks.build_prompt_enhance(text, task_uuid, versions=v)
     else:
         if not model:

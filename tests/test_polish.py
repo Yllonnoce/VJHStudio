@@ -9,7 +9,7 @@ from vjhstudio.services import polish
 def test_build_prompt_enhance_shape_and_truncation():
     t = tasks.build_prompt_enhance("x" * 400, "uuid-1", versions=2, max_length=200)
     assert t["taskType"] == "promptEnhance" and t["taskUUID"] == "uuid-1"
-    assert t["model"] == tasks.PROMPT_ENHANCE_MODEL
+    assert "model" not in t  # live API rejects a `model` key for promptEnhance
     assert len(t["prompt"]) == 300 and t["prompt"] == "x" * 300
     assert t["promptMaxLength"] == 200 and t["promptVersions"] == 2 and t["includeCost"] is True
 
@@ -57,7 +57,7 @@ def test_split_versions_truncates_extra_lines_to_versions():
 
 
 # ---- services/polish.py::run -----------------------------------------------
-async def test_run_prompt_enhance_sums_cost_and_uses_fixed_model():
+async def test_run_prompt_enhance_sums_cost_and_records_task_type_as_model_air():
     fake = FakeRunware()
     fake.script["run"] = [[{"text": "a", "cost": 0.0002}, {"text": "b", "cost": 0.0002}]]
     result = await polish.run(
@@ -65,9 +65,23 @@ async def test_run_prompt_enhance_sums_cost_and_uses_fixed_model():
     )
     assert [v.text for v in result.versions] == ["a", "b"]
     assert result.cost == pytest.approx(0.0004)
-    assert result.mode == "promptEnhance" and result.model == tasks.PROMPT_ENHANCE_MODEL
+    # No model AIR exists for promptEnhance; the literal task type is recorded instead
+    # so the usage row's model_air stays non-null and stable.
+    assert result.mode == "promptEnhance" and result.model == "promptEnhance"
     assert fake.calls[-1][0] == "run"
-    assert fake.calls[-1][1]["model"] == tasks.PROMPT_ENHANCE_MODEL
+    assert "model" not in fake.calls[-1][1]
+
+
+async def test_run_prompt_enhance_tolerates_fewer_rows_than_versions_requested():
+    """Live API note: promptVersions=2 can still come back as a single row."""
+    fake = FakeRunware()
+    fake.script["run"] = [[{"text": "a", "cost": 0.0002}]]
+    result = await polish.run(
+        fake_factory(fake), "key", "rest", mode="promptEnhance", composed="a fox", versions=2
+    )
+    assert [v.text for v in result.versions] == ["a"]
+    assert result.cost == pytest.approx(0.0002)
+    assert result.model == "promptEnhance"
 
 
 async def test_run_text_inference_splits_one_reply_sharing_one_cost():

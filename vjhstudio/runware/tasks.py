@@ -7,7 +7,6 @@ from ..schemas.video import VideoRequest
 from ..services import prompts
 
 PROTECTED = ("taskType", "taskUUID", "model")
-PROMPT_ENHANCE_MODEL = "runware:llama-3-1-8b@prompt-enhancer"
 PROMPT_ENHANCE_MAX_CHARS = 300
 PROMPT_ENHANCE_MAX_LENGTH = 300
 POLISH_SYSTEM = (
@@ -90,15 +89,16 @@ def build_image_task(
 def build_prompt_enhance(
     prompt: str, task_uuid: str, *, versions: int = 3, max_length: int = PROMPT_ENHANCE_MAX_LENGTH
 ) -> dict:
-    """RunWare's ``promptEnhance``: a small, fixed model that only ever takes a prompt
-    (<=300 chars, suffix-free — there is nothing to preserve past the cut, unlike
-    ``prompts.cap``'s NO_TEXT_SUFFIX case) and returns ``promptVersions`` rewrites."""
+    """RunWare's ``promptEnhance``: a small, fixed-model task that only ever takes a
+    prompt (<=300 chars, suffix-free — there is nothing to preserve past the cut,
+    unlike ``prompts.cap``'s NO_TEXT_SUFFIX case) and returns ``promptVersions``
+    rewrites. The live API rejects a ``model`` key here ("Invalid value for 'model'
+    parameter...") -- the model is fixed server-side, so none is sent."""
     v = max(1, min(5, int(versions)))
     ml = max(12, min(400, int(max_length)))
     return {
         "taskType": "promptEnhance",
         "taskUUID": task_uuid,
-        "model": PROMPT_ENHANCE_MODEL,
         "prompt": (prompt or "")[:PROMPT_ENHANCE_MAX_CHARS],
         "promptMaxLength": ml,
         "promptVersions": v,
