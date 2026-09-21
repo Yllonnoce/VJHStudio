@@ -113,8 +113,10 @@ def create_app(
                 background.cancel()
                 # Let the cancellation land before the engine goes: a check still in
                 # to_thread would otherwise touch a disposed engine on its way out.
-                with suppress(asyncio.CancelledError):
-                    await background
+                # A thread mid `git fetch` cannot be interrupted, so wait briefly and
+                # then move on rather than hold a restart for the fetch timeout.
+                with suppress(asyncio.CancelledError, asyncio.TimeoutError, TimeoutError):
+                    await asyncio.wait_for(background, timeout=5)
         await app.state.runner.stop()
         app.state.boot.engine.dispose()
 
