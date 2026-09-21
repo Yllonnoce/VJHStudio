@@ -144,3 +144,32 @@ def test_install_json_shape_is_documented_in_both_installers():
         text = read(name)
         for key in ('"home"', '"service"', '"desktop"', '"os"'):
             assert key in text, f"{name}: {key}"
+
+
+def test_install_sh_asks_the_questions_even_when_piped_into_bash():
+    """The documented command is `curl … | bash`, so stdin is the download, not the
+    keyboard. Both questions must therefore read from the terminal itself."""
+    text = read("install.sh")
+    assert "[ -r /dev/tty ]" in text
+    assert text.count("ANSWER </dev/tty") == 2
+
+
+def test_install_sh_quotes_the_service_exec_start():
+    """An install folder with a space in it would otherwise make systemd run the
+    wrong command."""
+    assert 'ExecStart="$DIR/start.sh" --no-browser' in read("install.sh")
+
+
+def test_uninstall_sh_stops_the_autostart_entry_before_asking_the_app_to_quit():
+    """systemd's Restart=always and launchd's KeepAlive=true relaunch the app the
+    moment it exits, and the relaunched process would then lose its .venv."""
+    text = read("uninstall.sh")
+    shutdown = text.index("/api/shutdown")
+    assert text.index("systemctl --user disable --now") < shutdown
+    assert text.index("launchctl unload") < shutdown
+
+
+def test_uninstall_sh_purge_honours_the_data_dir_env_var():
+    text = read("uninstall.sh")
+    assert "${VJHSTUDIO_DATA_DIR:-$DIR/data}" in text
+    assert 'rm -rf "$DIR/data"' not in text

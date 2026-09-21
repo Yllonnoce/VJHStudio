@@ -202,8 +202,9 @@ choose what goes in it, on top of your database (which is always included):
 From the Backups list you can **Download** a backup to save it somewhere safe (a USB drive, cloud
 storage, another computer).
 
-- **Restore** replaces everything currently in VJHStudio with what is in the backup. It takes a
-  safety copy of what you have first, in case you picked the wrong file, then restarts the app.
+- **Restore** replaces everything currently in VJHStudio with what is in the backup. A safety copy
+  of your database is taken first, in case you picked the wrong file; files with the same name are
+  replaced. Then the app restarts.
 - **Merge** only adds what you do not already have — it never removes or overwrites anything, and
   it never copies your settings or your RunWare API key. It shows you a preview of what will be
   added before it changes anything.
@@ -261,7 +262,8 @@ that exact word.
 ## Where your files are
 
 Everything you make is in the `data` folder inside VJHStudio: `data/outputs` for your images and
-videos, `data/backups` for backups. Updating the app never touches it.
+videos, `data/backups` for backups. An update only adds to it: a safety backup of your database is
+written to `data/backups` before anything else happens.
 
 ## For developers
 

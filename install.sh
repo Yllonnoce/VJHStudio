@@ -6,7 +6,7 @@ main() {
   set -u
 
   # --- What you can change with flags (you normally need none of them) ---------
-  local DIR BRANCH START SERVICE DESKTOP OS UV ANSWER
+  local DIR BRANCH START SERVICE DESKTOP OS UV TTY ANSWER
   DIR="${VJHSTUDIO_HOME:-${HOME:-}/VJHStudio}"  # where the app folder goes
   BRANCH="main"                                 # which version to download
   START="yes"                                   # start the app when we are done
@@ -100,20 +100,27 @@ main() {
   "$UV" run --frozen python run.py migrate || { echo "Database setup failed."; exit 1; }
 
   # --- Step 6: the two questions (answering nothing means no) ------------------
+  # The command in the README pipes this script into bash, which leaves stdin
+  # pointing at the download instead of at you. /dev/tty is your terminal itself,
+  # so the questions are asked there. With no terminal at all (a script, a build
+  # machine) there is nobody to ask and both answers are simply no.
+  TTY="no"
+  if [ -t 0 ] || { [ -r /dev/tty ] && (exec </dev/tty) 2>/dev/null; }; then
+    TTY="yes"
+  fi
+  ANSWER=""
   if [ "$SERVICE" = "ask" ]; then
-    if [ -t 0 ]; then
-      read -r -p "Start VJHStudio automatically when you log in? [y/N] " ANSWER
-      case "$ANSWER" in [Yy]*) SERVICE="yes" ;; *) SERVICE="no" ;; esac
-    else
-      SERVICE="no"
+    SERVICE="no"
+    if [ "$TTY" = "yes" ]; then
+      read -r -p "Start VJHStudio automatically when you log in? [y/N] " ANSWER </dev/tty || ANSWER=""
+      case "$ANSWER" in [Yy]*) SERVICE="yes" ;; esac
     fi
   fi
   if [ "$DESKTOP" = "ask" ]; then
-    if [ -t 0 ]; then
-      read -r -p "Create a desktop link? [y/N] " ANSWER
-      case "$ANSWER" in [Yy]*) DESKTOP="yes" ;; *) DESKTOP="no" ;; esac
-    else
-      DESKTOP="no"
+    DESKTOP="no"
+    if [ "$TTY" = "yes" ]; then
+      read -r -p "Create a desktop link? [y/N] " ANSWER </dev/tty || ANSWER=""
+      case "$ANSWER" in [Yy]*) DESKTOP="yes" ;; esac
     fi
   fi
 
@@ -125,7 +132,7 @@ main() {
 Description=VJHStudio
 
 [Service]
-ExecStart=$DIR/start.sh --no-browser
+ExecStart="$DIR/start.sh" --no-browser
 Restart=always
 
 [Install]

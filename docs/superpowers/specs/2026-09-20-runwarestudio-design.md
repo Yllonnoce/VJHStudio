@@ -158,7 +158,7 @@ Files: `/files/outputs/{slug}/{filename}`, `/files/uploads/{filename}` via FileR
 
 ### Configuration
 
-Env: `RUNWARE_API_KEY` (overrides stash), `VJHSTUDIO_DATA_DIR` (default `<repo>/data` inside the checkout, git-ignored), `VJHSTUDIO_HOST` (127.0.0.1), `VJHSTUDIO_PORT` (**8080**), `VJHSTUDIO_LOG_LEVEL`, `VJHSTUDIO_LAUNCHER`, `UV_BIN`. Data dir: `vjh.db`, `backups/`, `uploads/`, `outputs/`, `secrets/api_key` (0600; dir 700). Precedence: env > settings table > defaults.
+Env: `RUNWARE_API_KEY` (overrides stash), `VJHSTUDIO_DATA_DIR` (default `<repo>/data` inside the checkout, git-ignored), `VJHSTUDIO_HOST` (127.0.0.1), `VJHSTUDIO_PORT` (**8080**), `VJHSTUDIO_LOG_LEVEL`, `VJHSTUDIO_LAUNCHER`, `VJHSTUDIO_UV`. Data dir: `vjh.db`, `backups/`, `uploads/`, `outputs/`, `secrets/api_key` (0600; dir 700). Precedence: env > settings table > defaults.
 
 Deps: fastapi, uvicorn[standard], jinja2, python-multipart, sqlalchemy≥2, alembic, pydantic≥2, httpx, runware-sdk, pillow, python-slugify. Dev: pytest, pytest-asyncio, ruff.
 

@@ -5,9 +5,10 @@
 main() {
   set -u
 
-  local DIR PURGE PORT TRIES SERVICE DESKTOP INFO REPLY
+  local DIR DATA PURGE PORT TRIES SERVICE DESKTOP INFO REPLY
   DIR="$(cd "$(dirname "$0")" && pwd)"   # the folder this script sits in
   [ -n "$DIR" ] || { echo "Cannot find my own folder."; exit 1; }
+  DATA="${VJHSTUDIO_DATA_DIR:-$DIR/data}"   # where your pictures and settings live
   PURGE="no"
   case "${1:-}" in
     --purge) PURGE="yes" ;;
@@ -16,18 +17,8 @@ main() {
   esac
   PORT="${VJHSTUDIO_PORT:-8080}"
 
-  # --- Step 1: ask the app to stop, then wait up to 10 seconds ----------------
-  echo "Stopping VJHStudio if it is running..."
-  curl -s -X POST "http://127.0.0.1:$PORT/api/shutdown" >/dev/null 2>&1
-  TRIES=0
-  while [ "$TRIES" -lt 10 ]; do
-    curl -s -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null || break
-    TRIES=$((TRIES + 1))
-    sleep 1
-  done
-
-  # --- Step 2: read what the installer wrote down ------------------------------
-  INFO="$DIR/data/install.json"
+  # --- Step 1: read what the installer wrote down ------------------------------
+  INFO="$DIR/data/install.json"   # install.sh always writes it here
   SERVICE="no"
   DESKTOP="no"
   if [ -f "$INFO" ]; then
@@ -35,7 +26,9 @@ main() {
     grep -q '"desktop": *true' "$INFO" && DESKTOP="yes"
   fi
 
-  # --- Step 3: remove the "start when I log in" entry --------------------------
+  # --- Step 2: remove the "start when I log in" entry --------------------------
+  # This comes first on purpose: the system is told to restart VJHStudio whenever
+  # it stops, so stopping it before removing this entry would just start it again.
   if [ "$SERVICE" = "yes" ]; then
     echo "Removing the start-at-login entry..."
     if [ "$(uname -s)" = "Darwin" ]; then
@@ -47,6 +40,16 @@ main() {
       systemctl --user daemon-reload 2>/dev/null
     fi
   fi
+
+  # --- Step 3: ask the app to stop, then wait up to 10 seconds ----------------
+  echo "Stopping VJHStudio if it is running..."
+  curl -s -X POST "http://127.0.0.1:$PORT/api/shutdown" >/dev/null 2>&1
+  TRIES=0
+  while [ "$TRIES" -lt 10 ]; do
+    curl -s -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null || break
+    TRIES=$((TRIES + 1))
+    sleep 1
+  done
 
   # --- Step 4: remove the shortcut ---------------------------------------------
   if [ "$DESKTOP" = "yes" ]; then
@@ -64,11 +67,12 @@ main() {
   # --- Step 6: only with --purge: delete your pictures, projects and settings --
   if [ "$PURGE" = "yes" ]; then
     echo ""
-    echo "This deletes every picture, project and setting in $DIR/data"
-    read -r -p "Type DELETE and press Enter to confirm: " REPLY
+    echo "This deletes every picture, project and setting in $DATA"
+    REPLY=""
+    read -r -p "Type DELETE and press Enter to confirm: " REPLY || REPLY=""
     if [ "$REPLY" = "DELETE" ]; then
-      rm -rf "$DIR/data"
-      echo "Your data folder was deleted."
+      rm -rf "$DATA"
+      echo "Deleted: $DATA"
     else
       echo "Nothing was deleted."
     fi
