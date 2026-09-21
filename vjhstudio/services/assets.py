@@ -7,19 +7,26 @@ expected root.
 
 from __future__ import annotations
 
+import asyncio
+import base64
 import hashlib
 import os
+from collections.abc import Iterable
+from datetime import timedelta
 from pathlib import Path
 
+from runware import RunwareError
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from .. import db
 from ..config import Paths
-from ..models import Asset, Job, JobStatus
+from ..models import Asset, Job, JobStatus, utcnow
 from ..runware.download import make_thumbnail
 
 PER_PAGE = 48
+MEDIA_TTL_DAYS = 6
 
 ALLOWED_IMAGE: dict[str, str] = {
     "image/png": "png",
@@ -43,6 +50,17 @@ class UploadError(Exception):
     def __init__(self, status: int, message: str = ""):
         super().__init__(message or f"upload error {status}")
         self.status = status
+
+
+class MediaUploadError(Exception):
+    """Raised by ``media_map`` when a RunWare upload fails: names the asset so a caller
+    can build a user-facing message without a second lookup. ``.cause`` is the original
+    ``RunwareError`` (see ``runware.errors.classify``)."""
+
+    def __init__(self, original_name: str, cause: RunwareError):
+        super().__init__(f"upload of {original_name!r} failed: {cause}")
+        self.original_name = original_name
+        self.cause = cause
 
 
 def normalize_tags(text: str) -> str:
@@ -271,3 +289,61 @@ def public_urls(asset: Asset) -> dict[str, str | None]:
         "url": f"/files/uploads/{asset.filename}",
         "thumb_url": f"/files/asset-thumbs/{thumb}" if thumb else None,
     }
+
+
+def _media_fresh(asset: Asset) -> bool:
+    if not asset.media_uuid or asset.media_uploaded_at is None:
+        return False
+    return asset.media_uploaded_at > utcnow() - timedelta(days=MEDIA_TTL_DAYS)
+
+
+def _data_uri(path: Path, mime: str) -> str:
+    content = path.read_bytes()
+    return f"data:{mime};base64,{base64.b64encode(content).decode('ascii')}"
+
+
+async def ensure_media_uuid(client, session_factory, paths: Paths, asset_id: int) -> str:
+    """Return a live RunWare ``mediaUUID`` for ``asset_id``: the cached one when
+    ``media_uploaded_at`` is newer than ``MEDIA_TTL_DAYS``, otherwise upload the file
+    (``client.media_storage``) and cache the fresh uuid/url/timestamp. Never holds a
+    session across an ``await``. Raises ``LookupError`` for an unknown asset; a
+    ``RunwareError`` from the upload propagates unchanged."""
+    with db.session_scope(session_factory) as s:
+        asset = s.get(Asset, asset_id)
+        if asset is None:
+            raise LookupError(asset_id)
+        if _media_fresh(asset):
+            return asset.media_uuid
+        path = abs_path(paths, asset)
+        mime = asset.mime
+
+    data_uri = await asyncio.to_thread(_data_uri, path, mime)
+    reply = await client.media_storage({"operation": "upload", "media": data_uri})
+    media_uuid = reply[0]["mediaUUID"]
+    media_url = reply[0]["mediaURL"]
+
+    with db.session_scope(session_factory) as s:
+        asset = s.get(Asset, asset_id)
+        if asset is not None:
+            asset.media_uuid = media_uuid
+            asset.media_url = media_url
+            asset.media_uploaded_at = utcnow()
+    return media_uuid
+
+
+async def media_map(client, session_factory, paths: Paths, ids: Iterable[int]) -> dict[int, str]:
+    """Resolve each of ``ids`` to a live RunWare ``mediaUUID`` via ``ensure_media_uuid``,
+    uploading and caching lazily. Unknown ids are skipped. An upload failure raises
+    ``MediaUploadError`` naming the asset, wrapping the original ``RunwareError``."""
+    out: dict[int, str] = {}
+    for asset_id in ids:
+        with db.session_scope(session_factory) as s:
+            asset = s.get(Asset, asset_id)
+            if asset is None:
+                continue
+            name = asset.original_name
+        try:
+            out[asset_id] = await ensure_media_uuid(client, session_factory, paths, asset_id)
+        except RunwareError as e:
+            raise MediaUploadError(name, e) from e
+    return out

@@ -1,9 +1,13 @@
 import io
+from datetime import timedelta
 
 import pytest
 from PIL import Image
+from runware import RunwareError
 
+from tests.fakes.fake_runware import FakeRunware
 from vjhstudio import boot, config, db, models
+from vjhstudio.models import utcnow
 from vjhstudio.services import assets
 
 
@@ -333,6 +337,90 @@ def test_store_upload_tolerates_duplicate_insert_race(booted, monkeypatch):
         assert asset.id == existing_id
     with db.session_scope(f) as s:
         assert s.query(models.Asset).filter_by(sha256=first.sha256).count() == 1
+
+
+async def test_ensure_media_uuid_uploads_once_then_caches(booted):
+    paths, f = booted
+    with db.session_scope(f) as s:
+        asset, _ = assets.store_upload(
+            s, paths, original_name="fox.png", content=_png(), mime="image/png"
+        )
+        aid = asset.id
+
+    fake = FakeRunware({"media_storage": [[{"mediaUUID": "uuid-1", "mediaURL": "http://x/1"}]]})
+    uuid1 = await assets.ensure_media_uuid(fake, f, paths, aid)
+    assert uuid1 == "uuid-1"
+    assert len(fake.calls) == 1
+
+    uuid2 = await assets.ensure_media_uuid(fake, f, paths, aid)
+    assert uuid2 == "uuid-1"
+    assert len(fake.calls) == 1  # cached: no second upload
+
+    with db.session_scope(f) as s:
+        a = assets.get(s, aid)
+        assert a.media_uuid == "uuid-1" and a.media_url == "http://x/1"
+        assert a.media_uploaded_at is not None
+
+
+async def test_ensure_media_uuid_reuploads_when_cache_expired(booted):
+    paths, f = booted
+    with db.session_scope(f) as s:
+        asset, _ = assets.store_upload(
+            s, paths, original_name="fox.png", content=_png(), mime="image/png"
+        )
+        aid = asset.id
+        asset.media_uuid = "old-uuid"
+        asset.media_url = "http://x/old"
+        asset.media_uploaded_at = utcnow() - timedelta(days=7)
+
+    fake = FakeRunware({"media_storage": [[{"mediaUUID": "uuid-2", "mediaURL": "http://x/2"}]]})
+    uuid = await assets.ensure_media_uuid(fake, f, paths, aid)
+    assert uuid == "uuid-2"
+    assert len(fake.calls) == 1
+    with db.session_scope(f) as s:
+        a = assets.get(s, aid)
+        assert a.media_uuid == "uuid-2" and a.media_url == "http://x/2"
+
+
+async def test_ensure_media_uuid_raises_runware_error(booted):
+    paths, f = booted
+    with db.session_scope(f) as s:
+        asset, _ = assets.store_upload(
+            s, paths, original_name="fox.png", content=_png(), mime="image/png"
+        )
+        aid = asset.id
+
+    fake = FakeRunware({"media_storage": [RunwareError("invalidApiKey", "bad key")]})
+    with pytest.raises(RunwareError):
+        await assets.ensure_media_uuid(fake, f, paths, aid)
+
+
+async def test_media_map_skips_unknown_ids_and_returns_uuids(booted):
+    paths, f = booted
+    with db.session_scope(f) as s:
+        asset, _ = assets.store_upload(
+            s, paths, original_name="fox.png", content=_png(), mime="image/png"
+        )
+        aid = asset.id
+
+    fake = FakeRunware({"media_storage": [[{"mediaUUID": "uuid-1", "mediaURL": "http://x/1"}]]})
+    result = await assets.media_map(fake, f, paths, [aid, 999999])
+    assert result == {aid: "uuid-1"}
+
+
+async def test_media_map_wraps_upload_failure_with_asset_name(booted):
+    paths, f = booted
+    with db.session_scope(f) as s:
+        asset, _ = assets.store_upload(
+            s, paths, original_name="bad-ref.png", content=_png(), mime="image/png"
+        )
+        aid = asset.id
+
+    fake = FakeRunware({"media_storage": [RunwareError("invalidApiKey", "bad key")]})
+    with pytest.raises(assets.MediaUploadError) as exc:
+        await assets.media_map(fake, f, paths, [aid])
+    assert exc.value.original_name == "bad-ref.png"
+    assert isinstance(exc.value.cause, RunwareError)
 
 
 def test_abs_path_and_public_urls(booted):

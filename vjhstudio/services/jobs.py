@@ -25,7 +25,7 @@ from ..runware.download import DownloadError
 from ..runware.errors import classify
 from ..runware.tasks import build_image_task
 from ..schemas.image import ImageRequest
-from . import catalog, costs, projects
+from . import assets, catalog, costs, projects
 from . import outputs as outputs_svc
 from . import settings as settings_svc
 
@@ -52,6 +52,7 @@ class _Plan:
     timeout_s: float
     expected_ms: int
     outputs_dir: str
+    asset_ids: list[int]
 
 
 @dataclass
@@ -231,6 +232,12 @@ class JobRunner:
             req = ImageRequest(**data)
             model = catalog.get_by_air(s, job.model_air)
             project = projects.get(s, job.project_id)
+            asset_ids: list[int] = []
+            if req.seed_image_asset_id is not None:
+                asset_ids.append(req.seed_image_asset_id)
+            for rid in req.reference_asset_ids:
+                if rid not in asset_ids:
+                    asset_ids.append(rid)
             return _Plan(
                 job_id=job_id,
                 project_id=job.project_id,
@@ -242,6 +249,7 @@ class JobRunner:
                 timeout_s=float(settings_svc.get(s, "runware.timeout_s")),
                 expected_ms=int(job.expected_ms or costs.DEFAULT_EXPECTED_MS),
                 outputs_dir=projects.root_override(s),
+                asset_ids=asset_ids,
             )
 
     async def _execute(self, job_id: str) -> None:
@@ -256,13 +264,16 @@ class JobRunner:
             self._live[job_id] = _Live(started_at=utcnow(), expected_ms=plan.expected_ms)
             if job_id in self._cancelled:
                 ev.set()
-            task = build_image_task(plan.req, job_id, {}, plan.family, plan.negative)
-            self._save_task(job_id, task, [])
-            # spec stage sequence: queued -> submitting -> rendering -> downloading -> done
-            self._stage(job_id, "rendering")
             api_key = self.api_key_getter() or ""
             transport = self.transport_getter() or "rest"
             async with self.client_factory(api_key, transport) as client:
+                media = await assets.media_map(
+                    client, self.session_factory, self.paths, plan.asset_ids
+                )
+                task = build_image_task(plan.req, job_id, media, plan.family, plan.negative)
+                self._save_task(job_id, task, [])
+                # spec stage sequence: queued -> submitting -> rendering -> downloading -> done
+                self._stage(job_id, "rendering")
                 result = await policy.run_with_policy(
                     client,
                     task,
@@ -281,6 +292,11 @@ class JobRunner:
             self._stage(job_id, "saving", DOWNLOAD_PROGRESS)
             cost = await asyncio.to_thread(self._persist, plan, result, saved)
             self._succeed(job_id, cost)
+        except assets.MediaUploadError as e:
+            err = classify(e.cause)
+            self._fail(
+                job_id, "upload", f"Could not upload {e.original_name} to RunWare: {err.message}"
+            )
         except RunwareError as e:
             err = classify(e)
             self._fail(job_id, err.code, err.message, cancelled=err.code == "aborted")

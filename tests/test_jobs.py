@@ -10,7 +10,7 @@ import vjhstudio
 from tests.fakes.fake_runware import FakeRunware, fake_factory
 from vjhstudio import boot, config, db, models
 from vjhstudio.schemas.image import ImageRequest, PromptForm
-from vjhstudio.services import costs, generate, jobs
+from vjhstudio.services import assets, costs, generate, jobs
 from vjhstudio.services import settings as settings_svc
 
 
@@ -102,6 +102,70 @@ async def test_job_failure_is_classified(env):
     with db.session_scope(f) as s:
         j = s.get(models.Job, job.id)
         assert j.status == "failed" and j.error_code == "auth" and "Settings" in j.error_message
+
+
+async def test_job_with_seed_image_uploads_and_sends_media_uuid(env):
+    paths, f, _ = env
+    with db.session_scope(f) as s:
+        asset, _ = assets.store_upload(
+            s, paths, original_name="seed.png", content=_png(), mime="image/png"
+        )
+        aid = asset.id
+        pid = s.query(models.Project).filter_by(slug="default").one().id
+    fake = FakeRunware(
+        {
+            "media_storage": [[{"mediaUUID": "uuid-seed", "mediaURL": "http://x/seed"}]],
+            "run": [[{"imageURL": "http://x/1.png", "cost": 0.01}]],
+        }
+    )
+    r = _runner(env, fake, concurrency=1)
+    await r.start()
+    req = ImageRequest(
+        project_id=pid,
+        model="runware:101@1",
+        form=PromptForm(subject="fox"),
+        seed_image_asset_id=aid,
+    )
+    job = generate.enqueue_image(f, paths, req, default_negative="")
+    r.submit(job.id)
+    await r.wait_idle()
+    await r.stop()
+    with db.session_scope(f) as s:
+        j = s.get(models.Job, job.id)
+        assert j.status == "succeeded", j.error_message
+    run_params = [p for name, p in fake.calls if name == "run"]
+    assert run_params[0]["inputs"]["seedImage"] == "uuid-seed"
+    with db.session_scope(f) as s:
+        a = assets.get(s, aid)
+        assert a.media_uuid == "uuid-seed"
+
+
+async def test_job_upload_failure_fails_with_upload_code(env):
+    paths, f, _ = env
+    with db.session_scope(f) as s:
+        asset, _ = assets.store_upload(
+            s, paths, original_name="bad-ref.png", content=_png(), mime="image/png"
+        )
+        aid = asset.id
+        pid = s.query(models.Project).filter_by(slug="default").one().id
+    fake = FakeRunware({"media_storage": [RunwareError("invalidApiKey", "bad key")]})
+    r = _runner(env, fake, concurrency=1)
+    await r.start()
+    req = ImageRequest(
+        project_id=pid,
+        model="runware:101@1",
+        form=PromptForm(subject="fox"),
+        seed_image_asset_id=aid,
+    )
+    job = generate.enqueue_image(f, paths, req, default_negative="")
+    r.submit(job.id)
+    await r.wait_idle()
+    await r.stop()
+    with db.session_scope(f) as s:
+        j = s.get(models.Job, job.id)
+        assert j.status == "failed" and j.error_code == "upload"
+        assert "bad-ref.png" in j.error_message
+        assert "Could not upload" in j.error_message
 
 
 async def test_download_failure_is_reported(env):
