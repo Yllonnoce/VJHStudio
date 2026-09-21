@@ -1,0 +1,6 @@
+{% if update_behind %}
+<li id="update-badge">
+  <a href="/settings#updates" class="chip warn"
+     title="{{ update_behind }} new commit{{ '' if update_behind == 1 else 's' }} on the update server">Update available ({{ update_behind }})</a>
+</li>
+{% endif %}

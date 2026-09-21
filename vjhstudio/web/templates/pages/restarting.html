@@ -1,0 +1,45 @@
+{# Standalone on purpose: base.html's header polls /hx/jobs/badge and /hx/header/balance,
+   and every one of those requests would fail (noisily) while the server is down. #}
+<!doctype html>
+<html lang="en" data-theme="{{ theme }}" data-scheme="{{ 'dark' if theme in dark_themes else 'light' }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Restarting · VJHStudio</title>
+  <link rel="icon" href="/static/img/favicon.svg">
+  <link rel="stylesheet" href="/static/css/themes.css">
+  <link rel="stylesheet" href="/static/vendor/pico.min.css">
+  <link rel="stylesheet" href="/static/css/app.css">
+  <script src="/static/js/app.js" defer></script>
+</head>
+<body>
+  <main class="container restart-page">
+    <h1>Restarting VJHStudio…</h1>
+    <p id="restart-status" aria-live="polite">Waiting for the app to stop…</p>
+    <progress></progress>
+    <p><small>This page returns to <code>{{ return_to }}</code> as soon as the app is back.</small></p>
+
+    <article id="restart-manual" hidden>
+      <h2>It is taking longer than usual</h2>
+      <p>VJHStudio has not come back after two minutes. Start it again yourself:</p>
+      <ul>
+        <li><strong>Windows:</strong> double-click <code>start.bat</code> in your VJHStudio folder.</li>
+        <li><strong>Linux:</strong> run <code>./start.sh</code> in your VJHStudio folder, or use the desktop link.</li>
+        <li><strong>macOS:</strong> double-click <code>VJHStudio.command</code> on your Desktop, or run
+          <code>./start.sh</code> in Terminal. If macOS blocks it, right-click the file and choose
+          <em>Open</em> once (or run <code>xattr -d com.apple.quarantine VJHStudio.command</code>).</li>
+      </ul>
+      <p>Then open <a href="http://127.0.0.1:{{ port }}/">http://127.0.0.1:{{ port }}/</a> —
+        use <code>127.0.0.1</code>, not <code>localhost</code>.</p>
+      <p><small>If macOS asks to allow Local Network access, it is not needed for
+        <code>127.0.0.1</code>; you can leave it off.</small></p>
+      <p><a href="{{ return_to }}" role="button" class="secondary">Try the app now</a></p>
+    </article>
+  </main>
+  <script>
+    window.addEventListener('DOMContentLoaded', function () {
+      if (window.restartWatcher) window.restartWatcher({{ boot_id|tojson }}, {{ return_to|tojson }});
+    });
+  </script>
+</body>
+</html>

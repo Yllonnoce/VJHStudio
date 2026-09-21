@@ -1,0 +1,35 @@
+{# Swapped whole (outerHTML) by the Check button and after Update now starts a run. #}
+<div id="updates-panel">
+  <p>
+    <strong>VJHStudio v{{ app_version }}</strong>
+    {% if commit_short %}<small>&middot; commit {{ commit_short }}</small>{% endif %}
+    {% if current %}<br><small>Installed: {{ current }}</small>{% endif %}
+  </p>
+  <p><small>
+    {% if checked_at %}Last checked {{ checked_at }} UTC.{% else %}Not checked yet.{% endif %}
+  </small></p>
+
+  {% if update_error %}
+    <p class="error">{{ update_error }}</p>
+  {% elif not is_git %}
+    <p class="error">This copy was not installed with git, so it cannot update itself.</p>
+  {% elif behind %}
+    <p class="ok">{{ behind }} commit{{ '' if behind == 1 else 's' }} behind — an update is available.</p>
+    <ul class="update-commits">
+      {% for subject in commits %}<li>{{ subject }}</li>{% endfor %}
+    </ul>
+  {% else %}
+    <p>VJHStudio is up to date.</p>
+  {% endif %}
+
+  <div class="update-actions">
+    <button type="button" class="secondary" hx-post="/system/update/check"
+            hx-target="#updates-panel" hx-swap="outerHTML">Check for updates</button>
+    {% if behind and not update_error and is_git %}
+      <button type="button" hx-post="/system/update" hx-target="#update-log" hx-swap="outerHTML"
+              hx-confirm="Update VJHStudio now? The app backs up the database, downloads the new version and restarts.">Update now</button>
+    {% endif %}
+  </div>
+
+  {% with conflict=False %}{% include "settings/_update_log.html" %}{% endwith %}
+</div>

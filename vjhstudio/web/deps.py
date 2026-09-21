@@ -19,6 +19,7 @@ _DEFAULT_GLOBALS = {
     "notify_desktop": False,
     "active_jobs": 0,
     "unseen_jobs": 0,
+    "update_behind": 0,
 }
 
 

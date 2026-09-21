@@ -431,3 +431,44 @@ document.body.addEventListener('htmx:afterSwap', (e) => {
   const form = document.getElementById('generate-form');
   if (form && window.htmx) window.htmx.trigger(form, 'change');
 });
+
+// ── Restarting page ─────────────────────────────────────────────────────────────
+// The app re-execs itself after an update, so /api/health first stops answering and
+// then comes back with a new boot_id. Waiting for that new id (rather than for the
+// first successful reply) is what stops us from redirecting into the dying process:
+// waiting → down → up. After 2 minutes we stop guessing and show how to start it by
+// hand. Exposed on window so the standalone page can call it with server values.
+window.restartWatcher = function (bootId, returnTo) {
+  const target = returnTo || '/';
+  const deadline = Date.now() + 120000;
+  const statusEl = document.getElementById('restart-status');
+  let phase = 'waiting';
+
+  const say = (text) => { if (statusEl) statusEl.textContent = text; };
+
+  const giveUp = () => {
+    const manual = document.getElementById('restart-manual');
+    if (manual) manual.hidden = false;
+    say('VJHStudio has not come back yet.');
+  };
+
+  const tick = async () => {
+    if (Date.now() > deadline) { giveUp(); return; }
+    try {
+      const r = await fetch('/api/health', { cache: 'no-store' });
+      const body = await r.json();
+      if (body && body.boot_id && body.boot_id !== bootId) {
+        phase = 'up';
+        say('VJHStudio is back. Opening…');
+        window.location.replace(target);
+        return;
+      }
+      if (phase === 'down') say('VJHStudio is starting…');
+    } catch (e) {
+      if (phase === 'waiting') { phase = 'down'; say('VJHStudio has stopped. Waiting for it to start again…'); }
+    }
+    setTimeout(tick, 1000);
+  };
+
+  setTimeout(tick, 1000);
+};

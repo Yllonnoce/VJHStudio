@@ -6,6 +6,7 @@ from ... import db, secrets
 from ...services import account, catalog, maintenance
 from ...services import settings as settings_svc
 from .. import deps
+from .system import updates_context
 
 router = APIRouter()
 
@@ -57,7 +58,12 @@ def settings_page(request: Request):
     return deps.render(
         request,
         "pages/settings.html",
-        {**_general_ctx(request), **_key_ctx(request, balance=bal), **_maintenance_ctx(request)},
+        {
+            **_general_ctx(request),
+            **_key_ctx(request, balance=bal),
+            **_maintenance_ctx(request),
+            **updates_context(request),
+        },
     )
 
 

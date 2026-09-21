@@ -448,11 +448,17 @@ def check_and_store(session_factory: sessionmaker[Session], repo: Path | None = 
     return info
 
 
-def read_notice(session: Session) -> Notice:
+def behind_count(session: Session) -> int:
+    """Just the badge number. The header renders on every page and on every badge
+    poll, so it reads one row instead of the whole notice."""
     try:
-        behind = int(meta.get(session, "update.behind") or 0)
+        return int(meta.get(session, "update.behind") or 0)
     except ValueError:
-        behind = 0
+        return 0
+
+
+def read_notice(session: Session) -> Notice:
+    behind = behind_count(session)
     try:
         commits = [str(c) for c in json.loads(meta.get(session, "update.commits") or "[]")]
     except (TypeError, ValueError):

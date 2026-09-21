@@ -266,3 +266,14 @@ video.lightbox-image{width:100%;max-height:70vh;background:#000}
 #save-prompt header{display:flex;align-items:center;gap:.6rem}
 #save-prompt label{margin-bottom:.6rem}
 .gen-save-prompt{margin-top:.75rem}
+
+/* ── Settings: updates and the restarting page ───────────────────────────── */
+.update-actions{display:flex;flex-wrap:wrap;gap:.5rem;margin:.5rem 0}
+.update-actions button{width:auto;margin:0}
+.update-commits{margin:.25rem 0 .75rem;padding-left:1.25rem}
+.update-steps{margin:.75rem 0;padding-left:1.25rem}
+.update-steps li{margin-bottom:.35rem}
+.update-steps pre{margin:.25rem 0 0;padding:.35rem .5rem;font-size:.8rem;white-space:pre-wrap}
+.update-steps .step-warn strong{color:var(--sp-warning)}
+.restart-page{max-width:40rem;margin-top:3rem}
+.restart-page progress{margin:.5rem 0 1rem}

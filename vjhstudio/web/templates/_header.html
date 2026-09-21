@@ -10,6 +10,7 @@
       <li><a href="/projects">Projects</a></li>
       <li><a href="/models">Models</a></li>
       <li><a href="/settings">Settings</a></li>
+      {% include "partials/_update_badge.html" %}
       {% with oob=False %}{% include "partials/_jobs_badge.html" %}{% endwith %}
       {% include "partials/_balance_chip.html" %}
       <li class="vjh-theme-wrap">

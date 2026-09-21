@@ -15,7 +15,7 @@ from .. import config, db, secrets
 from ..models import Job, JobStatus
 from ..runware.catalog_api import ContentAPI
 from ..runware.client import open_client
-from ..services import catalog, migrate
+from ..services import catalog, gitinfo, migrate, update
 from ..services import jobs as jobs_svc
 from ..services import settings as settings_svc
 from .csrf import CrossSiteBlockMiddleware
@@ -38,6 +38,8 @@ _FINISHED_STATUSES = (
     JobStatus.failed.value,
     JobStatus.cancelled.value,
 )
+UPDATE_CHECK_FIRST = 60
+UPDATE_CHECK_INTERVAL = 6 * 3600
 
 
 def create_app(
@@ -77,6 +79,17 @@ def create_app(
             except Exception as e:  # noqa: BLE001 - a background refresh must never crash the app
                 log.warning("catalog refresh skipped: %s", e)
 
+        async def _update_watch():
+            """Cache the "N commits behind" notice for the header badge. Manual
+            updates only: this never pulls anything, it only counts commits."""
+            await asyncio.sleep(UPDATE_CHECK_FIRST)
+            while True:
+                try:
+                    await asyncio.to_thread(update.check_and_store, app.state.boot.session_factory)
+                except Exception as e:  # noqa: BLE001 - a check must never crash the app
+                    log.warning("update check skipped: %s", e)
+                await asyncio.sleep(UPDATE_CHECK_INTERVAL)
+
         app.state.runner = jobs_svc.JobRunner(
             app.state.boot.session_factory,
             paths,
@@ -88,9 +101,17 @@ def create_app(
         )
         await app.state.runner.start(requeue=app.state.boot.requeued_jobs)
         task = asyncio.create_task(_maybe_refresh()) if app.state.auto_refresh else None
+        watch_updates = (
+            app.state.auto_refresh
+            and env.get("VJHSTUDIO_OFFLINE") != "1"
+            and gitinfo.is_git_install()
+        )
+        app.state.update_task = asyncio.create_task(_update_watch()) if watch_updates else None
         yield
         if task:
             task.cancel()
+        if app.state.update_task:
+            app.state.update_task.cancel()
         await app.state.runner.stop()
         app.state.boot.engine.dispose()
 
@@ -102,6 +123,7 @@ def create_app(
     app.state.auto_refresh = auto_refresh
     app.state.download_transport = download_transport
     app.state.runner = None
+    app.state.update_task = None
     app.state.api_key = lambda: secrets.effective_api_key(paths, env)
     app.state.key_source = lambda: secrets.key_source(paths, env)
 
@@ -132,6 +154,7 @@ def create_app(
                 "notify_desktop": settings_svc.get(s, "ui.notify_desktop", env),
                 "active_jobs": int(s.execute(active).scalar() or 0),
                 "unseen_jobs": int(s.execute(unseen).scalar() or 0),
+                "update_behind": update.behind_count(s),
             }
 
     app.state.theme = theme

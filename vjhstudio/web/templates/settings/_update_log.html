@@ -1,0 +1,20 @@
+{# The live step log. While a run is in flight it re-fetches itself once a second;
+   when it stops running the next swap drops the trigger and the polling ends. #}
+<div id="update-log"{% if update_state.running %} hx-get="/hx/system/update-log" hx-trigger="every 1s" hx-swap="outerHTML"{% endif %}>
+  {% if conflict %}<p class="error">An update is already running.</p>{% endif %}
+  {% if update_state.steps %}
+    <ol class="update-steps">
+      {% for step in update_state.steps %}
+        <li class="{{ 'step-ok' if step.ok else 'step-warn' }}">
+          <strong>{{ step.title }}</strong>
+          {% if step.detail %}<pre>{{ step.detail }}</pre>{% endif %}
+        </li>
+      {% endfor %}
+    </ol>
+  {% endif %}
+  {% if update_state.running %}
+    <p aria-live="polite"><small>Updating… this can take a few minutes. Leave this page open.</small></p>
+  {% elif update_state.steps %}
+    <p class="{{ 'ok' if update_state.ok else 'error' }}">{{ update_state.message or ('Update finished.' if update_state.ok else 'Update failed.') }}</p>
+  {% endif %}
+</div>
