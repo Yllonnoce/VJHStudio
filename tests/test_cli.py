@@ -1,3 +1,4 @@
+import json
 import socket
 import sys
 from pathlib import Path
@@ -28,6 +29,39 @@ def test_doctor_command(tmp_path, monkeypatch, capsys):
     assert main.main(["doctor"]) == 0
     out = capsys.readouterr().out
     assert "data dir" in out and "api key" in out and "git" in out
+
+
+def test_doctor_reports_not_installed_by_the_installer_when_install_json_is_missing(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setenv("VJHSTUDIO_DATA_DIR", str(tmp_path))
+    assert main.main(["doctor"]) == 0
+    out = capsys.readouterr().out
+    assert "install" in out
+    assert "not installed by the installer" in out
+
+
+def test_doctor_reports_install_json_contents(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("VJHSTUDIO_DATA_DIR", str(tmp_path))
+    paths = config.resolve_paths()
+    paths.data.mkdir(parents=True, exist_ok=True)
+    (paths.data / "install.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "home": str(tmp_path),
+                "os": "linux",
+                "service": True,
+                "desktop": False,
+                "installed_at": "2026-09-20T00:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert main.main(["doctor"]) == 0
+    out = capsys.readouterr().out
+    assert "service=yes" in out
+    assert "desktop=no" in out
 
 
 def test_pick_port_skips_busy_foreign_port(monkeypatch):

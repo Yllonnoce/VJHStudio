@@ -77,76 +77,41 @@ folders like Program Files or /usr. The app writes files constantly and cloud sy
 
 ## Install
 
-Four lines, one at a time. After each one, wait until the terminal shows a fresh prompt before
-pasting the next.
-
 **Windows**
 
-Step 1 — go to your home folder:
+Step 1 — open a terminal (see "The terminal" above if you have not already).
+
+Step 2 — copy the line below. It installs Git and uv if you do not have them yet, downloads
+VJHStudio into `%USERPROFILE%\VJHStudio`, and starts it. It asks you two quick questions along
+the way (see below).
+
+Step 3 — paste the line into the terminal and press Enter:
 
 ```
-cd %USERPROFILE%
-```
-
-The start of the line in the terminal changes to your home folder, something like
-`C:\Users\yourname>`.
-
-Step 2 — download the app with Git:
-
-```
-git clone https://github.com/yllonnoce/VJHStudio.git
-```
-
-You should see a few lines counting objects and a message ending in `done.`
-
-Step 3 — go into the folder you just downloaded:
-
-```
-cd VJHStudio
-```
-
-The prompt now ends in `\VJHStudio>`.
-
-Step 4 — start the app:
-
-```
-start.bat
+curl.exe -fsSLo %TEMP%\install.bat https://raw.githubusercontent.com/yllonnoce/VJHStudio/main/install.bat && %TEMP%\install.bat
 ```
 
 **macOS and Linux**
 
-Step 1 — go to your home folder:
+Step 1 — open a terminal (see "The terminal" above if you have not already).
+
+Step 2 — copy the line below. It installs Git and uv if you do not have them yet, downloads
+VJHStudio into `~/VJHStudio`, and starts it. It asks you two quick questions along the way (see
+below).
+
+Step 3 — paste the line into the terminal and press Enter:
 
 ```
-cd ~
+curl -fsSL https://raw.githubusercontent.com/yllonnoce/VJHStudio/main/install.sh | bash
 ```
 
-Nothing visible happens. That is fine.
+The installer asks two questions: whether to start VJHStudio automatically when you log in, and
+whether to put a link on your desktop. Answering no to both is fine — you can always start it with
+start.sh / start.bat.
 
-Step 2 — download the app with Git:
-
-```
-git clone https://github.com/yllonnoce/VJHStudio.git
-```
-
-You should see a few lines counting objects and a message ending in `done.`
-
-Step 3 — go into the folder you just downloaded:
-
-```
-cd VJHStudio
-```
-
-Step 4 — start the app:
-
-```
-./start.sh
-```
-
-**What happens on the first start:** the app sets itself up, which takes a few minutes. You will see
-a lot of text scroll past — that is normal, and you do not need to read it. When it is ready your
-web browser opens by itself at **http://127.0.0.1:8080**, and the terminal window stays open in the
-background.
+You will see a lot of text scroll past while it sets itself up — that is normal, and you do not
+need to read it. This takes a few minutes the first time. When it is ready your web browser opens
+by itself at **http://127.0.0.1:8080**, and the terminal window stays open in the background.
 
 Keep that terminal window open. Closing it stops the app.
 
@@ -200,6 +165,91 @@ your taskbar and use that one, or just open http://127.0.0.1:8080 in your browse
 
 macOS blocks files it did not download itself. Right-click (or Control-click) the file, choose
 **Open** from the menu, and then click **Open** in the dialog. You only have to do this once.
+
+## Updating
+
+Open the app, click **Settings**, then **Updates**. You will see the version you have and the
+commit it is built from. Click **Check for updates** to see what is new.
+
+If there is something new, click **Update now**. VJHStudio backs up your database, downloads the
+new version, installs it, updates the database, and restarts itself — you do not need to do
+anything else. If your app is behind, the header shows an "Update available" badge so you notice
+without checking Settings first.
+
+If the update fails partway through, VJHStudio restores the backup it took first, so the app is
+left exactly as it was before you clicked Update now.
+
+**Manually, from a terminal:** go to the VJHStudio folder and run `git pull`, then start the app
+again the normal way (`./start.sh` or `start.bat`).
+
+**From a terminal, without opening the app:**
+
+```
+uv run vjhstudio update --check
+uv run vjhstudio update
+```
+
+## Backups
+
+Open the app, click **Settings**, then **Backups**.
+
+Click **Create backup** to make a copy you can keep or move elsewhere. Two checkboxes let you
+choose what goes in it, on top of your database (which is always included):
+
+- **uploads** — the sample images and videos you added yourself.
+- **outputs** — the images and videos VJHStudio generated for you. This can be large.
+
+From the Backups list you can **Download** a backup to save it somewhere safe (a USB drive, cloud
+storage, another computer).
+
+- **Restore** replaces everything currently in VJHStudio with what is in the backup. It takes a
+  safety copy of what you have first, in case you picked the wrong file, then restarts the app.
+- **Merge** only adds what you do not already have — it never removes or overwrites anything, and
+  it never copies your settings or your RunWare API key. It shows you a preview of what will be
+  added before it changes anything.
+
+**From a terminal:**
+
+```
+uv run vjhstudio backup --uploads --outputs
+uv run vjhstudio restore <zip>
+uv run vjhstudio restore <zip> --merge
+```
+
+## Uninstall
+
+If you installed VJHStudio with the one-line installer above, an uninstaller was placed in the
+VJHStudio folder alongside it.
+
+**macOS and Linux** — open a terminal, go to the VJHStudio folder, and run:
+
+```
+./uninstall.sh
+```
+
+**Windows** — open the VJHStudio folder and double-click `uninstall.bat`, or run it from a
+terminal:
+
+```
+uninstall.bat
+```
+
+This stops the app, removes the start-at-login entry and the desktop link if you had them, and
+removes the `.venv` folder it installed. Your `data` folder — your projects, prompts, images and
+videos — is kept.
+
+To also delete your `data` folder, add `--purge` (`/purge` on Windows):
+
+```
+./uninstall.sh --purge
+```
+
+```
+uninstall.bat /purge
+```
+
+You will be asked to type `DELETE` and press Enter to confirm. Nothing is deleted unless you type
+that exact word.
 
 ## macOS notes
 

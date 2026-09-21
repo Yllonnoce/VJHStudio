@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import shutil
@@ -310,6 +311,18 @@ def cmd_version(_args: argparse.Namespace) -> int:
     return 0
 
 
+def install_summary(paths: config.Paths) -> str:
+    """One line for `doctor`: what the installer recorded, if anything did."""
+    install_json = paths.data / "install.json"
+    try:
+        info = json.loads(install_json.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return "not installed by the installer"
+    service = "yes" if info.get("service") else "no"
+    desktop = "yes" if info.get("desktop") else "no"
+    return f"service={service} desktop={desktop} (data/install.json)"
+
+
 def cmd_doctor(_args: argparse.Namespace) -> int:
     paths = config.resolve_paths()
     port = config.env_int(os.environ, "VJHSTUDIO_PORT", config.DEFAULT_PORT)
@@ -325,6 +338,7 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
     print(f"uv         : {os.environ.get('VJHSTUDIO_UV') or shutil.which('uv') or 'not found'}")
     print(f"git binary : {os.environ.get('VJHSTUDIO_GIT') or shutil.which('git') or 'not found'}")
     print(f"launcher   : {'yes' if os.environ.get('VJHSTUDIO_LAUNCHER') == '1' else 'no'}")
+    print(f"install    : {install_summary(paths)}")
     if sys.platform == "darwin":
         print("macOS notes:")
         print(

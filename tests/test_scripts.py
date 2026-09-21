@@ -49,3 +49,20 @@ def test_start_sh_survives_an_unset_home_under_set_u():
     assert "set -u" in text
     assert "$HOME/" not in text and '"$HOME"' not in text, "use ${HOME:-} under set -u"
     assert "${HOME:-}" in text
+
+
+def test_readme_documents_install_update_backup_and_uninstall():
+    text = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    for needle in (
+        "install.sh",
+        "install.bat",
+        "uninstall",
+        "whether to start VJHStudio automatically when you log in",
+        "whether to put a link on your desktop",
+        'Use http://127.0.0.1:8080 rather than "localhost"',
+        "Local Network",
+        "right-click it and choose Open once",
+        "http://127.0.0.1:8080",
+    ):
+        assert needle in text, needle
+    assert "localhost:8080" not in text
