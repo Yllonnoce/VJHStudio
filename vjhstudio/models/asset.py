@@ -28,4 +28,5 @@ class Asset(TimestampMixin, Base):
         Index("ux_assets_sha256", "sha256", unique=True),
         Index("ux_assets_filename", "filename", unique=True),
         Index("ix_assets_kind", "kind"),
+        Index("ix_assets_tags", "tags"),
     )
