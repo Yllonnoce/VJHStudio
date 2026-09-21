@@ -1,4 +1,8 @@
+import asyncio
+from contextlib import asynccontextmanager
+
 import pytest
+from runware import RunwareError
 
 from tests.fakes.fake_runware import FakeRunware, fake_factory
 from vjhstudio.runware import tasks
@@ -114,3 +118,23 @@ async def test_run_requires_a_text_model_for_text_inference():
     with pytest.raises(ValueError, match="text model"):
         await polish.run(fake_factory(fake), "key", "rest", mode="textInference", composed="a fox")
     assert fake.calls == []
+
+
+async def test_run_is_bounded_by_the_whole_call_budget_across_retries(monkeypatch):
+    """A single slow attempt (or several rateLimit/connection retries) must not push an
+    inline polish call past the spec's 30s -- I3. ``timeout_s`` alone only bounds one
+    attempt inside run_with_policy, so the whole call is wrapped in the module-level
+    ``POLISH_TIMEOUT_S`` too; lowering it here stands in for the 30s budget expiring."""
+    monkeypatch.setattr(polish, "POLISH_TIMEOUT_S", 0.05)
+
+    class SlowRunware:
+        async def run(self, params, options=None):
+            await asyncio.sleep(10)
+
+    @asynccontextmanager
+    async def slow_factory(api_key, transport):
+        yield SlowRunware()
+
+    with pytest.raises(RunwareError) as exc_info:
+        await polish.run(slow_factory, "key", "rest", mode="promptEnhance", composed="a fox")
+    assert exc_info.value.code == "timeout"

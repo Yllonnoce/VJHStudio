@@ -7,9 +7,12 @@ serves records a usage row and, if the caller later saves or submits with it, a
 
 from __future__ import annotations
 
+import asyncio
 import re
 import uuid
 from dataclasses import dataclass, field
+
+from runware import RunwareError
 
 from ..runware import tasks
 from ..runware.runner import run_with_policy
@@ -107,9 +110,20 @@ async def run(
         task = tasks.build_polish_text(used_model, text, task_uuid, versions=v)
 
     async with client_factory(api_key, transport) as client:
-        result = await run_with_policy(
-            client, task, timeout_s=timeout_s, cancel_event=None, on_progress=None
-        )
+        try:
+            # ``timeout_s`` above only bounds a single attempt inside run_with_policy;
+            # rateLimit/connection backoff across MAX_ATTEMPTS retries could otherwise
+            # push one inline polish call well past the spec's 30s. Wrapping the whole
+            # call (module-level POLISH_TIMEOUT_S, so a test can lower it) enforces the
+            # real budget and reuses the existing "timeout" 422 path via RunwareError.
+            result = await asyncio.wait_for(
+                run_with_policy(
+                    client, task, timeout_s=timeout_s, cancel_event=None, on_progress=None
+                ),
+                POLISH_TIMEOUT_S,
+            )
+        except TimeoutError:
+            raise RunwareError("timeout", "Timed out waiting for RunWare.") from None
 
     if mode == "promptEnhance":
         versions_out = [
