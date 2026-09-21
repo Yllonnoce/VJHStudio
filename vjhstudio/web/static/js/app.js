@@ -124,6 +124,16 @@ window.generateForm = function (initial) {
       if (btn && !btn.disabled) btn.click();
     },
 
+    // ── polish cards ─────────────────────────────────────────────────────────
+    // Wired from the delegated click listener below (the panel is htmx-swapped, so no
+    // handler can live on the button itself); `detail` is whatever vjhChoosePolish
+    // (compose.js) built from the clicked card's data-* and the #polish-json blob.
+    usePolish(detail) {
+      detail = detail || {};
+      this.finalPrompt = detail.text || '';
+      this.polishJson = detail.polishJson || '';
+    },
+
     // ── save-prompt dialog ──────────────────────────────────────────────────
     openSaveDialog() {
       const d = document.getElementById('save-prompt');
@@ -140,6 +150,7 @@ window.generateForm = function (initial) {
       this.noTextTokens = this.$el.dataset.noTextTokens || '';
       this.polishMode = this.$el.dataset.polishMode || 'promptEnhance';
       window.addEventListener('ref-picked', (e) => this.addRef(e.detail || {}));
+      window.addEventListener('use-polish', (e) => this.usePolish(e.detail || {}));
 
       if (initial.form) {
         Object.assign(this.fields, initial.form);
@@ -148,8 +159,16 @@ window.generateForm = function (initial) {
         if (typeof initial.form.use_default_negative === 'boolean') {
           this.useDefaultNegative = initial.form.use_default_negative;
         }
-      } else {
+      }
+      // A loaded prompt, remix or ref pick already carries the state a draft would
+      // otherwise restore -- pulling the draft in on top would silently discard
+      // whichever of the two just won, so it is skipped whenever any of the three is
+      // present. Opening a prompt from the library also clears the stale draft
+      // outright, so a later blank visit to /generate doesn't resurrect it.
+      if (!(initial.form || initial.prompt_id || initial.remix)) {
         this._loadDraft();
+      } else if (initial.prompt_id) {
+        this._clearDraft();
       }
 
       const saveDraft = this._debounce(() => this._saveDraft(), 300);
@@ -157,6 +176,22 @@ window.generateForm = function (initial) {
       this.$watch('finalPrompt', saveDraft);
       this.$watch('noText', saveDraft);
       this.$watch('useDefaultNegative', saveDraft);
+
+      // A manual edit to any builder field means the composed text has drifted from
+      // whatever `promptId` names -- drop the link so a submit lands on (or dedupes
+      // by hash onto) whichever row the *new* text hashes to, instead of silently
+      // overwriting the old row's final_prompt/polish_json with unrelated content.
+      this.$watch('fields', () => { this.promptId = ''; });
+
+      // The dialog posts to POST /prompts and gets an HX-Trigger back naming the row
+      // it saved (or found); vjhUnwrapTrigger normalises the object payload the same
+      // way it does job-finished's array one (see compose.js).
+      document.body.addEventListener('prompt-saved', (e) => {
+        const items = window.vjhUnwrapTrigger ? window.vjhUnwrapTrigger(e.detail) : [];
+        const payload = items[0] || {};
+        if (payload.id) this.promptId = String(payload.id);
+        vjhToast(payload.created ? 'Prompt saved' : 'Already in your library', 'ok');
+      });
 
       // A successful submit means the job now carries this prompt; clear the manual
       // override so the next preview reflects the (still-populated) builder fields.
@@ -198,6 +233,10 @@ window.generateForm = function (initial) {
           noText: this.noText, useDefaultNegative: this.useDefaultNegative,
         }));
       } catch (e) { /* same as above */ }
+    },
+
+    _clearDraft() {
+      try { localStorage.removeItem(VJH_DRAFT_KEY); } catch (e) { /* same as above */ }
     },
 
     _debounce(fn, ms) {
@@ -358,6 +397,30 @@ document.addEventListener('click', (e) => {
     },
   }));
   dlg.close();
+});
+
+// ── Polish cards (Generate) ─────────────────────────────────────────────────────
+// #polish-results is swapped whole (outerHTML) on every "Polish with AI" click, so its
+// "Use this" buttons need a delegated listener rather than an inline handler. The
+// heavy lifting (parsing #polish-json, merging in the button's own data-*) is
+// vjhChoosePolish (compose.js, a pure function so it gets a node test); this handler
+// only reads the DOM, marks the chosen card and forwards the result to whichever
+// generateForm instance is listening for `use-polish`.
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.use-polish');
+  if (!btn) return;
+  const panel = document.getElementById('polish-results');
+  if (!panel || !panel.contains(btn)) return;
+  const script = document.getElementById('polish-json');
+  const raw = script ? script.textContent : '';
+  const index = parseInt(btn.dataset.index, 10) || 0;
+  const detail = window.vjhChoosePolish
+    ? window.vjhChoosePolish(raw, index, btn.dataset.text || '', btn.dataset.mode || '', btn.dataset.model || '')
+    : { text: btn.dataset.text || '', polishJson: '' };
+  panel.querySelectorAll('.polish-card.is-selected').forEach((c) => c.classList.remove('is-selected'));
+  const card = btn.closest('.polish-card');
+  if (card) card.classList.add('is-selected');
+  window.dispatchEvent(new CustomEvent('use-polish', { detail }));
 });
 
 // Switching mode (or model) swaps #model-params for a partial whose fields the estimate

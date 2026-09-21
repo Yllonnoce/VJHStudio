@@ -74,12 +74,41 @@
     return [];
   }
 
+  // Turns a "Use this" click on a polish card into the payload generateForm.usePolish()
+  // stores: `polishJsonText` is the raw text of the swapped-in `#polish-json` <script>
+  // (generate/_polish_results.html renders PolishResult.to_json(), whose own
+  // `chosen_index` is always null there); `index`/`text` come off the clicked button's
+  // `data-index`/`data-text`, `mode`/`model` off its `data-mode`/`data-model` (so the
+  // model/mode are still known even if the script tag is missing or malformed -- only
+  // `versions`/`cost`, which are identical for every card, have to come from the blob).
+  // Pulled out as a pure function, mirroring composePrompt/buildNegative, so it gets a
+  // node test instead of only being reachable from a live DOM click.
+  function vjhChoosePolish(polishJsonText, index, text, mode, model) {
+    var blob = {};
+    try {
+      blob = JSON.parse(polishJsonText || '{}') || {};
+    } catch (e) {
+      blob = {};
+    }
+    return {
+      text: text || '',
+      polishJson: JSON.stringify({
+        source: mode || blob.mode || '',
+        model: model || blob.model || '',
+        versions: Array.isArray(blob.versions) ? blob.versions : [],
+        chosen_index: index,
+        cost: typeof blob.cost === 'number' ? blob.cost : 0,
+      }),
+    };
+  }
+
   var api = {
     ORDER: ORDER,
     clean: clean,
     composePrompt: composePrompt,
     buildNegative: buildNegative,
     vjhUnwrapTrigger: vjhUnwrapTrigger,
+    vjhChoosePolish: vjhChoosePolish,
   };
 
   if (typeof module !== 'undefined' && module.exports) {
@@ -91,5 +120,6 @@
     global.composePrompt = composePrompt;
     global.buildNegative = buildNegative;
     global.vjhUnwrapTrigger = vjhUnwrapTrigger;
+    global.vjhChoosePolish = vjhChoosePolish;
   }
 })(typeof window !== 'undefined' ? window : globalThis);

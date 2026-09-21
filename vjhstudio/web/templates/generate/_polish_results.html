@@ -7,7 +7,8 @@
     {% for v in versions %}
     <article class="polish-card">
       <p>{{ v.text }}</p>
-      <button type="button" class="use-polish" data-text="{{ v.text }}" data-index="{{ loop.index0 }}">Use this</button>
+      <button type="button" class="use-polish" data-text="{{ v.text }}" data-index="{{ loop.index0 }}"
+              data-mode="{{ mode }}" data-model="{{ model }}">Use this</button>
     </article>
     {% endfor %}
   </div>
