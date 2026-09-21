@@ -6,7 +6,7 @@ import uvicorn
 
 from vjhstudio import __version__, config, main
 from vjhstudio import boot as boot_mod
-from vjhstudio.services import migrate
+from vjhstudio.services import migrate, update
 from vjhstudio.web.app import create_app
 
 
@@ -162,3 +162,75 @@ def test_port_free_ignores_time_wait_after_restart():
     cli.close()
     srv.close()
     assert main._port_free("127.0.0.1", port) is True
+
+
+def test_update_check_prints_pending_commits(monkeypatch, capsys):
+    monkeypatch.setattr(
+        update,
+        "check_updates",
+        lambda: {
+            "git": True,
+            "current": "abc1234 first commit",
+            "behind": 2,
+            "commits": ["third commit", "second commit"],
+            "error": "",
+        },
+    )
+    assert main.main(["update", "--check"]) == 0
+    out = capsys.readouterr().out
+    assert "2 commits behind" in out
+    assert "third commit" in out and "second commit" in out
+
+
+def test_update_check_prints_the_error_and_still_succeeds(monkeypatch, capsys):
+    monkeypatch.setattr(
+        update,
+        "check_updates",
+        lambda: {
+            "git": False,
+            "current": "",
+            "behind": 0,
+            "commits": [],
+            "error": update.ZIP_INSTALL_HELP,
+        },
+    )
+    assert main.main(["update", "--check"]) == 0
+    assert update.ZIP_INSTALL_HELP in capsys.readouterr().out
+
+
+def test_update_command_streams_steps_and_reports_failure(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("VJHSTUDIO_DATA_DIR", str(tmp_path))
+
+    def fail(state, _paths):
+        state.add("Downloading update", "boom", ok=False)
+        return False
+
+    monkeypatch.setattr(update, "run_update", fail)
+    assert main.main(["update"]) == 1
+    out = capsys.readouterr().out
+    assert "Downloading update" in out
+    assert "Restart VJHStudio" not in out
+
+
+def test_update_command_asks_for_a_restart_on_success(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("VJHSTUDIO_DATA_DIR", str(tmp_path))
+
+    def succeed(state, _paths):
+        state.add("Update complete")
+        return True
+
+    monkeypatch.setattr(update, "run_update", succeed)
+    assert main.main(["update"]) == 0
+    assert "Restart VJHStudio to run the new version." in capsys.readouterr().out
+
+
+def test_migrate_module_cli_upgrades_and_reports(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("VJHSTUDIO_DATA_DIR", str(tmp_path))
+    assert migrate.main(["upgrade"]) == 0
+    assert (tmp_path / "vjh.db").exists()
+    capsys.readouterr()
+    assert migrate.main(["current"]) == 0
+    assert capsys.readouterr().out.strip() == migrate.head()
+    assert migrate.main(["head"]) == 0
+    assert capsys.readouterr().out.strip() == migrate.head()
+    assert migrate.main(["nonsense"]) == 2

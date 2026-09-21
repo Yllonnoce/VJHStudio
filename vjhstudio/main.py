@@ -1,4 +1,4 @@
-"""CLI entry point: serve | migrate | version | doctor."""
+"""CLI entry point: serve | migrate | update | version | doctor."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ import webbrowser
 import httpx
 
 from . import __version__, config, secrets
-from .services import gitinfo, migrate
+from .services import gitinfo, migrate, update
 
 log = logging.getLogger("vjhstudio")
 
@@ -129,6 +129,39 @@ def cmd_migrate(_args: argparse.Namespace) -> int:
     return 0
 
 
+def print_step(step: update.Step) -> None:
+    print(f"[{'ok' if step.ok else '!!'}] {step.title}")
+    if step.detail:
+        for line in step.detail.splitlines():
+            print(f"     {line}")
+
+
+def cmd_update(args: argparse.Namespace) -> int:
+    if args.check:
+        info = update.check_updates()
+        if info["current"]:
+            print(f"current    : {info['current']}")
+        if info["error"]:
+            print(info["error"])
+            return 0
+        if not info["behind"]:
+            print("Up to date.")
+            return 0
+        print(f"{info['behind']} commits behind:")
+        for subject in info["commits"]:
+            print(f"  - {subject}")
+        print('Run "vjhstudio update" to install them.')
+        return 0
+    paths = config.resolve_paths()
+    state = update.UpdateState(on_step=print_step)
+    if not update.run_update(state, paths):
+        print(state.message or "Update failed.", file=sys.stderr)
+        return 1
+    print(state.message or "Update complete.")
+    print("Restart VJHStudio to run the new version.")
+    return 0
+
+
 def cmd_version(_args: argparse.Namespace) -> int:
     c = gitinfo.current_commit()
     print(f"VJHStudio {__version__}" + (f" ({c.short} {c.subject})" if c else ""))
@@ -177,6 +210,9 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--no-browser", dest="open", action="store_false")
     s.set_defaults(open=False, func=cmd_serve)
     sub.add_parser("migrate", help="create/upgrade the database").set_defaults(func=cmd_migrate)
+    u = sub.add_parser("update", help="update VJHStudio from git")
+    u.add_argument("--check", action="store_true", help="only report what is available")
+    u.set_defaults(func=cmd_update)
     sub.add_parser("version", help="print version").set_defaults(func=cmd_version)
     sub.add_parser("doctor", help="print environment diagnostics").set_defaults(func=cmd_doctor)
     return p

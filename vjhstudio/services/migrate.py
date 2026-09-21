@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import contextlib
 import sqlite3
+import sys
 from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 
-from ..config import REPO_ROOT
+from ..config import REPO_ROOT, ensure_dirs, resolve_paths
 
 MIGRATIONS_DIR = REPO_ROOT / "migrations"
 SCHEMA_FAIL_MSG = (
@@ -56,3 +57,38 @@ def upgrade(db_path: Path, revision: str = "head") -> None:
         command.upgrade(alembic_config(db_path), revision)
     except Exception as e:  # noqa: BLE001
         raise MigrationFailed(SCHEMA_FAIL_MSG) from e
+
+
+USAGE = "usage: python -m vjhstudio.services.migrate [upgrade|current|head]"
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run migrations in a *separate* process.
+
+    The updater calls this through `uv run` so the migration executes with the
+    freshly synced packages instead of the ones this process imported at boot.
+    """
+    args = list(sys.argv[1:] if argv is None else argv)
+    cmd = args[0] if args else "upgrade"
+    paths = resolve_paths()
+    if cmd == "head":
+        print(head())
+        return 0
+    if cmd == "current":
+        print(current(paths.db) or "")
+        return 0
+    if cmd != "upgrade":
+        print(USAGE, file=sys.stderr)
+        return 2
+    ensure_dirs(paths)
+    try:
+        upgrade(paths.db)
+    except MigrationFailed as e:
+        print(str(e), file=sys.stderr)
+        return 1
+    print(f"schema {head()} at {paths.db}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

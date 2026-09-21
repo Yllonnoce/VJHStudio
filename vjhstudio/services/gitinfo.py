@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 
 from ..config import REPO_ROOT
 
@@ -22,11 +23,14 @@ def git_bin() -> str:
     return os.environ.get("VJHSTUDIO_GIT") or "git"
 
 
-def run_git(args: list[str], timeout: int = 30) -> subprocess.CompletedProcess[str]:
+def run_git(
+    args: list[str], timeout: int = 30, cwd: Path | None = None
+) -> subprocess.CompletedProcess[str]:
     # Fixed argv, no shell; args are built by this module, never by a user.
+    # cwd defaults to the checkout; update.py passes a repo explicitly (tests use a temp clone).
     return subprocess.run(  # noqa: S603
         [git_bin(), *args],
-        cwd=REPO_ROOT,
+        cwd=cwd or REPO_ROOT,
         capture_output=True,
         text=True,
         timeout=timeout,
