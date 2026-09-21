@@ -15,6 +15,9 @@
     <div class="asset-actions">
       <button type="button" class="secondary outline" hx-post="/assets/{{ a.id }}/push"
               hx-target="closest article" hx-swap="outerHTML">Push to RunWare</button>
+      {% if a.kind == 'image' %}
+      <a href="/generate?ref=asset:{{ a.id }}&amp;role=reference" role="button" class="secondary outline">Use as reference</a>
+      {% endif %}
       <a href="{{ url }}?download=1" role="button" class="secondary outline">Download</a>
       <button type="button" class="secondary outline" hx-delete="/assets/{{ a.id }}"
               hx-target="closest article" hx-swap="outerHTML" hx-confirm="Delete this asset?">Delete</button>

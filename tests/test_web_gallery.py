@@ -46,6 +46,42 @@ async def test_gallery_load_more_pages(client, fake, app):
     assert "Load more" not in r.text  # only 3 outputs, well under 48/page
 
 
+async def test_use_as_reference_imports_the_output_and_redirects(client, fake, app):
+    await _make(client, fake, app)
+    oid = (await client.get("/api/jobs")).json()[0]["outputs"][0]["id"]
+
+    card = await client.get("/hx/gallery?page=1")
+    assert f'hx-post="/outputs/{oid}/as-asset"' in card.text and "Use as reference" in card.text
+    detail = await client.get(f"/hx/outputs/{oid}")
+    assert f'hx-post="/outputs/{oid}/as-asset"' in detail.text and "Use as reference" in detail.text
+
+    r = await client.post(f"/outputs/{oid}/as-asset", follow_redirects=False)
+    assert r.status_code == 303
+    location = r.headers["location"]
+    assert location.startswith("/generate?ref=asset:") and "role=reference" in location
+
+    grid = await client.get("/assets")
+    assert "from-output" in grid.text and ".png" in grid.text
+    # the imported asset is a real, usable chip
+    assert (await client.get(location)).status_code == 200
+
+    # htmx gets a redirect header instead of a body it would try to swap
+    r = await client.post(f"/outputs/{oid}/as-asset", headers={"HX-Request": "true"})
+    assert r.status_code == 204 and r.headers["HX-Redirect"] == location
+
+
+async def test_use_as_reference_is_image_only(client, fake, app):
+    from vjhstudio import db, models
+
+    await _make(client, fake, app)
+    oid = (await client.get("/api/jobs")).json()[0]["outputs"][0]["id"]
+    with db.session_scope(app.state.boot.session_factory) as s:
+        s.get(models.Output, oid).kind = "video"
+    r = await client.post(f"/outputs/{oid}/as-asset", follow_redirects=False)
+    assert r.status_code == 415
+    assert (await client.post("/outputs/999999/as-asset")).status_code == 404
+
+
 async def test_output_download_redirects(client, fake, app):
     await _make(client, fake, app)
     oid = (await client.get("/api/jobs")).json()[0]["outputs"][0]["id"]

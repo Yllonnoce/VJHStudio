@@ -99,6 +99,7 @@ ROLE_FIELDS = {
     "last": "last_frame_asset_id",
 }
 MODE_ROLES = {"image": ("seed", "reference"), "video": ("first", "last", "reference")}
+REF_ROLES = ("reference", "seed", "first", "last")
 
 
 # ---- form parsing --------------------------------------------------------
@@ -433,7 +434,37 @@ def ref_chips(session, data: dict, mode: str) -> list[dict]:
     return chips
 
 
-def _initial(session, remix: str) -> dict:
+def _ref_initial(session, ref: str, role: str) -> dict:
+    """``?ref=asset:<id>&role=reference`` -> a form that opens with that one chip already
+    picked. The role decides the mode: a first/last frame only exists in video."""
+    kind, _, raw = (ref or "").partition(":")
+    try:
+        asset_id = int(raw)
+    except ValueError as e:
+        raise LookupError(ref) from e
+    if kind != "asset" or asset_id <= 0:
+        raise LookupError(ref)
+    wanted = (role or "reference").strip().lower()
+    if wanted not in REF_ROLES:
+        wanted = "reference"
+    mode = "video" if wanted in ("first", "last") else "image"
+    data: dict = {}
+    field = ROLE_FIELDS.get(wanted)
+    if field is None:
+        data["reference_asset_ids"] = [asset_id]
+    else:
+        data[field] = asset_id
+    chips = ref_chips(session, data, mode)
+    if not chips:  # an unknown (or deleted) asset is a bad link, not an empty form
+        raise LookupError(ref)
+    data["mode"] = mode
+    data["refs"] = chips
+    return data
+
+
+def _initial(session, remix: str, ref: str = "", role: str = "") -> dict:
+    if ref and not remix:
+        return _ref_initial(session, ref, role)
     if not remix:
         return {}
     try:
@@ -465,13 +496,13 @@ class _QueryLike:
         return ["on" if self._data[key] else "off"]
 
 
-def _page(request: Request, remix: str, mode: str):
+def _page(request: Request, remix: str, mode: str, ref: str = "", role: str = ""):
     app = request.app
     with db.session_scope(app.state.boot.session_factory) as s:
         try:
-            initial = _initial(s, remix)
+            initial = _initial(s, remix, ref, role)
         except LookupError as e:
-            raise HTTPException(status_code=404, detail="unknown output") from e
+            raise HTTPException(status_code=404, detail="unknown output or asset") from e
         mode = _mode(initial.get("mode") or mode)
         initial["mode"] = mode
         initial.setdefault("refs", [])
@@ -546,14 +577,23 @@ def _page(request: Request, remix: str, mode: str):
 
 
 @router.get("/generate")
-def generate_page(request: Request, remix: str = "", prompt: str = "", mode: str = "image"):
-    return _page(request, remix, _mode(mode))
+def generate_page(
+    request: Request,
+    remix: str = "",
+    prompt: str = "",
+    mode: str = "image",
+    ref: str = "",
+    role: str = "",
+):
+    return _page(request, remix, _mode(mode), ref, role)
 
 
 @router.get("/generate/video")
-def generate_video_page(request: Request, remix: str = "", prompt: str = ""):
+def generate_video_page(
+    request: Request, remix: str = "", prompt: str = "", ref: str = "", role: str = ""
+):
     """Bookmarkable alias for ``/generate?mode=video``."""
-    return _page(request, remix, "video")
+    return _page(request, remix, "video", ref, role)
 
 
 @router.post("/generate/image")

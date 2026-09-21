@@ -10,6 +10,7 @@ from sqlalchemy import select
 
 from ... import db
 from ...models import Output, Project
+from ...services import assets as assets_svc
 from ...services import catalog, projects
 from ...services import outputs as outputs_svc
 from .. import deps
@@ -17,6 +18,11 @@ from ..urls import output_url, thumb_url
 
 router = APIRouter()
 
+# ``store_upload`` is keyed by MIME, outputs are named by extension: one inverse map
+# rather than a second list of image types that could drift from the asset library's.
+_MIME_BY_EXT = {ext: mime for mime, ext in assets_svc.ALLOWED_IMAGE.items()} | {
+    "jpeg": "image/jpeg"
+}
 _TRUTHY = ("1", "true", "yes", "on")
 _FALSY = ("0", "false", "no", "off")
 
@@ -146,6 +152,45 @@ def delete_output(request: Request, output_id: int):
     r = Response(status_code=200)
     r.headers["HX-Trigger"] = "close-lightbox"
     return r
+
+
+@router.post("/outputs/{output_id}/as-asset")
+def output_as_asset(request: Request, output_id: int):
+    """Import an image output into the asset library and open Generate with it already
+    picked as a reference. Sync ``def`` on purpose: it reads the file off disk, which
+    Starlette runs in its threadpool. ``store_upload`` dedupes by content, so re-using
+    the same output twice reuses the asset row rather than making a second copy."""
+    app = request.app
+    with db.session_scope(app.state.boot.session_factory) as s:
+        o = outputs_svc.get(s, output_id)
+        if o is None:
+            raise HTTPException(status_code=404, detail="unknown output")
+        if o.kind != "image":
+            raise HTTPException(status_code=415, detail="only image outputs can be references")
+        mime = _MIME_BY_EXT.get(o.filename.rsplit(".", 1)[-1].lower())
+        if mime is None:
+            raise HTTPException(status_code=415, detail="unsupported output type")
+        try:
+            path = outputs_svc.abs_path(app.state.paths, o, projects.root_override(s))
+            content = path.read_bytes()
+        except (LookupError, OSError) as e:
+            raise HTTPException(status_code=404, detail="output file is missing") from e
+        try:
+            asset, _created = assets_svc.store_upload(
+                s,
+                app.state.paths,
+                original_name=o.filename,
+                content=content,
+                mime=mime,
+                tags="from-output",
+            )
+        except assets_svc.UploadError as e:
+            raise HTTPException(status_code=e.status, detail=str(e)) from e
+        target = f"/generate?ref=asset:{asset.id}&role=reference"
+    if request.headers.get("HX-Request"):
+        # htmx follows a 303 with the swap it was given; HX-Redirect navigates instead.
+        return Response(status_code=204, headers={"HX-Redirect": target})
+    return RedirectResponse(target, status_code=303)
 
 
 @router.get("/outputs/{output_id}/download")

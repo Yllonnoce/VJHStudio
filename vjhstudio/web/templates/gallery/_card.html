@@ -17,6 +17,10 @@
     {% if o.is_favourite %}<span class="gallery-fav" aria-label="Favourite">★</span>{% endif %}
   </button>
   {% endif %}
+  {% if o.kind != 'video' %}
+  <button type="button" class="secondary outline gallery-details" hx-post="/outputs/{{ o.id }}/as-asset"
+          title="Add to the asset library and open Generate with it picked">Use as reference</button>
+  {% endif %}
   <footer class="gallery-card-meta">
     <small class="muted">{{ o.created_at.strftime('%Y-%m-%d %H:%M') }}</small>
     {% if o.cost %}<small class="cost">${{ '%.4f'|format(o.cost) }}</small>{% endif %}

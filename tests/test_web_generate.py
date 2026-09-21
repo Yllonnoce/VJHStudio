@@ -99,6 +99,41 @@ async def test_remix_prefills_initial(client, fake, app):
     assert '"seed": 77' in r.text and '"subject": "a red fox"' in r.text
 
 
+async def test_ref_query_prefills_one_chip(client):
+    import io
+
+    from PIL import Image
+
+    b = io.BytesIO()
+    Image.new("RGB", (32, 32), (4, 5, 6)).save(b, "PNG")
+    up = await client.post(
+        "/assets/upload", files=[("files", ("ref.png", b.getvalue(), "image/png"))]
+    )
+    assert up.status_code == 200
+
+    r = await client.get("/generate?ref=asset:1&role=reference")
+    assert r.status_code == 200
+    assert '"refs"' in r.text and '"id": 1' in r.text
+    assert '"role": "reference"' in r.text and '"name": "ref.png"' in r.text
+    assert '"thumb": "/files/asset-thumbs/' in r.text
+    assert '"mode": "image"' in r.text
+
+    # a frame role opens the video mode instead, and fills the frame field
+    r = await client.get("/generate?ref=asset:1&role=first")
+    assert '"mode": "video"' in r.text and '"role": "first"' in r.text
+    assert '"first_frame_asset_id": 1' in r.text
+
+    r = await client.get("/generate?ref=asset:1&role=seed")
+    assert '"mode": "image"' in r.text and '"seed_image_asset_id": 1' in r.text
+
+
+async def test_ref_query_404s_on_a_bad_reference(client):
+    assert (await client.get("/generate?ref=asset:999")).status_code == 404
+    assert (await client.get("/generate?ref=output:1")).status_code == 404
+    assert (await client.get("/generate?ref=nonsense")).status_code == 404
+    assert (await client.get("/generate")).status_code == 200
+
+
 async def test_estimate_tolerates_blank_numbers(client):
     """A cleared Width box must re-render the estimate, not swap FastAPI's 422 JSON in."""
     r = await client.get("/hx/generate/estimate?air=runware:101@1&width=&height=&number_results=")

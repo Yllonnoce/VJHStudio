@@ -25,6 +25,9 @@
       {{ '★ Favourited' if o.is_favourite else '☆ Favourite' }}
     </button>
     <a role="button" class="secondary outline" href="/generate?remix={{ o.id }}">Remix</a>
+    {% if o.kind != 'video' %}
+    <button type="button" class="secondary outline" hx-post="/outputs/{{ o.id }}/as-asset">Use as reference</button>
+    {% endif %}
     <button type="button" class="secondary outline"
             onclick="navigator.clipboard.writeText(document.getElementById('output-path-{{ o.id }}').textContent)">Copy path</button>
     <button type="button" class="secondary outline" hx-delete="/outputs/{{ o.id }}" hx-confirm="Delete this output?">Delete</button>

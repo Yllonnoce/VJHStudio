@@ -270,3 +270,11 @@ async def test_hx_assets_page_one_still_returns_the_whole_grid(client, app):
     _bulk_assets(app, 50)
     r = await client.get("/hx/assets?page=1")
     assert 'id="asset-grid"' in r.text and r.text.count('class="asset-card"') == 48
+
+
+async def test_asset_card_links_to_generate_as_a_reference(client):
+    r = await client.post("/assets/upload", files=[("files", ("ref.png", _png(), "image/png"))])
+    aid = _asset_id(r.text)
+    assert "Use as reference" in r.text
+    assert f"/generate?ref=asset:{aid}&amp;role=reference" in r.text
+    assert (await client.get(f"/generate?ref=asset:{aid}&role=reference")).status_code == 200
