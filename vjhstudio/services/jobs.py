@@ -23,7 +23,7 @@ from ..runware import download
 from ..runware import runner as policy
 from ..runware.download import DownloadError
 from ..runware.errors import classify
-from ..runware.tasks import build_image_task, build_video_task, resolution_wh
+from ..runware.tasks import build_image_task, build_video_task
 from ..schemas.image import ImageRequest
 from ..schemas.video import VideoRequest
 from . import assets, catalog, costs, projects
@@ -92,16 +92,24 @@ def _build_task(plan: _Plan, job_id: str, media: dict[int, str]) -> dict:
     return build_image_task(plan.req, job_id, media, plan.family, plan.negative)
 
 
-def _params(req: ImageRequest | VideoRequest, dims: tuple[int, int] | None) -> dict:
-    """The knobs recorded on the output row and in its sidecar."""
+def _number(value, fallback):
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else fallback
+
+
+def _params(req: ImageRequest | VideoRequest, sent: dict | None = None) -> dict:
+    """The knobs recorded on the output row and in its sidecar. A video's dimensions and
+    duration are read back from the task that was actually sent rather than recomputed
+    from the request: the builder resolves the resolution through the model's curated
+    ``video.dims`` and snaps the duration to the durations the model accepts, so
+    recomputing would describe a file that was never generated."""
     if isinstance(req, VideoRequest):
-        width, height = dims if dims is not None else (None, None)
+        task = sent or {}
         return {
-            "width": width,
-            "height": height,
+            "width": _number(task.get("width"), None),
+            "height": _number(task.get("height"), None),
             "resolution": req.resolution,
-            "duration": req.duration,
-            "fps": req.fps,
+            "duration": _number(task.get("duration"), req.duration),
+            "fps": _number(task.get("fps"), req.fps),
             "seed": req.seed,
             "output_format": req.output_format,
             "provider_settings": dict(req.provider_settings or {}),
@@ -369,11 +377,11 @@ class JobRunner:
         mid-job cannot make the relative paths unresolvable."""
         req = plan.req
         video = plan.is_video
-        dims = resolution_wh(req.resolution) if video else None
-        params = _params(req, dims)
+        params = _params(req, result.task_sent)
+        dims = (params["width"], params["height"]) if video else None
         extra = {"task_sent": result.task_sent, "dropped_params": result.dropped}
         if video:
-            extra["duration"] = req.duration
+            extra["duration"] = params["duration"]
         meta = outputs_svc.OutputMeta(
             job_id=plan.job_id,
             project_id=plan.project_id,
@@ -392,7 +400,7 @@ class JobRunner:
             extra,
             root=root,
             dims=dims,
-            duration_s=req.duration if video else None,
+            duration_s=params["duration"] if video else None,
             thumbnail=not video,  # a video still is a poster, not a Pillow thumbnail
         )
         task_type = "videoInference" if video else "imageInference"

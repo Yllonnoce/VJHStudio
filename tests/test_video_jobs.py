@@ -13,6 +13,7 @@ from vjhstudio.services import assets, catalog, generate, jobs
 
 VIDEO_AIR = "google:3@2"
 IMAGE_AIR = "runware:101@1"
+LTX_AIR = "lightricks:ltx@2.3"
 MP4 = b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 64
 
 
@@ -120,11 +121,13 @@ async def test_video_job_succeeds_end_to_end(env):
         out = s.query(models.Output).filter_by(job_id=job.id).one()
         assert out.kind == "video" and out.filename.endswith(".mp4")
         assert (paths.outputs / out.rel_path).exists() and out.file_size == len(MP4)
-        assert out.duration_s == 5 and out.width == 1280 and out.height == 720
+        # 5 s was asked for, Veo accepts 4/6/8: the row records the 4 s that was sent
+        assert j.task_json["duration"] == 4
+        assert out.duration_s == 4 and out.width == 1280 and out.height == 720
         assert out.thumb_rel_path is None
         assert out.prompt_text == "a fox running" and out.negative_prompt == ""
         side = json.loads((paths.outputs / out.sidecar_rel_path).read_text())
-        assert side["kind"] == "video" and side["duration"] == 5
+        assert side["kind"] == "video" and side["duration"] == 4
         assert side["params"]["resolution"] == "720p" and side["params"]["width"] == 1280
         assert side["task_sent"]["taskType"] == "videoInference"
         usage = s.query(models.UsageEntry).one()
@@ -165,6 +168,30 @@ async def test_video_job_sends_frame_images_from_assets(env):
         {"image": "uuid-first", "frame": "first"},
         {"image": "uuid-last", "frame": "last"},
     ]
+
+
+async def test_video_output_records_the_dimensions_the_task_carried(env):
+    """LTX-2.3's 720p is 1280x704, not the generic 1280x720: the Output row and the
+    sidecar must describe the clip that was generated, not the preset it came from."""
+    paths, f, _ = env
+    fake = FakeRunware({"run": [[{"videoURL": "http://x/v.mp4", "cost": 0.12}]]})
+    r = _runner(env, fake)
+    await r.start()
+    job = generate.enqueue_video(f, paths, _req(f, model=LTX_AIR, duration=3, resolution="720p"))
+    r.submit(job.id)
+    await r.wait_idle()
+    await r.stop()
+    sent = [p for name, p in fake.calls if name == "run"][0]
+    assert (sent["width"], sent["height"]) == (1280, 704)
+    with db.session_scope(f) as s:
+        j = s.get(models.Job, job.id)
+        assert j.status == "succeeded", j.error_message
+        out = s.query(models.Output).filter_by(job_id=job.id).one()
+        assert out.width == 1280 and out.height == 704 and out.duration_s == 3
+        side = json.loads((paths.outputs / out.sidecar_rel_path).read_text())
+        assert side["params"]["width"] == 1280 and side["params"]["height"] == 704
+        assert side["params"]["resolution"] == "720p" and side["duration"] == 3
+        assert side["task_sent"]["width"] == 1280 and side["task_sent"]["height"] == 704
 
 
 async def test_video_job_webm_uses_the_requested_extension(env):
