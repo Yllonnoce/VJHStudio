@@ -353,11 +353,43 @@ def test_restore_command_refuses_while_a_job_is_queued(tmp_path, monkeypatch, ca
     assert "Stop the running jobs first" in capsys.readouterr().err
 
 
-def test_restore_merge_is_not_available_yet(tmp_path, monkeypatch, capsys):
+def test_restore_merge_with_yes(tmp_path, monkeypatch, capsys):
     paths, zip_path = _seeded_archive(tmp_path, monkeypatch)
-    assert main.main(["restore", str(zip_path), "--merge", "--yes"]) == 1
-    assert "merge is not available yet" in capsys.readouterr().err
     assert _slugs(paths) == ["default"]
+    assert main.main(["restore", str(zip_path), "--merge", "--yes"]) == 0
+    out = capsys.readouterr().out
+    assert "Merged: 1 project" in out
+    assert "safety backup:" in out
+    assert _slugs(paths) == ["default", "keep"]
+    assert list((tmp_path / "backups").glob("vjh-*-pre-merge.db"))
+
+
+def test_restore_merge_prints_the_preview_and_can_be_declined(tmp_path, monkeypatch, capsys):
+    paths, zip_path = _seeded_archive(tmp_path, monkeypatch)
+    monkeypatch.setattr("builtins.input", lambda *a: "no")
+    assert main.main(["restore", str(zip_path), "--merge"]) == 1
+    out = capsys.readouterr().out
+    assert "missing files" in out and "projects" in out
+    assert "This ADDS the rows above" in out and "Cancelled." in out
+    assert _slugs(paths) == ["default"]
+    assert not list((tmp_path / "backups").glob("vjh-*-pre-merge.db"))
+
+
+def test_restore_merge_of_an_archive_with_nothing_new(tmp_path, monkeypatch, capsys):
+    paths, zip_path = _seeded_archive(tmp_path, monkeypatch)
+    assert main.main(["restore", str(zip_path), "--merge", "--yes"]) == 0
+    capsys.readouterr()
+    assert main.main(["restore", str(zip_path), "--merge", "--yes"]) == 0
+    assert "Nothing new to merge." in capsys.readouterr().out
+    assert _slugs(paths) == ["default", "keep"]
+
+
+def test_restore_merge_rejects_a_non_archive(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("VJHSTUDIO_DATA_DIR", str(tmp_path))
+    junk = tmp_path / "junk.zip"
+    junk.write_bytes(b"not a zip")
+    assert main.main(["restore", str(junk), "--merge", "--yes"]) == 1
+    assert "not a VJHStudio backup" in capsys.readouterr().err
 
 
 def test_human_size():

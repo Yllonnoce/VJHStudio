@@ -12,6 +12,7 @@ carries no API key.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import logging
 import os
@@ -21,11 +22,12 @@ import socket
 import sqlite3
 import tempfile
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 
 from sqlalchemy import func, select
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -537,3 +539,509 @@ def restore_replace(
         skipped=skipped,
         outputs_root=root,
     )
+
+
+# --- merge (additive union by natural keys) ---------------------------------
+
+# Dependency order: every table is imported after the tables its foreign keys point at,
+# so one transaction can insert the lot with `PRAGMA foreign_keys=ON` still on.
+MERGE_TABLES = (
+    "projects",
+    "catalog_models",
+    "assets",
+    "prompts",
+    "jobs",
+    "outputs",
+    "usage_entries",
+)
+
+_LABELS = {
+    "projects": ("project", "projects"),
+    "catalog_models": ("model", "models"),
+    "assets": ("asset", "assets"),
+    "prompts": ("prompt", "prompts"),
+    "jobs": ("job", "jobs"),
+    "outputs": ("output", "outputs"),
+    "usage_entries": ("usage row", "usage rows"),
+}
+
+ORPHANED_MESSAGE = "This job was still in the queue when the backup was made."
+BAD_ARCHIVE_DB = (
+    "The archive's database could not be migrated to this version's schema; nothing was merged."
+)
+
+
+@dataclass(frozen=True)
+class TableCounts:
+    """What one table contributed: rows that are new here, rows we already had (kept as
+    ours), and rows whose media file the archive did not carry."""
+
+    new: int = 0
+    existing: int = 0
+    missing_files: int = 0
+
+
+@dataclass(frozen=True)
+class MergeReport:
+    counts: dict[str, TableCounts]
+    errors: list[str]
+    app_version: str
+    schema_revision: str
+    created_at: str
+    dry_run: bool
+    safety_backup: Path | None = None
+
+    @property
+    def total_new(self) -> int:
+        return sum(c.new for c in self.counts.values())
+
+    @property
+    def total_missing_files(self) -> int:
+        return sum(c.missing_files for c in self.counts.values())
+
+
+@dataclass
+class _Tally:
+    new: int = 0
+    existing: int = 0
+    missing_files: int = 0
+
+
+@dataclass(frozen=True)
+class _Copy:
+    """One media file to lift out of the archive once the rows are in place."""
+
+    member: str  # name inside the zip
+    target: str  # destination name, same namespace (equal to member unless renamed)
+    table: str | None = None  # None: an extra (sidecar/thumb); a failure is not counted
+    output: Output | None = None  # flagged is_missing when its file cannot be written
+
+
+@dataclass
+class _Merge:
+    """The state one merge pass carries between tables: the two sessions, the id maps
+    built as rows are inserted, and everything the report is made of."""
+
+    session: Session  # ours, inside the merge transaction
+    incoming: Session  # the archive's database, read-only
+    paths: Paths
+    root: Path
+    names: set[str]  # members of the zip
+    tally: dict[str, _Tally]
+    errors: list[str] = field(default_factory=list)
+    project_ids: dict[int, int] = field(default_factory=dict)
+    prompt_ids: dict[int, int] = field(default_factory=dict)
+    job_ids: set[str] = field(default_factory=set)  # present here after the jobs pass
+    new_job_ids: set[str] = field(default_factory=set)  # inserted by *this* merge
+    new_slugs: list[str] = field(default_factory=list)
+    copies: list[_Copy] = field(default_factory=list)
+
+
+def prompt_key(
+    kind: str,
+    final_prompt: str,
+    negative_prompt: str,
+    form_json: dict | None,
+    composed_prompt: str = "",
+) -> str:
+    """The natural key two prompts are the same by: everything the prompt *says*, and
+    nothing about how it is filed (title, project, favourite, use count, timestamps).
+
+    Phase 5 adds a stored `prompts.content_hash` column; on this branch the key is
+    computed on both sides of the merge instead, so the rule is identical either way.
+    """
+    payload = json.dumps(
+        [
+            str(kind or ""),
+            str(composed_prompt or ""),
+            str(final_prompt or ""),
+            str(negative_prompt or ""),
+            form_json if isinstance(form_json, dict) else {},
+        ],
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _prompt_key(p: Prompt) -> str:
+    return prompt_key(p.kind, p.final_prompt, p.negative_prompt, p.form_json, p.composed_prompt)
+
+
+def _columns(model: type) -> list[str]:
+    return [c.key for c in sa_inspect(model).mapper.column_attrs]
+
+
+def _values(obj, *, exclude: tuple[str, ...] = ()) -> dict:
+    """Every mapped column of a row as a plain dict, so it can be re-inserted into the
+    other database without dragging an ORM identity along. Reading the columns off the
+    mapper (rather than a hand-written list) means a column added later travels too."""
+    return {k: getattr(obj, k) for k in _columns(type(obj)) if k not in exclude}
+
+
+def _unique_filename(name: str, taken: set[str]) -> str:
+    """Asset filenames are `<sha12>.<ext>` and carry a unique index, so a clash means two
+    different files that happen to share a name; the newcomer is renamed rather than lost."""
+    stem, dot, ext = name.rpartition(".")
+    stem = stem or name
+    n = 1
+    candidate = name
+    while candidate in taken:
+        n += 1
+        candidate = f"{stem}-{n}{dot}{ext}" if dot else f"{stem}-{n}"
+    return candidate
+
+
+def _merge_target(paths: Paths, root: Path, name: str) -> Path:
+    """Where a media file lands. Only the media prefixes are addressable and the result
+    is re-checked against its base, so a row from the archive cannot name a path outside
+    the data directory. Unlike `_target` this creates nothing: a preview writes nothing."""
+    if not name.startswith(EXTRACT_PREFIXES):
+        raise ArchiveError(f"not a media file: {name!r}")
+    if name.startswith(OUTPUTS_PREFIX):
+        base, rel = root, name[len(OUTPUTS_PREFIX) :]
+    else:
+        base, rel = paths.data, name
+    target = Path(base / rel)
+    if not target.resolve().is_relative_to(base.resolve()):
+        raise ArchiveError(f"archive member escapes the data directory: {name!r}")
+    return target
+
+
+def _have_file(m: _Merge, member: str) -> Path | None:
+    """The destination for a member when it can be written there, else None."""
+    try:
+        return _merge_target(m.paths, m.root, member)
+    except (ArchiveError, OSError) as e:
+        m.errors.append(str(e))
+        return None
+
+
+def _want(m: _Merge, member: str, target: str, *, table: str | None, output=None) -> bool:
+    """Queue one file copy. True when the file will be on disk after the merge - either
+    it is already there (never overwritten: a merge only adds) or the archive carries it."""
+    dest = _have_file(m, target)
+    if dest is None:
+        return False
+    if dest.exists():
+        return True
+    if member not in m.names:
+        return False
+    m.copies.append(_Copy(member, target, table, output))
+    return True
+
+
+# --- merge: one function per table, in dependency order ---------------------
+
+
+def _merge_projects(m: _Merge) -> None:
+    t = m.tally["projects"]
+    local = {p.slug: p.id for p in m.session.execute(select(Project)).scalars()}
+    for p in m.incoming.execute(select(Project).order_by(Project.id)).scalars():
+        if p.slug in local:
+            m.project_ids[p.id] = local[p.slug]
+            t.existing += 1
+            continue
+        row = Project(**_values(p, exclude=("id",)))
+        m.session.add(row)
+        m.session.flush()
+        local[p.slug] = row.id
+        m.project_ids[p.id] = row.id
+        m.new_slugs.append(row.slug)
+        t.new += 1
+
+
+def _merge_catalog(m: _Merge) -> None:
+    t = m.tally["catalog_models"]
+    local = {c.air for c in m.session.execute(select(CatalogModel)).scalars()}
+    for c in m.incoming.execute(select(CatalogModel).order_by(CatalogModel.id)).scalars():
+        if c.air in local:
+            t.existing += 1
+            continue
+        m.session.add(CatalogModel(**_values(c, exclude=("id",))))
+        local.add(c.air)
+        t.new += 1
+    m.session.flush()
+
+
+def _merge_assets(m: _Merge) -> None:
+    t = m.tally["assets"]
+    rows = list(m.session.execute(select(Asset)).scalars())
+    by_sha = {a.sha256 for a in rows}
+    taken = {a.filename for a in rows}
+    for a in m.incoming.execute(select(Asset).order_by(Asset.id)).scalars():
+        if a.sha256 in by_sha:
+            t.existing += 1  # ours wins: the bytes are identical by definition
+            continue
+        filename = _unique_filename(a.filename, taken)
+        m.session.add(Asset(**{**_values(a, exclude=("id",)), "filename": filename}))
+        by_sha.add(a.sha256)
+        taken.add(filename)
+        t.new += 1
+        if not _want(m, f"uploads/{a.filename}", f"uploads/{filename}", table="assets"):
+            t.missing_files += 1
+        thumb = f"thumbs/asset-{a.sha256[:12]}.jpg"
+        _want(m, thumb, thumb, table=None)
+    m.session.flush()
+
+
+def _merge_prompts(m: _Merge) -> None:
+    t = m.tally["prompts"]
+    local: dict[str, int] = {}
+    for p in m.session.execute(select(Prompt)).scalars():
+        local.setdefault(_prompt_key(p), p.id)
+    for p in m.incoming.execute(select(Prompt).order_by(Prompt.id)).scalars():
+        key = _prompt_key(p)
+        if key in local:
+            m.prompt_ids[p.id] = local[key]
+            t.existing += 1
+            continue
+        values = {**_values(p, exclude=("id",)), "project_id": m.project_ids.get(p.project_id)}
+        row = Prompt(**values)
+        m.session.add(row)
+        m.session.flush()
+        local[key] = row.id
+        m.prompt_ids[p.id] = row.id
+        t.new += 1
+
+
+def _merge_jobs(m: _Merge) -> None:
+    t = m.tally["jobs"]
+    local = {j for (j,) in m.session.execute(select(Job.id))}
+    unfinished = (JobStatus.queued.value, JobStatus.running.value)
+    for j in m.incoming.execute(select(Job).order_by(Job.created_at, Job.id)).scalars():
+        if j.id in local:
+            m.job_ids.add(j.id)  # ours stands; an incoming output may still attach to it
+            t.existing += 1
+            continue
+        project_id = m.project_ids.get(j.project_id)
+        if project_id is None:
+            m.errors.append(f"job {j.id}: its project is not in the archive; skipped")
+            continue
+        values = {
+            **_values(j),
+            "project_id": project_id,
+            "prompt_id": m.prompt_ids.get(j.prompt_id),
+        }
+        if values["status"] in unfinished:
+            # Nothing here can finish a job that was queued somewhere else.
+            values.update(
+                status=JobStatus.failed.value,
+                error_code="orphaned",
+                error_message=ORPHANED_MESSAGE,
+                finished_at=values.get("finished_at") or utcnow(),
+                cancel_requested=False,
+            )
+        m.session.add(Job(**values))
+        local.add(j.id)
+        m.job_ids.add(j.id)
+        m.new_job_ids.add(j.id)
+        t.new += 1
+    m.session.flush()
+
+
+def _merge_outputs(m: _Merge) -> None:
+    t = m.tally["outputs"]
+    here = {p.id: p.slug for p in m.session.execute(select(Project)).scalars()}
+    there = {p.id: p.slug for p in m.incoming.execute(select(Project)).scalars()}
+    local = {
+        (here.get(o.project_id), o.filename) for o in m.session.execute(select(Output)).scalars()
+    }
+    for o in m.incoming.execute(select(Output).order_by(Output.id)).scalars():
+        key = (there.get(o.project_id), o.filename)
+        if key in local:
+            t.existing += 1  # ours stands and its file is never touched
+            continue
+        project_id = m.project_ids.get(o.project_id)
+        if project_id is None:
+            m.errors.append(f"output {o.filename}: its project is not in the archive; skipped")
+            continue
+        if o.job_id not in m.job_ids:
+            m.errors.append(f"output {o.filename}: its job {o.job_id} is not here; skipped")
+            continue
+        row = Output(**{**_values(o, exclude=("id",)), "project_id": project_id})
+        m.session.add(row)
+        m.session.flush()
+        local.add(key)
+        t.new += 1
+        member = OUTPUTS_PREFIX + (row.rel_path or "")
+        if _want(m, member, member, table="outputs", output=row):
+            row.is_missing = False
+        else:
+            row.is_missing = True
+            t.missing_files += 1
+        sidecar = OUTPUTS_PREFIX + (row.sidecar_rel_path or "")
+        _want(m, sidecar, sidecar, table=None)
+        for extra in (row.thumb_rel_path, row.poster_rel_path):
+            if extra:
+                name = extra if extra.startswith(EXTRACT_PREFIXES) else OUTPUTS_PREFIX + extra
+                _want(m, name, name, table=None)
+    m.session.flush()
+
+
+def _merge_usage(m: _Merge) -> None:
+    """Only the rows belonging to jobs this merge inserted: a job we already had already
+    has its usage, and importing it again would double the spend history."""
+    t = m.tally["usage_entries"]
+    for u in m.incoming.execute(select(UsageEntry).order_by(UsageEntry.id)).scalars():
+        if u.job_id is not None and u.job_id in m.new_job_ids:
+            values = {
+                **_values(u, exclude=("id",)),
+                "project_id": m.project_ids.get(u.project_id),
+            }
+            m.session.add(UsageEntry(**values))
+            t.new += 1
+        else:
+            t.existing += 1
+    m.session.flush()
+
+
+# --- merge: the pass itself -------------------------------------------------
+
+
+@contextlib.contextmanager
+def _incoming(zip_path: Path):
+    """Extract the archive's database to a temp directory, bring it to head (the archive
+    may be older) and yield a read session over it together with the open zip. The temp
+    directory is always removed; the live data dir is never touched by any of this."""
+    tmp = Path(tempfile.mkdtemp(prefix="vjh-merge-"))
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            db_path = tmp / DB_NAME
+            _stream_to(zf, DB_NAME, db_path)
+            try:
+                migrate.upgrade(db_path)
+            except Exception as e:
+                raise ArchiveError(BAD_ARCHIVE_DB) from e
+            engine = db_mod.make_engine(db_path)
+            try:
+                session = db_mod.make_session_factory(engine)()
+                try:
+                    yield session, zf
+                finally:
+                    session.rollback()
+                    session.close()
+            finally:
+                engine.dispose()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _run_copies(m: _Merge, zf: zipfile.ZipFile) -> None:
+    """Media, after the rows are in place. A file that cannot be written flags its row
+    missing inside the same transaction, so the database never claims a file that is not
+    there. Existing files are left alone: a merge adds, it never overwrites."""
+    for c in m.copies:
+        try:
+            target = _merge_target(m.paths, m.root, c.target)
+            if not target.exists():
+                _stream_to(zf, c.member, target)
+        except (ArchiveError, OSError, KeyError) as e:
+            if c.table is None:
+                log.warning("merge could not copy %s: %s", c.member, e)
+                continue
+            m.errors.append(f"{c.member}: {e}")
+            m.tally[c.table].missing_files += 1
+            if c.output is not None:
+                c.output.is_missing = True
+    m.session.flush()
+
+
+def _run_merge(
+    session_factory: sessionmaker[Session],
+    paths: Paths,
+    zip_path: Path | str,
+    *,
+    dry_run: bool,
+    max_bytes: int = MAX_RESTORE_BYTES,
+) -> MergeReport:
+    zip_path = Path(zip_path)
+    manifest = manifest_of(zip_path)  # ArchiveError unless it is really one of ours
+    with zipfile.ZipFile(zip_path) as zf:
+        _check_members(zf.infolist(), max_bytes)
+
+    safety: Path | None = None
+    if not dry_run and paths.db.exists():
+        paths.backups.mkdir(parents=True, exist_ok=True)
+        safety = backup.backup_db(paths, "pre-merge")
+        backup.rotate(paths, "pre-merge")
+
+    tally = {t: _Tally() for t in MERGE_TABLES}
+    errors: list[str] = []
+    with _incoming(zip_path) as (incoming, zf):
+        session = session_factory()
+        try:
+            m = _Merge(
+                session=session,
+                incoming=incoming,
+                paths=paths,
+                root=projects.root_for(session, paths),
+                names=set(zf.namelist()),
+                tally=tally,
+                errors=errors,
+            )
+            _merge_projects(m)
+            _merge_catalog(m)
+            _merge_assets(m)
+            _merge_prompts(m)
+            _merge_jobs(m)
+            _merge_outputs(m)
+            _merge_usage(m)
+            if dry_run:
+                # Everything above was a rehearsal against the real schema, which is the
+                # only way the preview can promise the numbers the merge will produce.
+                session.rollback()
+            else:
+                for slug in m.new_slugs:
+                    (m.root / slug).mkdir(parents=True, exist_ok=True)
+                _run_copies(m, zf)
+                session.commit()
+        except BaseException:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    return MergeReport(
+        counts={
+            t: TableCounts(tally[t].new, tally[t].existing, tally[t].missing_files)
+            for t in MERGE_TABLES
+        },
+        errors=errors,
+        app_version=str(manifest.get("app_version") or ""),
+        schema_revision=str(manifest.get("schema_revision") or ""),
+        created_at=str(manifest.get("created_at") or ""),
+        dry_run=dry_run,
+        safety_backup=safety,
+    )
+
+
+def preview_merge(
+    session_factory: sessionmaker[Session], paths: Paths, zip_path: Path | str
+) -> MergeReport:
+    """What `merge` would do, without doing any of it: no safety backup, no directories,
+    no files, and a transaction that is rolled back rather than committed."""
+    return _run_merge(session_factory, paths, zip_path, dry_run=True)
+
+
+def merge(
+    session_factory: sessionmaker[Session], paths: Paths, zip_path: Path | str
+) -> MergeReport:
+    """Add everything the archive has and this install has not, keeping ours on every
+    clash. A safety backup is written first; the rows go in one transaction."""
+    return _run_merge(session_factory, paths, zip_path, dry_run=False)
+
+
+def merge_summary(report: MergeReport) -> str:
+    """One line for the CLI and the confirmation partial."""
+    parts = [
+        f"{report.counts[t].new} {_LABELS[t][0 if report.counts[t].new == 1 else 1]}"
+        for t in MERGE_TABLES
+        if report.counts[t].new
+    ]
+    text = "Merged: " + (", ".join(parts) if parts else "nothing new")
+    missing = report.total_missing_files
+    if missing:
+        text += f", {missing} file{'' if missing == 1 else 's'} missing"
+    return text

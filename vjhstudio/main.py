@@ -205,15 +205,70 @@ def confirm(prompt: str = "Type yes to continue: ") -> bool:
         return False
 
 
+MERGE_ROW = "{:<15}{:>6}{:>10}{:>15}"
+
+
+def print_merge_table(report: archive.MergeReport) -> None:
+    print(MERGE_ROW.format("table", "new", "existing", "missing files"))
+    for table in archive.MERGE_TABLES:
+        c = report.counts[table]
+        print(MERGE_ROW.format(table, c.new, c.existing, c.missing_files))
+
+
+def cmd_merge(paths: config.Paths, zip_path: Path, *, yes: bool) -> int:
+    """`restore --merge`: dry-run preview first, always; then the additive union."""
+    from . import boot
+
+    try:
+        info = boot.boot(paths)
+    except migrate.MigrationFailed as e:
+        print(str(e), file=sys.stderr)
+        return config.MIGRATION_FAIL_EXIT_CODE
+    failures = (archive.ArchiveError, migrate.MigrationFailed, OSError)
+    try:
+        try:
+            preview = archive.preview_merge(info.session_factory, paths, zip_path)
+        except failures as e:
+            print(f"{zip_path}: {e}", file=sys.stderr)
+            return 1
+        print(f"Merge {zip_path}")
+        print(
+            f"  created {preview.created_at or '?'} | app {preview.app_version or '?'} | "
+            f"schema {preview.schema_revision or '?'}"
+        )
+        print_merge_table(preview)
+        for problem in preview.errors:
+            print(f"  ! {problem}")
+        if preview.total_new == 0:
+            print("Nothing new to merge.")
+            return 0
+        if not yes:
+            print(f"This ADDS the rows above to {paths.db}. Rows you already have are kept.")
+            print("A safety backup of the current database is written first.")
+            if not confirm():
+                print("Cancelled.")
+                return 1
+        try:
+            report = archive.merge(info.session_factory, paths, zip_path)
+        except failures as e:
+            print(str(e), file=sys.stderr)
+            return 1
+        if report.safety_backup is not None:
+            print(f"safety backup: {report.safety_backup}")
+        print(archive.merge_summary(report))
+        for problem in report.errors:
+            print(f"  ! {problem}")
+        return 0
+    finally:
+        info.engine.dispose()
+
+
 def cmd_restore(args: argparse.Namespace) -> int:
     paths = config.resolve_paths()
     config.ensure_dirs(paths)
     zip_path = Path(args.zip)
     if args.merge:
-        # Task 4 brings services/archive.merge; until then the flag is accepted and
-        # refused rather than silently doing the destructive thing instead.
-        print("merge is not available yet", file=sys.stderr)
-        return 1
+        return cmd_merge(paths, zip_path, yes=args.yes)
     try:
         manifest = archive.manifest_of(zip_path)
     except archive.ArchiveError as e:
