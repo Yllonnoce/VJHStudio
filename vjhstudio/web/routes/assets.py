@@ -96,9 +96,16 @@ async def upload_assets(request: Request):
     if not uploads:
         errors.append("No files were selected.")
 
+    limit = int(max_mb) * 1024 * 1024
     with db.session_scope(app.state.boot.session_factory) as s:
         for f in uploads:
             name = f.filename or "upload"
+            if f.size is not None and f.size > limit:
+                # Starlette spools the body to disk, but .read() would materialise the
+                # whole file (and store_upload would hold it while hashing): a dropped
+                # 3 GB file must be refused without ever being copied into RAM.
+                errors.append(f"{name}: file exceeds {max_mb} MB limit")
+                continue
             content = await f.read()
             mime = f.content_type or "application/octet-stream"
             try:

@@ -85,6 +85,23 @@ async def test_upload_oversize_413(client):
     assert "exceeds" in r.text and "1 MB" in r.text
 
 
+async def test_upload_oversize_is_refused_before_the_file_is_read(client, monkeypatch):
+    """UploadFile.size is checked first, so a huge drop never lands in RAM."""
+    from starlette.datastructures import UploadFile
+
+    r = await client.post("/settings", data={"uploads.max_mb": "1"})
+    assert r.status_code == 200
+
+    async def boom(self, size: int = -1):
+        raise AssertionError("an oversize upload must not be read into memory")
+
+    monkeypatch.setattr(UploadFile, "read", boom)
+    big = b"\x89PNG\r\n" + b"\x00" * (2 * 1024 * 1024)
+    r = await client.post("/assets/upload", files=[("files", ("big.png", big, "image/png"))])
+    assert r.status_code == 422
+    assert "big.png: file exceeds 1 MB limit" in r.text
+
+
 async def test_upload_unsupported_type_415(client):
     r = await client.post("/assets/upload", files=[("files", ("note.txt", b"hello", "text/plain"))])
     assert r.status_code == 422
