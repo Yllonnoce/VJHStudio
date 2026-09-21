@@ -223,6 +223,30 @@ def test_import_archive_renames_a_foreign_filename(env):
     assert dest.name.startswith(archive.ARCHIVE_PREFIX) and dest.name.endswith(".zip")
 
 
+def test_import_archive_file_streams_and_matches_the_bytes_entry_point(env, tmp_path):
+    """The two entry points share one implementation: same validation, same naming."""
+    paths, factory, _ = env
+    made = archive.create_archive(factory, paths)
+    source = tmp_path / "carried-over.zip"
+    source.write_bytes(made.read_bytes())
+    made.unlink()
+    with source.open("rb") as fh:
+        dest = archive.import_archive_file(paths, source.name, fh)
+    assert dest.parent == paths.backups and dest.read_bytes() == source.read_bytes()
+    # A foreign filename is renamed here too, so the list only ever holds our names.
+    assert dest.name.startswith(archive.ARCHIVE_PREFIX) and dest.name.endswith(".zip")
+    assert len(archive.list_archives(paths)) == 1
+
+
+def test_import_archive_file_rejects_a_non_archive_and_leaves_nothing(env, tmp_path):
+    paths, _, _ = env
+    junk = tmp_path / "notes.txt"
+    junk.write_bytes(b"definitely not a zip")
+    with pytest.raises(archive.ArchiveError), junk.open("rb") as fh:
+        archive.import_archive_file(paths, junk.name, fh)
+    assert list(paths.backups.glob("*")) == []
+
+
 # --- restore ----------------------------------------------------------------
 
 

@@ -25,7 +25,7 @@
 
 ```
 vjhstudio/services/update.py       check_updates ; UpdateState/Step ; run_update ; start_update ; check_and_store ; read_notice ; uv_bin ; git_auth_needed
-vjhstudio/services/archive.py      create_archive ; manifest_of ; list_archives ; archive_path ; delete_archive ; restore_replace ; preview_merge ; merge ; prompt_key
+vjhstudio/services/archive.py      create_archive ; manifest_of ; list_archives ; archive_path ; delete_archive ; import_archive(_file) ; restore_replace ; preview_merge ; merge
 vjhstudio/services/migrate.py      + __main__ CLI (upgrade|current|head)
 vjhstudio/services/gitinfo.py      + run_git(..., cwd=None)
 vjhstudio/web/routes/system.py     + /hx/system/updates, /system/update/check, /system/update, /hx/system/update-log, /restarting,
@@ -141,12 +141,12 @@ tests/test_update.py, test_web_update.py, test_archive.py, test_merge.py, test_i
 **Files:** Create `vjhstudio/web/templates/settings/_merge_preview.html`, `tests/test_merge.py`; Modify `vjhstudio/services/archive.py`, `vjhstudio/web/routes/system.py`, `vjhstudio/main.py` (`restore --merge`).
 
 **Interfaces (produces):**
-- `archive.prompt_key(kind: str, final_prompt: str, negative_prompt: str, form_json: dict) -> str` — sha256 over `json.dumps([...], sort_keys=True, separators=(",", ":"))`.
+- The merge keys prompts by the stored `prompts.content_hash` column (`_prompt_key` reads it, falling back to `prompts.hash_of(row)` for an archive written before the column existed), so the merge and the app's own dedupe can never drift apart.
 - `@dataclass(frozen=True) archive.TableCounts: new: int = 0; existing: int = 0; missing_files: int = 0`.
 - `@dataclass(frozen=True) archive.MergeReport: counts: dict[str, TableCounts]; errors: list[str]; app_version: str; schema_revision: str; created_at: str; dry_run: bool` + `total_new` property.
 - `archive.preview_merge(session_factory, paths, zip_path) -> MergeReport` (`dry_run=True`, writes nothing anywhere) and `archive.merge(session_factory, paths, zip_path) -> MergeReport` (safety backup `pre-merge` first; one `db.session_scope` transaction; file copies after the flush).
 - Internal `_incoming(zip_path)` context manager: extract `vjh.db` to a temp dir, `migrate.upgrade(temp_db)` (the archive may be older), yield a read session over it plus the open `ZipFile`; always cleaned up.
-- Union rules, in dependency order, exactly as the spec table: `projects` by `slug` (new → insert + mkdir `outputs/<slug>`), `catalog_models` by `air`, `assets` by `sha256` (new → insert + copy `uploads/<filename>`, absent file counts `missing_files`), `prompts` by `prompt_key` (project id remapped), `jobs` by `id` (existing → skip; new → insert, `queued`/`running` rewritten to `failed` with `error_code="orphaned"`), `outputs` by `(project slug, filename)` (new → insert with remapped `project_id`/`job_id`, copy file + sidecar, else `is_missing=True` + `missing_files`), `usage_entries` only for job ids inserted by this merge. `settings`, `app_meta` and anything under `secrets/` are never read from the archive. Outputs whose job id is unknown after remapping are skipped and recorded in `errors`.
+- Union rules, in dependency order, exactly as the spec table: `projects` by `slug` (new → insert + mkdir `outputs/<slug>`), `catalog_models` by `air`, `assets` by `sha256` (new → insert + copy `uploads/<filename>`, absent file counts `missing_files`), `prompts` by the stored `content_hash` (falling back to `prompts.hash_of`; project id remapped), `jobs` by `id` (existing → skip; new → insert, `queued`/`running` rewritten to `failed` with `error_code="orphaned"`), `outputs` by `(project slug, filename)` (new → insert with remapped `project_id`/`job_id`, copy file + sidecar, else `is_missing=True` + `missing_files`), `usage_entries` only for job ids inserted by this merge. `settings`, `app_meta` and anything under `secrets/` are never read from the archive. Outputs whose job id is unknown after remapping are skipped and recorded in `errors`.
 - Routes: `POST /system/backups/{name}/preview-merge` → `settings/_merge_preview.html` (per-table new/existing/missing table + "Merge now" button posting to the merge route + Cancel that re-renders `_backups.html`); `POST /system/backups/{name}/merge` → `_backups.html` with a summary message ("Merged: 3 projects, 12 outputs, 2 files missing") and `HX-Trigger: jobs-changed`.
 - CLI: `vjhstudio restore <zip> --merge [--yes]` prints the preview table, asks for confirmation unless `--yes`, then merges and prints the summary.
 

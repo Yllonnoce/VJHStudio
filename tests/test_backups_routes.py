@@ -62,6 +62,14 @@ async def create_backup(client) -> str:
     return only_name(r)
 
 
+def merge_row(response, label: str) -> tuple[int, int, int]:
+    """The (new, existing, missing files) cells of one row of the merge preview table."""
+    cells = r"\s*<td>(\d+)</td>" * 3
+    m = re.search(f"<td>{re.escape(label)}</td>{cells}", response.text)
+    assert m is not None, f"no {label} row in the preview table"
+    return int(m.group(1)), int(m.group(2)), int(m.group(3))
+
+
 def only_name(response) -> str:
     """The single archive name the panel lists."""
     names = set(re.findall(r"vjhstudio-backup-[A-Za-z0-9._-]+\.zip", response.text))
@@ -94,7 +102,8 @@ async def test_create_backup_writes_a_zip_and_lists_it(client, paths):
     assert "Backup created" in r.text
     written = list(paths.backups.glob(f"{archive.ARCHIVE_PREFIX}*.zip"))
     assert [p.name for p in written] == [name]
-    assert "uploads" in r.text and "outputs" in r.text
+    assert archive.list_archives(paths)[0].includes == ["db", "uploads", "outputs"]
+    assert "<td>db, uploads, outputs<br>" in r.text  # the listing row, not the checkboxes
     assert "KB" in r.text or "MB" in r.text
 
 
@@ -134,6 +143,39 @@ async def test_import_accepts_a_real_archive(client, paths, other):
     assert r.status_code == 200
     assert z.name in r.text
     assert (paths.backups / z.name).is_file()
+
+
+async def test_import_refuses_a_file_over_the_limit(client, paths, other, monkeypatch):
+    """Nothing is written and nothing is read into memory: the size is checked before
+    the upload ever reaches the service."""
+    z = make_archive(other)
+    monkeypatch.setattr(archive, "MAX_RESTORE_BYTES", 64)
+
+    def refuse(*a, **k):
+        raise AssertionError("the upload must not reach the service")
+
+    monkeypatch.setattr(archive, "import_archive_file", refuse)
+    r = await import_archive(client, z)
+    assert r.status_code == 422
+    assert "the limit is" in r.text and "64 B" in r.text
+    assert list(paths.backups.glob("*")) == []
+
+
+async def test_import_streams_the_upload_to_disk(client, paths, other, monkeypatch):
+    """The route hands the service an open file, not bytes."""
+    seen: list[str] = []
+    real = archive.import_archive_file
+
+    def spy(paths_, filename, fileobj):
+        seen.append(type(fileobj).__name__)
+        assert hasattr(fileobj, "read") and not isinstance(fileobj, bytes)
+        return real(paths_, filename, fileobj)
+
+    monkeypatch.setattr(archive, "import_archive_file", spy)
+    z = make_archive(other)
+    r = await import_archive(client, z)
+    assert r.status_code == 200 and z.name in r.text
+    assert seen and (paths.backups / z.name).is_file()
 
 
 async def test_import_without_a_file_is_refused(client):
@@ -186,17 +228,22 @@ async def test_restore_restarts_once_and_redirects(client, other, restarts):
     assert "skipped" in r.text.lower()
 
 
-async def test_restore_refuses_while_jobs_run(client, other, restarts, monkeypatch):
+async def test_restore_refuses_while_jobs_run(client, app, other, restarts, monkeypatch):
+    """The live job count reaches the service, which is what refuses the restore."""
     z = make_archive(other)
     assert (await import_archive(client, z)).status_code == 200
+    monkeypatch.setattr(app.state.runner, "active_ids", lambda: ["job-1", "job-2"])
+    seen: list[dict] = []
 
     def boom(*a, **k):
+        seen.append(k)
         raise archive.ArchiveError(archive.JOBS_RUNNING)
 
     monkeypatch.setattr(archive, "restore_replace", boom)
     r = await client.post(f"/system/backups/{z.name}/restore")
     assert r.status_code == 422
     assert archive.JOBS_RUNNING in r.text
+    assert [k["jobs_running"] for k in seen] == [2]
     assert restarts == []
 
 
@@ -219,7 +266,7 @@ async def test_preview_then_merge_then_nothing_new(client, other):
     r = await client.post(f"/system/backups/{z.name}/preview-merge")
     assert r.status_code == 200
     assert "Merge now" in r.text
-    assert "2" in r.text and "projects" in r.text.lower()
+    assert merge_row(r, "projects") == (2, 1, 0)  # alpha + beta are new, default is not
     assert z.name in r.text
 
     r = await client.post(f"/system/backups/{z.name}/merge")
@@ -229,6 +276,7 @@ async def test_preview_then_merge_then_nothing_new(client, other):
 
     r = await client.post(f"/system/backups/{z.name}/preview-merge")
     assert r.status_code == 200 and "Nothing new to merge." in r.text
+    assert merge_row(r, "projects") == (0, 3, 0)
     assert "disabled" in r.text
 
 

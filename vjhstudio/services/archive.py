@@ -336,15 +336,16 @@ def delete_archive(paths: Paths, name: str) -> bool:
     return True
 
 
-def import_archive(paths: Paths, filename: str, content: bytes) -> Path:
-    """Store an uploaded archive under a fresh, safe name. The bytes are validated
-    before they are given an archive name, so a stray upload never shows up in the list."""
+def _store_import(paths: Paths, filename: str, write) -> Path:
+    """Land an upload in a `.part` file beside the archives, validate it there and only
+    then give it an archive name, so a stray upload never shows up in the list. The
+    `.part` is removed on any failure, including a cancelled upload."""
     paths.backups.mkdir(parents=True, exist_ok=True)
     fd, raw = tempfile.mkstemp(dir=paths.backups, prefix="import-", suffix=".part")
     tmp = Path(raw)
     try:
         with os.fdopen(fd, "wb") as fh:
-            fh.write(content)
+            write(fh)
         manifest_of(tmp)
         base = PurePosixPath(filename or "").name
         wanted = base if _NAME_RE.match(base) else f"{ARCHIVE_PREFIX}{_stamp()}.zip"
@@ -354,6 +355,17 @@ def import_archive(paths: Paths, filename: str, content: bytes) -> Path:
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
+
+
+def import_archive(paths: Paths, filename: str, content: bytes) -> Path:
+    """Store an uploaded archive, given its bytes."""
+    return _store_import(paths, filename, lambda fh: fh.write(content))
+
+
+def import_archive_file(paths: Paths, filename: str, fileobj) -> Path:
+    """Store an uploaded archive, streamed from an open binary file: an archive with
+    outputs in it is measured in gigabytes and must never be held in memory whole."""
+    return _store_import(paths, filename, lambda fh: shutil.copyfileobj(fileobj, fh, COPY_CHUNK))
 
 
 # --- restore (replace) ------------------------------------------------------
@@ -812,6 +824,9 @@ def _merge_prompts(m: _Merge) -> None:
             # An archive older than the column carries "". `key` is what
             # `prompts.hash_of` makes of exactly these columns, so storing it here is
             # what lets the app's own `prompts.find_by_hash` see a merged row at all.
+            # A *stored* hash is copied over verbatim, even if it no longer matches the
+            # row: it is what the install that wrote the archive deduped by, and
+            # recomputing it here would split a pair of rows that were one over there.
             "content_hash": p.content_hash or key,
         }
         row = Prompt(**values)

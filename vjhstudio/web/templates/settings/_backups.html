@@ -5,7 +5,7 @@
   {% if backups_error %}<p class="error">{{ backups_error }}</p>{% endif %}
 
   <form id="backup-create-form" hx-post="/system/backup"
-        hx-target="#backups-panel" hx-swap="outerHTML">
+        hx-target="#backups-panel" hx-swap="outerHTML" hx-disabled-elt="find button">
     <label><input type="checkbox" name="uploads"> Include uploaded reference files</label>
     <label><input type="checkbox" name="outputs"> Include generated outputs (this can be large)</label>
     <button type="submit">Create backup</button>
@@ -31,7 +31,7 @@
                   hx-target="#backups-panel" hx-swap="outerHTML">Merge…</button>
           <button type="button" class="contrast"
                   hx-post="/system/backups/{{ b.name }}/restore"
-                  hx-target="#backups-panel" hx-swap="outerHTML"
+                  hx-target="#backups-panel" hx-swap="outerHTML" hx-disabled-elt="this"
                   hx-confirm="Restore replaces EVERYTHING in the current database and files with this backup. A safety copy is taken first. Continue?">Restore</button>
           <button type="button" class="secondary"
                   hx-delete="/system/backups/{{ b.name }}"
@@ -48,7 +48,7 @@
 
   <form id="backup-import-form" hx-post="/system/backups/import"
         hx-encoding="multipart/form-data" enctype="multipart/form-data"
-        hx-target="#backups-panel" hx-swap="outerHTML">
+        hx-target="#backups-panel" hx-swap="outerHTML" hx-disabled-elt="find button">
     <label>Import a backup file
       <input type="file" name="file" accept=".zip,application/zip" required>
     </label>

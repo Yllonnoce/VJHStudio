@@ -294,18 +294,43 @@ def backup_download(request: Request, name: str):
     return FileResponse(path, media_type="application/zip", filename=path.name)
 
 
+def _upload_size(request: Request, upload: UploadFile) -> int | None:
+    """The upload's size, or the whole body's as an upper bound when the part carries
+    no length of its own. None when neither is known."""
+    if upload.size is not None:
+        return upload.size
+    raw = request.headers.get("content-length")
+    return int(raw) if raw and raw.isdigit() else None
+
+
 @router.post("/system/backups/import")
 async def backup_import(request: Request):
-    """Multipart, so this one handler is async: the upload is read in the event loop
-    and only the (already in-memory) bytes go to the service."""
+    """Multipart, so this one handler is async: the body is parsed in the event loop
+    and the (possibly multi-gigabyte) upload is streamed to disk in a worker thread -
+    it is never read into memory in one piece."""
     _local_only(request)
     form = await request.form()
     upload = form.get("file")
     if not isinstance(upload, UploadFile):
         return _panel(request, error="Choose a backup file to import.", status=422)
-    content = await upload.read()
+    limit = archive.MAX_RESTORE_BYTES
+    size = _upload_size(request, upload)
+    if size is not None and size > limit:
+        return _panel(
+            request,
+            error=f"That file is {archive.human_size(size)}; the limit is "
+            f"{archive.human_size(limit)}. Copy it into the backups folder instead.",
+            status=422,
+        )
+    # Starlette's parser rewinds each part, but the import reads from the start either way.
+    await upload.seek(0)
     try:
-        dest = archive.import_archive(request.app.state.paths, upload.filename or "", content)
+        dest = await asyncio.to_thread(
+            archive.import_archive_file,
+            request.app.state.paths,
+            upload.filename or "",
+            upload.file,
+        )
     except (archive.ArchiveError, OSError) as e:
         return _panel(request, error=str(e), status=422)
     return _panel(request, message=f"Backup imported: {dest.name}")
@@ -324,8 +349,9 @@ def backup_delete(request: Request, name: str):
 
 
 def _active_jobs(request: Request) -> int:
-    runner = getattr(request.app.state, "runner", None)
-    return len(runner.active_ids()) if runner is not None else 0
+    """No `getattr` default: quietly reporting "nothing running" when the runner is
+    missing would let a restore replace the database under a live job."""
+    return len(request.app.state.runner.active_ids())
 
 
 @router.post("/system/backups/{name}/restore")
