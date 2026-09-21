@@ -6,7 +6,7 @@ from ... import db, secrets
 from ...services import account, catalog, maintenance
 from ...services import settings as settings_svc
 from .. import deps
-from .system import updates_context
+from .system import backups_context, updates_context
 
 router = APIRouter()
 
@@ -63,6 +63,7 @@ def settings_page(request: Request):
             **_key_ctx(request, balance=bal),
             **_maintenance_ctx(request),
             **updates_context(request),
+            **backups_context(request),
         },
     )
 

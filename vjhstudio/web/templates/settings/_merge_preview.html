@@ -1,0 +1,55 @@
+{# The dry run, in place of the panel. Cancel puts the panel back. #}
+<div id="backups-panel" class="merge-preview">
+  <h3>Merge preview</h3>
+  <p>
+    {{ name }}<br>
+    <small>
+      {% if created_at %}Made {{ created_at }} UTC{% endif %}
+      {% if archive_version %}by VJHStudio v{{ archive_version }}{% endif %}
+    </small>
+  </p>
+
+  <table class="merge-table">
+    <thead>
+      <tr><th>Table</th><th>New here</th><th>Already here</th><th>Files missing</th></tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>{{ r.label }}</td>
+        <td>{{ r.new }}</td>
+        <td>{{ r.existing }}</td>
+        <td>{{ r.missing_files }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if errors %}
+  <ul class="error">
+    {% for e in errors %}<li>{{ e }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+
+  {% if total_new %}
+  <p>
+    A merge only adds: anything already here is kept exactly as it is, and a safety copy
+    of the database is written first.
+    {% if total_missing_files %}
+      {{ total_missing_files }} row(s) point at a file this archive does not carry; they
+      will be marked as missing.
+    {% endif %}
+  </p>
+  {% else %}
+  <p>Nothing new to merge.</p>
+  {% endif %}
+
+  <div class="merge-actions">
+    <button type="button" hx-post="/system/backups/{{ name }}/merge"
+            hx-target="#backups-panel" hx-swap="outerHTML"
+            hx-confirm="Merge this backup into the current install? Nothing here is replaced or deleted."
+            {% if not total_new %}disabled{% endif %}>Merge now</button>
+    <button type="button" class="secondary" hx-get="/hx/system/backups"
+            hx-target="#backups-panel" hx-swap="outerHTML">Cancel</button>
+  </div>
+</div>

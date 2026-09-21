@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import os
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse
+from starlette.datastructures import UploadFile
 
 from ... import db
 from ...models import utcnow
-from ...services import gitinfo, update
+from ...services import archive, gitinfo, update
 from ...services import restart as restart_svc
 from .. import deps
 
@@ -159,3 +162,233 @@ def restarting(request: Request):
             "return_to": wanted,
         },
     )
+
+
+# --- backups ---------------------------------------------------------------
+
+BACKUPS_RETURN = "/restarting?return=/settings%23backups"
+
+# Only the tables worth a one-line summary in the archive table, in reading order.
+_SUMMARY_TABLES = ("projects", "prompts", "jobs", "outputs", "assets")
+
+_TABLE_LABELS = {
+    "projects": ("project", "projects"),
+    "catalog_models": ("model", "models"),
+    "assets": ("asset", "assets"),
+    "prompts": ("prompt", "prompts"),
+    "jobs": ("job", "jobs"),
+    "outputs": ("output", "outputs"),
+    "usage_entries": ("usage row", "usage rows"),
+}
+
+
+def _label(table: str, n: int) -> str:
+    names = _TABLE_LABELS.get(table, (table, table))
+    return f"{n} {names[0 if n == 1 else 1]}"
+
+
+def _counts_summary(counts: dict[str, int]) -> str:
+    parts = [_label(t, counts[t]) for t in _SUMMARY_TABLES if int(counts.get(t) or 0)]
+    return " · ".join(parts) if parts else "empty"
+
+
+def _archive_row(info: archive.ArchiveInfo) -> dict:
+    """One table row. The template gets strings only: formatting a size or a date in
+    Jinja would need a filter this app does not have."""
+    return {
+        "name": info.name,
+        "created": info.created_at.strftime("%Y-%m-%d %H:%M"),
+        "size": archive.human_size(info.size_bytes),
+        "includes": ", ".join(info.includes),
+        "counts": _counts_summary(info.counts),
+        "app_version": info.app_version,
+    }
+
+
+def _backups_ctx(request: Request, message: str = "", error: str = "") -> dict:
+    """Keys are prefixed so the Settings page can render this section beside the
+    Updates and Maintenance forms without their `message`/`error` colliding."""
+    paths = request.app.state.paths
+    return {
+        "paths": paths,
+        "backups": [_archive_row(a) for a in archive.list_archives(paths)],
+        "backups_message": message,
+        "backups_error": error,
+    }
+
+
+def backups_context(request: Request) -> dict:
+    """Public so the Settings page can render the section inline, like the Updates one."""
+    return _backups_ctx(request)
+
+
+def _panel(request: Request, message: str = "", error: str = "", status: int = 200):
+    return deps.render(
+        request, "settings/_backups.html", _backups_ctx(request, message, error), status
+    )
+
+
+def _archive_or_404(request: Request, name: str) -> Path:
+    try:
+        path = archive.archive_path(request.app.state.paths, name)
+    except archive.ArchiveError:
+        raise HTTPException(404, "no such backup") from None
+    if not path.is_file():
+        raise HTTPException(404, "no such backup")
+    return path
+
+
+@router.get("/hx/system/backups")
+def backups_panel(request: Request):
+    return _panel(request)
+
+
+@router.post("/system/backup")
+def backup_create(request: Request, form: deps.Form):
+    _local_only(request)
+    try:
+        dest = archive.create_archive(
+            request.app.state.boot.session_factory,
+            request.app.state.paths,
+            uploads=str(form.get("uploads", "")) == "on",
+            outputs=str(form.get("outputs", "")) == "on",
+        )
+    except (archive.ArchiveError, OSError) as e:
+        return _panel(request, error=f"The backup could not be written: {e}", status=422)
+    return _panel(request, message=f"Backup created: {dest.name}")
+
+
+@router.get("/system/backups/{name}/download")
+def backup_download(request: Request, name: str):
+    _local_only(request)
+    path = _archive_or_404(request, name)
+    return FileResponse(path, media_type="application/zip", filename=path.name)
+
+
+@router.post("/system/backups/import")
+async def backup_import(request: Request):
+    """Multipart, so this one handler is async: the upload is read in the event loop
+    and only the (already in-memory) bytes go to the service."""
+    _local_only(request)
+    form = await request.form()
+    upload = form.get("file")
+    if not isinstance(upload, UploadFile):
+        return _panel(request, error="Choose a backup file to import.", status=422)
+    content = await upload.read()
+    try:
+        dest = archive.import_archive(request.app.state.paths, upload.filename or "", content)
+    except (archive.ArchiveError, OSError) as e:
+        return _panel(request, error=str(e), status=422)
+    return _panel(request, message=f"Backup imported: {dest.name}")
+
+
+@router.delete("/system/backups/{name}")
+def backup_delete(request: Request, name: str):
+    _local_only(request)
+    try:
+        removed = archive.delete_archive(request.app.state.paths, name)
+    except archive.ArchiveError as e:
+        return _panel(request, error=str(e), status=422)
+    if not removed:
+        return _panel(request, error=f"That backup is already gone: {name}", status=422)
+    return _panel(request, message=f"Backup deleted: {name}")
+
+
+def _active_jobs(request: Request) -> int:
+    runner = getattr(request.app.state, "runner", None)
+    return len(runner.active_ids()) if runner is not None else 0
+
+
+@router.post("/system/backups/{name}/restore")
+def backup_restore(request: Request, name: str):
+    _local_only(request)
+    paths = request.app.state.paths
+    try:
+        result = archive.restore_replace(
+            paths,
+            archive.archive_path(paths, name),
+            engine=request.app.state.boot.engine,
+            jobs_running=_active_jobs(request),
+        )
+    except (archive.ArchiveError, OSError) as e:
+        return _panel(request, error=str(e), status=422)
+    # Exactly once: the whole database underneath this process has just been swapped.
+    restart_svc.request_restart()
+    response = deps.render(
+        request,
+        "settings/_restore_done.html",
+        {
+            "name": name,
+            "counts": _counts_summary(result.counts),
+            "skipped": len(result.skipped),
+            "outputs_root": result.outputs_root,
+            "safety_backup": result.safety_backup.name if result.safety_backup else "",
+            "missing": result.missing_outputs + result.missing_assets,
+        },
+    )
+    response.headers["HX-Redirect"] = BACKUPS_RETURN
+    return response
+
+
+def _merge_rows(report: archive.MergeReport) -> list[dict]:
+    return [
+        {
+            "table": t,
+            "label": _TABLE_LABELS[t][1],
+            "new": report.counts[t].new,
+            "existing": report.counts[t].existing,
+            "missing_files": report.counts[t].missing_files,
+        }
+        for t in archive.MERGE_TABLES
+    ]
+
+
+@router.post("/system/backups/{name}/preview-merge")
+def backup_preview_merge(request: Request, name: str):
+    _local_only(request)
+    paths = request.app.state.paths
+    try:
+        report = archive.preview_merge(
+            request.app.state.boot.session_factory, paths, archive.archive_path(paths, name)
+        )
+    except (archive.ArchiveError, OSError) as e:
+        return _panel(request, error=str(e), status=422)
+    return deps.render(
+        request,
+        "settings/_merge_preview.html",
+        {
+            "name": name,
+            "rows": _merge_rows(report),
+            "errors": report.errors,
+            "total_new": report.total_new,
+            "total_missing_files": report.total_missing_files,
+            "created_at": report.created_at[:19].replace("T", " "),
+            "archive_version": report.app_version,
+        },
+    )
+
+
+@router.post("/system/backups/{name}/merge")
+def backup_merge(request: Request, name: str):
+    _local_only(request)
+    paths = request.app.state.paths
+    try:
+        report = archive.merge(
+            request.app.state.boot.session_factory, paths, archive.archive_path(paths, name)
+        )
+    except archive.MergeError as e:
+        safety = ""
+        if e.safety_backup is not None:
+            safety = f" A safety backup was taken first: {e.safety_backup.name}."
+        return _panel(request, error=f"{e}{safety}", status=422)
+    except (archive.ArchiveError, OSError) as e:
+        return _panel(request, error=str(e), status=422)
+    message = archive.merge_summary(report)
+    if report.safety_backup is not None:
+        message += f" (safety backup: {report.safety_backup.name})"
+    if report.errors:
+        message += f" {len(report.errors)} note(s): " + "; ".join(report.errors[:3])
+    response = _panel(request, message=message)
+    # New projects, jobs and outputs: every counter in the chrome is now stale.
+    response.headers["HX-Trigger"] = "jobs-changed"
+    return response

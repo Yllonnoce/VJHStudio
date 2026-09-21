@@ -1,0 +1,15 @@
+{# The database under this process has just been replaced; HX-Redirect sends the
+   browser to /restarting, so this is only what it sees in the half-second before. #}
+<div id="backups-panel">
+  <p class="ok">Restored from {{ name }} — restarting…</p>
+  <p>
+    Now holding {{ counts }}.
+    {{ skipped }} archive member(s) were skipped as not ours.
+    {% if missing %}{{ missing }} record(s) have no file on disk.{% endif %}
+    <br><small>Outputs folder: {{ outputs_root }}</small>
+    {% if safety_backup %}<br><small>Previous database kept as {{ safety_backup }}</small>{% endif %}
+  </p>
+  <p><small>
+    Not moving? <a href="/restarting?return=/settings%23backups">Open the restart page.</a>
+  </small></p>
+</div>

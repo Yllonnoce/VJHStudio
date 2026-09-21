@@ -1,0 +1,58 @@
+{# Swapped whole (outerHTML) by every Backups action; the merge preview and the
+   restore notice reuse the same wrapper id so they stay addressable in turn. #}
+<div id="backups-panel">
+  {% if backups_message %}<p class="ok">{{ backups_message }}</p>{% endif %}
+  {% if backups_error %}<p class="error">{{ backups_error }}</p>{% endif %}
+
+  <form id="backup-create-form" hx-post="/system/backup"
+        hx-target="#backups-panel" hx-swap="outerHTML">
+    <label><input type="checkbox" name="uploads"> Include uploaded reference files</label>
+    <label><input type="checkbox" name="outputs"> Include generated outputs (this can be large)</label>
+    <button type="submit">Create backup</button>
+    <small>Archives are written to {{ paths.backups }}. An archive never contains your API key.</small>
+  </form>
+
+  {% if backups %}
+  <table class="backups-table">
+    <thead>
+      <tr><th>Backup</th><th>Created</th><th>Size</th><th>Contains</th><th>Actions</th></tr>
+    </thead>
+    <tbody>
+      {% for b in backups %}
+      <tr>
+        <td>{{ b.name }}{% if b.app_version %}<br><small>made by v{{ b.app_version }}</small>{% endif %}</td>
+        <td>{{ b.created }}</td>
+        <td>{{ b.size }}</td>
+        <td>{{ b.includes }}<br><small>{{ b.counts }}</small></td>
+        <td class="backup-actions">
+          <a href="/system/backups/{{ b.name }}/download" download role="button" class="secondary">Download</a>
+          <button type="button" class="secondary"
+                  hx-post="/system/backups/{{ b.name }}/preview-merge"
+                  hx-target="#backups-panel" hx-swap="outerHTML">Merge…</button>
+          <button type="button" class="contrast"
+                  hx-post="/system/backups/{{ b.name }}/restore"
+                  hx-target="#backups-panel" hx-swap="outerHTML"
+                  hx-confirm="Restore replaces EVERYTHING in the current database and files with this backup. A safety copy is taken first. Continue?">Restore</button>
+          <button type="button" class="secondary"
+                  hx-delete="/system/backups/{{ b.name }}"
+                  hx-target="#backups-panel" hx-swap="outerHTML"
+                  hx-confirm="Delete {{ b.name }}? The archive file is removed from disk.">Delete</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>No backups yet.</p>
+  {% endif %}
+
+  <form id="backup-import-form" hx-post="/system/backups/import"
+        hx-encoding="multipart/form-data" enctype="multipart/form-data"
+        hx-target="#backups-panel" hx-swap="outerHTML">
+    <label>Import a backup file
+      <input type="file" name="file" accept=".zip,application/zip" required>
+    </label>
+    <button type="submit" class="secondary">Import</button>
+    <small>An imported archive is only stored; restore or merge it afterwards.</small>
+  </form>
+</div>
