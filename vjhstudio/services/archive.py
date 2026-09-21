@@ -81,6 +81,15 @@ class ArchiveError(RuntimeError):
     pass
 
 
+class MergeError(ArchiveError):
+    """A merge that failed *after* its safety backup was taken, so the caller can say
+    where that backup is. It is an ArchiveError, so existing handlers still catch it."""
+
+    def __init__(self, message: str, safety_backup: Path | None = None):
+        super().__init__(message)
+        self.safety_backup = safety_backup
+
+
 @dataclass(frozen=True)
 class ArchiveInfo:
     path: Path
@@ -566,6 +575,9 @@ _LABELS = {
 }
 
 ORPHANED_MESSAGE = "This job was still in the queue when the backup was made."
+
+# Where one media file stands when the rows are written; see `_want`.
+_HERE, _QUEUED, _ABSENT = "here", "queued", "absent"
 BAD_ARCHIVE_DB = (
     "The archive's database could not be migrated to this version's schema; nothing was merged."
 )
@@ -607,14 +619,16 @@ class _Tally:
     missing_files: int = 0
 
 
-@dataclass(frozen=True)
+@dataclass
 class _Copy:
-    """One media file to lift out of the archive once the rows are in place."""
+    """One media file to lift out of the archive once the rows are committed."""
 
     member: str  # name inside the zip
     target: str  # destination name, same namespace (equal to member unless renamed)
     table: str | None = None  # None: an extra (sidecar/thumb); a failure is not counted
-    output: Output | None = None  # flagged is_missing when its file cannot be written
+    output: Output | None = None  # un-flagged is_missing once its file is on disk
+    ok: bool = False
+    error: str = ""
 
 
 @dataclass
@@ -647,20 +661,23 @@ def prompt_key(
     """The natural key two prompts are the same by: everything the prompt *says*, and
     nothing about how it is filed (title, project, favourite, use count, timestamps).
 
-    Phase 5 adds a stored `prompts.content_hash` column; on this branch the key is
-    computed on both sides of the merge instead, so the rule is identical either way.
+    This is byte-for-byte the formula main's Phase 5 uses for the stored
+    `prompts.content_hash` column:
+
+        sha256(json.dumps([kind, composed, final, negative, form_canonical],
+                          sort_keys=True, separators=(",", ":")))
+        form_canonical = {k: v for k, v in form.items() if v != ""}
+
+    An empty form field is dropped, so a prompt saved before a field existed hashes the
+    same as one where the user left it blank. The two branches must not drift: when the
+    column lands, `_prompt_key` reads it instead and this function goes away.
     """
+    form = form_json if isinstance(form_json, dict) else {}
+    canonical = {k: v for k, v in form.items() if v != ""}
     payload = json.dumps(
-        [
-            str(kind or ""),
-            str(composed_prompt or ""),
-            str(final_prompt or ""),
-            str(negative_prompt or ""),
-            form_json if isinstance(form_json, dict) else {},
-        ],
+        [kind, composed_prompt, final_prompt, negative_prompt, canonical],
         sort_keys=True,
         separators=(",", ":"),
-        default=str,
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -718,18 +735,23 @@ def _have_file(m: _Merge, member: str) -> Path | None:
         return None
 
 
-def _want(m: _Merge, member: str, target: str, *, table: str | None, output=None) -> bool:
-    """Queue one file copy. True when the file will be on disk after the merge - either
-    it is already there (never overwritten: a merge only adds) or the archive carries it."""
+def _want(m: _Merge, member: str, target: str, *, table: str | None, output=None) -> str:
+    """Queue one file copy and say where that file stands:
+
+    `_HERE`   - already on disk; a merge adds, so it is never overwritten.
+    `_QUEUED` - the archive carries it; it is copied after the rows are committed, and
+                the row it belongs to stays `is_missing` until that copy lands.
+    `_ABSENT` - the archive does not carry it and it is not here.
+    """
     dest = _have_file(m, target)
     if dest is None:
-        return False
+        return _ABSENT
     if dest.exists():
-        return True
+        return _HERE
     if member not in m.names:
-        return False
+        return _ABSENT
     m.copies.append(_Copy(member, target, table, output))
-    return True
+    return _QUEUED
 
 
 # --- merge: one function per table, in dependency order ---------------------
@@ -779,7 +801,7 @@ def _merge_assets(m: _Merge) -> None:
         by_sha.add(a.sha256)
         taken.add(filename)
         t.new += 1
-        if not _want(m, f"uploads/{a.filename}", f"uploads/{filename}", table="assets"):
+        if _want(m, f"uploads/{a.filename}", f"uploads/{filename}", table="assets") == _ABSENT:
             t.missing_files += 1
         thumb = f"thumbs/asset-{a.sha256[:12]}.jpg"
         _want(m, thumb, thumb, table=None)
@@ -865,14 +887,23 @@ def _merge_outputs(m: _Merge) -> None:
         m.session.flush()
         local.add(key)
         t.new += 1
-        member = OUTPUTS_PREFIX + (row.rel_path or "")
-        if _want(m, member, member, table="outputs", output=row):
-            row.is_missing = False
-        else:
+        if not row.rel_path:
+            # An empty path would resolve to the outputs root itself, which exists - so
+            # the row would claim a file that is really a directory.
+            m.errors.append(f"output {row.filename}: the archive records no file for it")
             row.is_missing = True
             t.missing_files += 1
-        sidecar = OUTPUTS_PREFIX + (row.sidecar_rel_path or "")
-        _want(m, sidecar, sidecar, table=None)
+        else:
+            member = OUTPUTS_PREFIX + row.rel_path
+            state = _want(m, member, member, table="outputs", output=row)
+            # Only a file that is already here is not missing *now*; a queued copy clears
+            # the flag after it lands, so a crash mid-copy never leaves a false promise.
+            row.is_missing = state != _HERE
+            if state == _ABSENT:
+                t.missing_files += 1
+        if row.sidecar_rel_path:
+            sidecar = OUTPUTS_PREFIX + row.sidecar_rel_path
+            _want(m, sidecar, sidecar, table=None)
         for extra in (row.thumb_rel_path, row.poster_rel_path):
             if extra:
                 name = extra if extra.startswith(EXTRACT_PREFIXES) else OUTPUTS_PREFIX + extra
@@ -929,23 +960,37 @@ def _incoming(zip_path: Path):
 
 
 def _run_copies(m: _Merge, zf: zipfile.ZipFile) -> None:
-    """Media, after the rows are in place. A file that cannot be written flags its row
-    missing inside the same transaction, so the database never claims a file that is not
-    there. Existing files are left alone: a merge adds, it never overwrites."""
+    """Media, after the rows are committed. No database work happens here: copying a
+    multi-GB outputs folder must not hold sqlite's write lock, and the rows are already
+    safe on disk. Existing files are left alone: a merge adds, it never overwrites."""
     for c in m.copies:
         try:
             target = _merge_target(m.paths, m.root, c.target)
             if not target.exists():
                 _stream_to(zf, c.member, target)
+            c.ok = True
         except (ArchiveError, OSError, KeyError) as e:
-            if c.table is None:
-                log.warning("merge could not copy %s: %s", c.member, e)
-                continue
-            m.errors.append(f"{c.member}: {e}")
-            m.tally[c.table].missing_files += 1
+            c.ok, c.error = False, str(e)
+
+
+def _settle(m: _Merge) -> None:
+    """A second, short transaction: every row whose file did land stops being missing.
+
+    Rows were committed as `is_missing` for anything still to be copied, so an interrupted
+    merge leaves rows that under-promise (flagged, file present) rather than rows that
+    lie. `outputs.mark_missing` clears those on the next sweep either way.
+    """
+    for c in m.copies:
+        if c.ok:
             if c.output is not None:
-                c.output.is_missing = True
-    m.session.flush()
+                c.output.is_missing = False
+            continue
+        if c.table is None:
+            log.warning("merge could not copy %s: %s", c.member, c.error)
+            continue
+        m.errors.append(f"{c.member}: {c.error}")
+        m.tally[c.table].missing_files += 1
+    m.session.commit()
 
 
 def _run_merge(
@@ -961,15 +1006,16 @@ def _run_merge(
     with zipfile.ZipFile(zip_path) as zf:
         _check_members(zf.infolist(), max_bytes)
 
-    safety: Path | None = None
-    if not dry_run and paths.db.exists():
-        paths.backups.mkdir(parents=True, exist_ok=True)
-        safety = backup.backup_db(paths, "pre-merge")
-        backup.rotate(paths, "pre-merge")
-
     tally = {t: _Tally() for t in MERGE_TABLES}
     errors: list[str] = []
+    safety: Path | None = None
+    # The safety backup comes *after* the archive's own database has been extracted and
+    # migrated: an archive we cannot read must not leave a pre-merge backup behind.
     with _incoming(zip_path) as (incoming, zf):
+        if not dry_run and paths.db.exists():
+            paths.backups.mkdir(parents=True, exist_ok=True)
+            safety = backup.backup_db(paths, "pre-merge")
+            backup.rotate(paths, "pre-merge")
         session = session_factory()
         try:
             m = _Merge(
@@ -993,10 +1039,16 @@ def _run_merge(
                 # only way the preview can promise the numbers the merge will produce.
                 session.rollback()
             else:
+                # Rows first, and only then the filesystem: the transaction ends before
+                # any directory is made or any media is copied.
+                session.commit()
                 for slug in m.new_slugs:
                     (m.root / slug).mkdir(parents=True, exist_ok=True)
                 _run_copies(m, zf)
-                session.commit()
+                _settle(m)
+        except Exception as e:
+            session.rollback()
+            raise MergeError(f"The merge failed: {e}", safety) from e
         except BaseException:
             session.rollback()
             raise

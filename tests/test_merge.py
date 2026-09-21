@@ -5,6 +5,7 @@ install that is merged into), so the union rules are exercised end to end agains
 real sqlite files and real media on disk. No network, no fixtures shared with the app.
 """
 
+import hashlib
 import io
 import json
 import sqlite3
@@ -550,3 +551,141 @@ def test_a_file_already_on_disk_is_not_missing_even_in_a_db_only_archive(make_in
     assert report.counts["outputs"].missing_files == 0
     with db.session_scope(b.factory) as s:
         assert s.query(models.Output).one().is_missing is False
+
+
+# --- fix round 1 ------------------------------------------------------------
+
+
+def test_prompt_key_is_the_apps_content_hash_formula():
+    """Pinned to the exact digest main's Phase 5 `prompts.content_hash` produces. If this
+    fails, the two branches have drifted and a merge would duplicate every prompt."""
+    form = {"subject": "a fox", "style": "", "mood": "calm", "lens": ""}
+    canonical = {k: v for k, v in form.items() if v != ""}
+    expected = hashlib.sha256(
+        json.dumps(
+            ["image", "a fox, calm", "a fox, calm, 8k", "blurry", canonical],
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    assert archive.prompt_key("image", "a fox, calm, 8k", "blurry", form, "a fox, calm") == expected
+
+
+def test_prompt_key_drops_empty_form_fields():
+    filled = archive.prompt_key("image", "a fox", "blurry", {"a": "1", "b": ""}, "a fox")
+    absent = archive.prompt_key("image", "a fox", "blurry", {"a": "1"}, "a fox")
+    assert filled == absent
+    assert archive.prompt_key("image", "a fox", "blurry", {"a": "1", "b": "x"}, "a fox") != absent
+
+
+def test_a_prompt_that_only_differs_by_an_empty_form_field_is_not_reimported(make_install):
+    _a, zip_path = seeded_source(make_install)
+    b = make_install("b")
+    pid = add_project(b, "alpha", "Alpha")
+    add_prompt(b, pid, "Mine", form={**FORM, "lens": ""})  # a blank the archive never had
+    report = archive.merge(b.factory, b.paths, zip_path)
+    assert report.counts["prompts"].existing == 1 and report.counts["prompts"].new == 1
+
+
+def test_media_copies_run_after_the_commit(make_install, monkeypatch):
+    """The rows survive a copy that fails, and the row stays flagged missing."""
+    _a, zip_path = seeded_source(make_install)
+    b = make_install("b")
+    real = archive._stream_to
+    visible: list[list[str]] = []
+
+    def refuse_outputs(zf, member, target):
+        name = member if isinstance(member, str) else member.filename
+        if name.startswith((archive.OUTPUTS_PREFIX, "uploads/")):
+            # Read the live database from a *separate* connection: rows committed by the
+            # merge are visible here only because the transaction has already closed.
+            visible.append(slugs_on_disk(b.paths))
+        if name.startswith(archive.OUTPUTS_PREFIX):
+            raise OSError("no space left on device")
+        return real(zf, member, target)
+
+    monkeypatch.setattr(archive, "_stream_to", refuse_outputs)
+    report = archive.merge(b.factory, b.paths, zip_path)
+
+    assert visible and all("alpha" in seen for seen in visible)  # committed before copying
+    assert report.counts["outputs"].new == 1  # committed despite the failed copy
+    assert report.counts["outputs"].missing_files == 1
+    assert any("no space left" in e for e in report.errors)
+    assert not (b.root() / "alpha" / "out-a1.png").exists()
+    with db.session_scope(b.factory) as s:
+        assert s.query(models.Output).one().is_missing is True
+        assert s.query(models.Asset).count() == 1  # the uploads copy still went through
+    assert (b.paths.uploads / _only_asset(b).filename).is_file()
+
+
+def slugs_on_disk(paths) -> list[str]:
+    """Project slugs as another process would see them right now."""
+    conn = sqlite3.connect(paths.db)
+    try:
+        return sorted(r[0] for r in conn.execute("SELECT slug FROM projects"))
+    finally:
+        conn.close()
+
+
+def _only_asset(inst: Install):
+    with db.session_scope(inst.factory) as s:
+        return s.query(models.Asset).one()
+
+
+def test_a_successful_merge_clears_is_missing_after_the_copies(make_install):
+    _a, zip_path = seeded_source(make_install)
+    b = make_install("b")
+    report = archive.merge(b.factory, b.paths, zip_path)
+    assert report.counts["outputs"].missing_files == 0
+    assert (b.root() / "alpha" / "out-a1.png").is_file()
+    with db.session_scope(b.factory) as s:
+        assert s.query(models.Output).one().is_missing is False
+
+
+def test_an_unreadable_archive_database_writes_no_safety_backup(make_install):
+    _a, zip_path = seeded_source(make_install)
+    broken = patched_archive(zip_path, "UPDATE alembic_version SET version_num = 'nope'")
+    b = make_install("b")
+    before = b.counts()
+    with pytest.raises(archive.ArchiveError):
+        archive.merge(b.factory, b.paths, broken)
+    assert not list(b.paths.backups.glob("vjh-*-pre-merge.db"))
+    assert b.counts() == before
+
+
+def test_an_output_with_no_recorded_file_is_flagged_missing(make_install):
+    _a, zip_path = seeded_source(make_install)
+    empty = patched_archive(zip_path, "UPDATE outputs SET rel_path = ''")
+    b = make_install("b")
+    report = archive.merge(b.factory, b.paths, empty)
+    assert report.counts["outputs"].new == 1
+    assert report.counts["outputs"].missing_files == 1
+    assert any("records no file" in e for e in report.errors)
+    with db.session_scope(b.factory) as s:
+        assert s.query(models.Output).one().is_missing is True
+
+
+def test_a_failure_after_the_backup_names_it(make_install, monkeypatch):
+    _a, zip_path = seeded_source(make_install)
+    b = make_install("b")
+
+    def boom(_m):
+        raise RuntimeError("usage exploded")
+
+    monkeypatch.setattr(archive, "_merge_usage", boom)
+    with pytest.raises(archive.MergeError) as excinfo:
+        archive.merge(b.factory, b.paths, zip_path)
+    assert excinfo.value.safety_backup is not None
+    assert excinfo.value.safety_backup.exists()
+    assert "usage exploded" in str(excinfo.value)
+    with db.session_scope(b.factory) as s:
+        assert s.query(models.Project).filter_by(slug="alpha").count() == 0  # rolled back
+
+
+def test_new_project_directories_are_made_only_by_a_real_merge(make_install):
+    _a, zip_path = seeded_source(make_install)
+    b = make_install("b")
+    archive.preview_merge(b.factory, b.paths, zip_path)
+    assert not (b.root() / "alpha").exists()
+    archive.merge(b.factory, b.paths, zip_path)
+    assert (b.root() / "alpha").is_dir()

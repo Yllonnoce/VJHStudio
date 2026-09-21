@@ -252,6 +252,10 @@ def cmd_merge(paths: config.Paths, zip_path: Path, *, yes: bool) -> int:
             report = archive.merge(info.session_factory, paths, zip_path)
         except failures as e:
             print(str(e), file=sys.stderr)
+            # A merge that got far enough to take one leaves the database recoverable.
+            safety = getattr(e, "safety_backup", None)
+            if safety is not None:
+                print(f"safety backup: {safety}", file=sys.stderr)
             return 1
         if report.safety_backup is not None:
             print(f"safety backup: {report.safety_backup}")

@@ -413,3 +413,18 @@ def test_restore_command_reports_skipped_members(tmp_path, monkeypatch, capsys):
     assert "skipped 1 member(s)" in out and "secrets/api_key" in out
     assert "outputs root:" in out
     assert paths.api_key_file.read_text(encoding="utf-8") == "real"
+
+
+def test_restore_merge_failure_prints_the_safety_backup(tmp_path, monkeypatch, capsys):
+    paths, zip_path = _seeded_archive(tmp_path, monkeypatch)
+    safety = tmp_path / "backups" / "vjh-20260920-000000-pre-merge.db"
+
+    def boom(*_a, **_k):
+        raise archive.MergeError("The merge failed: nope", safety)
+
+    monkeypatch.setattr(archive, "merge", boom)
+    assert main.main(["restore", str(zip_path), "--merge", "--yes"]) == 1
+    err = capsys.readouterr().err
+    assert "The merge failed: nope" in err
+    assert f"safety backup: {safety}" in err
+    assert _slugs(paths) == ["default"]
