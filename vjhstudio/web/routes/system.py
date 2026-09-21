@@ -19,6 +19,18 @@ router = APIRouter()
 
 RESTART_RETURN = "/settings#updates"
 
+# A restore or a merge swaps the database file under this process, and a failed
+# update puts its own pre-update copy back. Running the two at the same time loses
+# one of them, so each refuses while the other is in flight.
+_restore_lock = threading.Lock()
+
+UPDATE_BUSY = "An update is running. Wait for it to finish."
+RESTORE_BUSY = "A restore or merge is running. Wait for it to finish."
+
+
+def _update_running() -> bool:
+    return bool(update.STATE.snapshot()["running"])
+
 
 @router.get("/api/health")
 async def health(request: Request):
@@ -121,8 +133,14 @@ async def update_check(request: Request):
 @router.post("/system/update")
 def update_now(request: Request):
     _local_only(request)
+    if _restore_lock.locked():
+        ctx = {"update_state": update.STATE.snapshot(), "conflict": RESTORE_BUSY}
+        return deps.render(request, "settings/_update_log.html", ctx, 409)
     started = update.start_update(request.app.state.paths)
-    ctx = {"update_state": update.STATE.snapshot(), "conflict": not started}
+    ctx = {
+        "update_state": update.STATE.snapshot(),
+        "conflict": "" if started else "An update is already running.",
+    }
     return deps.render(request, "settings/_update_log.html", ctx, 200 if started else 409)
 
 
@@ -137,23 +155,6 @@ def update_dismiss(request: Request):
     )
 
 
-# The log is polled once a second and every poll lands in the threadpool, so two of
-# them can be inside this function at the same time. Read-and-claim therefore happens
-# under a lock: without it both would see "not restarted yet" and re-exec the app twice.
-_restart_lock = threading.Lock()
-
-
-def _claim_restart(request: Request) -> bool:
-    """True for the first caller that finishes this particular run, False after."""
-    state = request.app.state
-    with _restart_lock:
-        token = (id(update.STATE), getattr(update.STATE, "started_at", None))
-        if getattr(state, "update_restart_token", None) == token:
-            return False
-        state.update_restart_token = token
-        return True
-
-
 @router.get("/hx/system/update-log")
 def update_log(request: Request):
     snap = update.STATE.snapshot()
@@ -162,7 +163,10 @@ def update_log(request: Request):
     # hostile page: only htmx's own poll (HX-Request) may finish the run. The CSRF
     # middleware cannot help here, it guards the unsafe methods only.
     if deps.is_hx(request) and not snap["running"] and snap["ok"]:
-        if _claim_restart(request):
+        # The worker normally claims the restart the moment the run ends; this is
+        # the fallback for a run whose worker did not (or could not) get there.
+        # UpdateState.claim_restart is atomic, so only one of them ever re-execs.
+        if update.STATE.claim_restart():
             restart_svc.request_restart()
         response.headers["HX-Redirect"] = "/restarting"
     return response
@@ -357,32 +361,39 @@ def _active_jobs(request: Request) -> int:
 @router.post("/system/backups/{name}/restore")
 def backup_restore(request: Request, name: str):
     _local_only(request)
-    paths = request.app.state.paths
+    if _update_running():
+        return _panel(request, error=UPDATE_BUSY, status=409)
+    if not _restore_lock.acquire(blocking=False):
+        return _panel(request, error=RESTORE_BUSY, status=409)
     try:
-        result = archive.restore_replace(
-            paths,
-            archive.archive_path(paths, name),
-            engine=request.app.state.boot.engine,
-            jobs_running=_active_jobs(request),
+        paths = request.app.state.paths
+        try:
+            result = archive.restore_replace(
+                paths,
+                archive.archive_path(paths, name),
+                engine=request.app.state.boot.engine,
+                jobs_running=_active_jobs(request),
+            )
+        except (archive.ArchiveError, OSError) as e:
+            return _panel(request, error=str(e), status=422)
+        # Exactly once: the whole database underneath this process was just swapped.
+        restart_svc.request_restart()
+        response = deps.render(
+            request,
+            "settings/_restore_done.html",
+            {
+                "name": name,
+                "counts": _counts_summary(result.counts),
+                "skipped": len(result.skipped),
+                "outputs_root": result.outputs_root,
+                "safety_backup": result.safety_backup.name if result.safety_backup else "",
+                "missing": result.missing_outputs + result.missing_assets,
+            },
         )
-    except (archive.ArchiveError, OSError) as e:
-        return _panel(request, error=str(e), status=422)
-    # Exactly once: the whole database underneath this process has just been swapped.
-    restart_svc.request_restart()
-    response = deps.render(
-        request,
-        "settings/_restore_done.html",
-        {
-            "name": name,
-            "counts": _counts_summary(result.counts),
-            "skipped": len(result.skipped),
-            "outputs_root": result.outputs_root,
-            "safety_backup": result.safety_backup.name if result.safety_backup else "",
-            "missing": result.missing_outputs + result.missing_assets,
-        },
-    )
-    response.headers["HX-Redirect"] = BACKUPS_RETURN
-    return response
+        response.headers["HX-Redirect"] = BACKUPS_RETURN
+        return response
+    finally:
+        _restore_lock.release()
 
 
 def _merge_rows(report: archive.MergeReport) -> list[dict]:
@@ -401,6 +412,8 @@ def _merge_rows(report: archive.MergeReport) -> list[dict]:
 @router.post("/system/backups/{name}/preview-merge")
 def backup_preview_merge(request: Request, name: str):
     _local_only(request)
+    if _update_running():
+        return _panel(request, error=UPDATE_BUSY, status=409)
     paths = request.app.state.paths
     try:
         report = archive.preview_merge(
@@ -426,24 +439,31 @@ def backup_preview_merge(request: Request, name: str):
 @router.post("/system/backups/{name}/merge")
 def backup_merge(request: Request, name: str):
     _local_only(request)
-    paths = request.app.state.paths
+    if _update_running():
+        return _panel(request, error=UPDATE_BUSY, status=409)
+    if not _restore_lock.acquire(blocking=False):
+        return _panel(request, error=RESTORE_BUSY, status=409)
     try:
-        report = archive.merge(
-            request.app.state.boot.session_factory, paths, archive.archive_path(paths, name)
-        )
-    except archive.MergeError as e:
-        safety = ""
-        if e.safety_backup is not None:
-            safety = f" A safety backup was taken first: {e.safety_backup.name}."
-        return _panel(request, error=f"{e}{safety}", status=422)
-    except (archive.ArchiveError, OSError) as e:
-        return _panel(request, error=str(e), status=422)
-    message = archive.merge_summary(report)
-    if report.safety_backup is not None:
-        message += f" (safety backup: {report.safety_backup.name})"
-    if report.errors:
-        message += f" {len(report.errors)} note(s): " + "; ".join(report.errors[:3])
-    response = _panel(request, message=message)
-    # New projects, jobs and outputs: every counter in the chrome is now stale.
-    response.headers["HX-Trigger"] = "jobs-changed"
-    return response
+        paths = request.app.state.paths
+        try:
+            report = archive.merge(
+                request.app.state.boot.session_factory, paths, archive.archive_path(paths, name)
+            )
+        except archive.MergeError as e:
+            safety = ""
+            if e.safety_backup is not None:
+                safety = f" A safety backup was taken first: {e.safety_backup.name}."
+            return _panel(request, error=f"{e}{safety}", status=422)
+        except (archive.ArchiveError, OSError) as e:
+            return _panel(request, error=str(e), status=422)
+        message = archive.merge_summary(report)
+        if report.safety_backup is not None:
+            message += f" (safety backup: {report.safety_backup.name})"
+        if report.errors:
+            message += f" {len(report.errors)} note(s): " + "; ".join(report.errors[:3])
+        response = _panel(request, message=message)
+        # New projects, jobs and outputs: every counter in the chrome is now stale.
+        response.headers["HX-Trigger"] = "jobs-changed"
+        return response
+    finally:
+        _restore_lock.release()

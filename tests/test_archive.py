@@ -708,3 +708,32 @@ def test_the_default_expanded_size_cap_is_generous(env):
     engine.dispose()
     assert archive.MAX_RESTORE_BYTES == 20 * 1024**3
     archive.restore_replace(paths, dest)  # nowhere near the cap
+
+
+def test_archive_packs_an_output_poster(env):
+    """A video's poster frame is a real file like the thumbnail; leaving it out of the
+    zip makes every restored video come back without its still."""
+    paths, factory, _ = env
+    seed_media(paths, factory)
+    with db.session_scope(factory) as s:
+        root = projects.root_for(s, paths)
+        (root / "default" / "out-1-poster.jpg").write_bytes(_png())
+        s.query(models.Output).one().poster_rel_path = "default/out-1-poster.jpg"
+    names = _names(archive.create_archive(factory, paths, uploads=True, outputs=True))
+    assert "outputs/default/out-1-poster.jpg" in names
+
+    # A poster stored beside the thumbnails keeps its own data-relative name.
+    (paths.thumbs / "poster-1.jpg").write_bytes(_png())
+    with db.session_scope(factory) as s:
+        s.query(models.Output).one().poster_rel_path = "thumbs/poster-1.jpg"
+    names = _names(archive.create_archive(factory, paths, uploads=True, outputs=True))
+    assert "thumbs/poster-1.jpg" in names
+
+
+def test_archive_skips_a_poster_whose_file_is_gone(env):
+    paths, factory, _ = env
+    seed_media(paths, factory)
+    with db.session_scope(factory) as s:
+        s.query(models.Output).one().poster_rel_path = "default/never-written.jpg"
+    names = _names(archive.create_archive(factory, paths, uploads=True, outputs=True))
+    assert not any("never-written" in n for n in names)

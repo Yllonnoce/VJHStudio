@@ -193,10 +193,18 @@ def _media_members(
                 src = outputs_svc.contained(root, rel)
                 if src is not None and src.is_file():
                     members[OUTPUTS_PREFIX + rel] = src
-            if o.thumb_rel_path:
-                src = outputs_svc.contained(paths.data, o.thumb_rel_path)
+            # A thumbnail lives under the data dir ("thumbs/x.jpg"); a video poster
+            # may sit beside its video instead, so each one is placed by its prefix,
+            # exactly as the merge side reads them back.
+            for extra in (o.thumb_rel_path, o.poster_rel_path):
+                if not extra:
+                    continue
+                if extra.startswith(EXTRACT_PREFIXES):
+                    name, src = extra, outputs_svc.contained(paths.data, extra)
+                else:
+                    name, src = OUTPUTS_PREFIX + extra, outputs_svc.contained(root, extra)
                 if src is not None and src.is_file():
-                    members[o.thumb_rel_path] = src
+                    members[name] = src
     return sorted(members.items())
 
 
@@ -925,7 +933,11 @@ def _merge_usage(m: _Merge) -> None:
     has its usage, and importing it again would double the spend history."""
     t = m.tally["usage_entries"]
     for u in m.incoming.execute(select(UsageEntry).order_by(UsageEntry.id)).scalars():
-        if u.job_id is not None and u.job_id in m.new_job_ids:
+        if u.job_id is None:
+            # Nothing to match it against, so it is neither new nor already here.
+            # Counting it as "existing" claimed spend history we do not have.
+            continue
+        if u.job_id in m.new_job_ids:
             values = {
                 **_values(u, exclude=("id",)),
                 "project_id": m.project_ids.get(u.project_id),

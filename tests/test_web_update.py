@@ -418,3 +418,36 @@ async def test_non_local_peer_cannot_start_an_update(app, monkeypatch):
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
             r = await c.post("/system/update")
     assert r.status_code == 403
+
+
+async def test_the_log_does_not_restart_again_when_the_worker_already_did(client, monkeypatch):
+    """The worker asks for the restart as soon as the run ends, so the poll that
+    arrives afterwards only redirects the browser to the waiting page."""
+    st = _state([("Downloading update", "", True)], running=False, ok=True, message="done")
+    assert st.claim_restart() is True  # this is the worker's claim
+    monkeypatch.setattr(update_svc, "STATE", st)
+    fired = []
+    monkeypatch.setattr(
+        system_routes.restart_svc, "request_restart", lambda: fired.append("restart")
+    )
+    r = await client.get("/hx/system/update-log", headers=HX)
+    assert r.status_code == 200
+    assert r.headers["HX-Redirect"] == "/restarting"
+    assert fired == []
+
+
+async def test_update_is_refused_while_a_restore_runs(client, monkeypatch, git_install):
+    """A restore swaps the database file; an update's rollback would put its own
+    pre-update copy back over it."""
+    started: list = []
+    monkeypatch.setattr(
+        update_svc, "start_update", lambda paths, *a, **kw: bool(started.append(paths) or True)
+    )
+    with system_routes._restore_lock:
+        r = await client.post("/system/update")
+    assert r.status_code == 409
+    assert system_routes.RESTORE_BUSY in r.text
+    assert started == []
+    # …and it starts normally once the restore is done.
+    r = await client.post("/system/update")
+    assert r.status_code == 200 and len(started) == 1

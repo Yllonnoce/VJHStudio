@@ -462,3 +462,22 @@ def test_restore_merge_failure_prints_the_safety_backup(tmp_path, monkeypatch, c
     assert "The merge failed: nope" in err
     assert f"safety backup: {safety}" in err
     assert _slugs(paths) == ["default"]
+
+
+def test_update_command_never_re_execs_after_a_successful_update(tmp_path, monkeypatch, capsys):
+    """Only the web worker restarts itself; a terminal run just prints the hint."""
+    monkeypatch.setenv("VJHSTUDIO_DATA_DIR", str(tmp_path))
+    fired = []
+    monkeypatch.setattr(restart, "request_restart", lambda *a, **k: fired.append("restart"))
+
+    def succeeded(state, _paths, **kwargs):
+        assert kwargs == {"restart_on_restore": False}
+        state.add("Database migration")
+        state.message = "Update complete — restarting VJHStudio."
+        state.finish(True)
+        return True
+
+    monkeypatch.setattr(update, "run_update", succeeded)
+    assert main.main(["update"]) == 0
+    assert fired == []
+    assert "Restart VJHStudio to run the new version." in capsys.readouterr().out

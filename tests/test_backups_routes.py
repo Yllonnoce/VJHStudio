@@ -322,3 +322,35 @@ async def test_merge_dedupes_prompts_by_their_stored_hash(client, app, other):
         row = rows[0]
         assert row.content_hash == wanted == prompts.hash_of(row)
         assert prompts.find_by_hash(s, row.project_id, prompts.hash_of(row)) is not None
+
+
+# --- restore/update exclusion ------------------------------------------------
+
+
+@pytest.fixture
+def update_running(monkeypatch):
+    """Make the shared update state look like a run in flight."""
+    from vjhstudio.services import update as update_svc
+
+    snap = {"running": True, "ok": None, "message": "", "steps": []}
+    monkeypatch.setattr(update_svc.STATE, "snapshot", lambda: dict(snap))
+
+
+async def test_restore_is_refused_while_an_update_runs(client, other, restarts, update_running):
+    z = make_archive(other)
+    assert (await import_archive(client, z)).status_code == 200
+    r = await client.post(f"/system/backups/{z.name}/restore")
+    assert r.status_code == 409
+    assert "An update is running" in r.text
+    assert restarts == []
+
+
+async def test_merge_and_its_preview_are_refused_while_an_update_runs(
+    client, other, update_running
+):
+    z = make_archive(other)
+    assert (await import_archive(client, z)).status_code == 200
+    for verb in ("merge", "preview-merge"):
+        r = await client.post(f"/system/backups/{z.name}/{verb}")
+        assert r.status_code == 409, verb
+        assert "An update is running" in r.text, verb

@@ -718,3 +718,21 @@ def test_new_project_directories_are_made_only_by_a_real_merge(make_install):
     assert not (b.root() / "alpha").exists()
     archive.merge(b.factory, b.paths, zip_path)
     assert (b.root() / "alpha").is_dir()
+
+
+def test_usage_without_a_job_is_skipped_and_not_counted_as_existing(make_install):
+    """A usage row with no job cannot be matched either way. Counting it as
+    "existing" told the user their spend history was already here when it was not."""
+    a = make_install("a")
+    pid = add_project(a, "alpha", "Alpha")
+    add_job(a, "job-a1", pid)
+    add_usage(a, "job-a1", pid)
+    add_usage(a, None, pid)  # an entry with no job: unmatchable
+    zip_path = archive.create_archive(a.factory, a.paths)
+
+    b = make_install("b")
+    report = archive.merge(b.factory, b.paths, zip_path)
+    assert report.counts["usage_entries"].new == 1
+    assert report.counts["usage_entries"].existing == 0
+    with db.session_scope(b.factory) as s:
+        assert s.query(models.UsageEntry).count() == 1

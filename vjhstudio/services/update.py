@@ -13,8 +13,11 @@ Return codes are trusted here: nothing in this app reaps child processes
 (unlike ScenePlay's ops/app_update.py). Output text is only read to *classify*
 a git failure as "this machine is not logged in" versus anything else.
 
-Restarting is the caller's job (CLI prints a hint, the web route restarts) so
-that a test — or a background check — can never kill the process.
+`run_update` itself never restarts: a test — or a background check — must never
+be able to kill the process. The background worker started by `start_update`
+does restart after a successful run (sharing one claim with the web log poll, so
+it happens exactly once); the CLI calls `run_update` directly and only prints a
+hint.
 """
 
 from __future__ import annotations
@@ -65,8 +68,9 @@ AUTH_MARKERS = (
 RESTORE_STEP = "Database restored from the safety backup"
 RESTART_STEP = "Restarting to load the restored database"
 
-# https://user:token@host -> https://***@host ; git echoes the remote URL on a failure.
-CREDENTIAL_RE = re.compile(r"://[^/\s:@]+:[^/\s@]+@")
+# https://user:token@host (and https://token@host) -> https://***@host ; git echoes
+# the remote URL back on a failure, and a token is often the whole userinfo part.
+CREDENTIAL_RE = re.compile(r"://[^/\s@]+@")
 
 PULL_TIMEOUT = 300
 SYNC_TIMEOUT = 900
@@ -187,6 +191,7 @@ class UpdateState:
         self.started_at: datetime | None = None
         self.finished_at: datetime | None = None
         self.message: str = ""
+        self._restart_claimed: bool = False
 
     def begin(self) -> bool:
         """Claim the state for a new run. False when one is already in flight."""
@@ -199,6 +204,19 @@ class UpdateState:
             self.started_at = utcnow()
             self.finished_at = None
             self.message = ""
+            self._restart_claimed = False
+            return True
+
+    def claim_restart(self) -> bool:
+        """True for the first caller of this run, False for every caller after it.
+
+        The worker asks for the restart as soon as a run succeeds, and every log
+        poll asks too (the run may have finished before this code shipped). Both
+        go through this one claim, so the app is only ever re-execed once."""
+        with self._lock:
+            if self._restart_claimed:
+                return False
+            self._restart_claimed = True
             return True
 
     def finish(self, ok: bool) -> None:
@@ -217,6 +235,7 @@ class UpdateState:
             self.started_at = None
             self.finished_at = None
             self.message = ""
+            self._restart_claimed = False
             return True
 
     def add(self, title: str, detail: str = "", ok: bool = True) -> Step:
@@ -420,29 +439,44 @@ def _chmod_scripts(state: UpdateState, repo: Path) -> None:
         state.add("Launcher scripts made executable", ", ".join(fixed))
 
 
-def _worker(state: UpdateState, paths: Paths, restart_on_restore: bool) -> None:
+def _worker(
+    state: UpdateState, paths: Paths, restart_on_restore: bool, restart_after: bool
+) -> None:
     # run_update closes the state itself. Finishing again here would let a late
     # thread clobber the *next* run's state, so the only finish on this path is
     # the one that covers a run_update that never returned at all.
     try:
-        run_update(state, paths, restart_on_restore=restart_on_restore)
+        ok = run_update(state, paths, restart_on_restore=restart_on_restore)
     except BaseException as e:
         log.exception("update thread crashed")
         state.add("Update failed", str(e), ok=False)
         state.finish(False)
         raise
+    # The new code is on disk but this process is still running the old one, and
+    # nobody may have the log open. The claim is shared with the log poll, so
+    # whichever of the two gets here first is the only one that re-execs.
+    if ok and restart_after and state.claim_restart():
+        restart.request_restart()
 
 
 def start_update(
-    paths: Paths, state: UpdateState | None = None, restart_on_restore: bool = True
+    paths: Paths,
+    state: UpdateState | None = None,
+    restart_on_restore: bool = True,
+    restart_after: bool | None = None,
 ) -> bool:
-    """Start an update in the background. False when one is already running."""
+    """Start an update in the background. False when one is already running.
+
+    `restart_after` (the restart on a *successful* run) defaults to
+    `restart_on_restore`: a caller that owns the restart after a rollback owns
+    the one after a success too."""
     state = STATE if state is None else state
+    restart_after = restart_on_restore if restart_after is None else restart_after
     if not state.begin():
         return False
     threading.Thread(
         target=_worker,
-        args=(state, paths, restart_on_restore),
+        args=(state, paths, restart_on_restore, restart_after),
         daemon=True,
         name="vjh-update",
     ).start()

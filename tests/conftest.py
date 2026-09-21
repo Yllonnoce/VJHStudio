@@ -6,7 +6,24 @@ from PIL import Image
 
 from tests.fakes.fake_runware import FakeRunware, fake_factory
 from vjhstudio import config
+from vjhstudio.services import restart as restart_svc
 from vjhstudio.web.app import create_app
+
+
+@pytest.fixture(autouse=True, scope="session")
+def never_really_exit():
+    """Nothing in the suite may re-exec or kill the pytest process.
+
+    A successful update asks for a restart from its own worker thread, and a daemon
+    thread can outlive the test that started it — long enough for monkeypatch to have
+    put the real `request_restart` back. Blanking the two calls that actually leave
+    the process is the backstop. test_restart.py patches these per test and still
+    observes its own calls."""
+    real_execv, real_exit = restart_svc._execv, restart_svc._exit
+    restart_svc._execv = lambda argv: None
+    restart_svc._exit = lambda code: None
+    yield
+    restart_svc._execv, restart_svc._exit = real_execv, real_exit
 
 
 @pytest.fixture

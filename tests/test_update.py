@@ -291,6 +291,7 @@ def test_run_update_skips_the_restart_when_the_caller_owns_it(git_repo, paths, m
 
 
 def test_start_update_threads_the_restart_flag(paths, monkeypatch):
+    restart_spy(monkeypatch)  # the worker restarts after a successful run
     seen: list[dict] = []
 
     def fake(state, _paths, **kwargs):
@@ -409,6 +410,7 @@ def test_run_update_never_pops_a_pre_existing_stash(git_repo, paths, monkeypatch
 
 
 def test_start_update_refuses_a_second_run(paths, monkeypatch):
+    restart_spy(monkeypatch)  # the worker restarts after a successful run
     gate = threading.Event()
 
     def slow(state, _paths, **_kwargs):
@@ -436,6 +438,7 @@ def test_start_update_refuses_a_second_run(paths, monkeypatch):
 def test_start_update_runs_again_after_a_finished_run(paths, monkeypatch):
     """The worker must not finish a state twice: a late finish from run 1 would
     reopen — or close — run 2's log."""
+    restart_spy(monkeypatch)  # the worker restarts after a successful run
     runs: list[int] = []
 
     def quick(state, _paths, **_kwargs):
@@ -505,3 +508,109 @@ def test_read_notice_defaults_on_an_empty_database(paths):
     with db.session_scope(factory) as s:
         notice = update.read_notice(s)
     assert notice == update.Notice(0, [], "", "")
+
+
+def test_redact_hides_a_token_only_credential():
+    """A personal access token is often the whole userinfo part, with no colon in it."""
+    out = update.redact(
+        "fatal: unable to access 'https://ghp_supersecret@github.com/x/y.git/': 403"
+    )
+    assert "ghp_supersecret" not in out
+    assert "https://***@github.com/x/y.git/" in out
+    # The colon form still goes, and an ordinary URL is still left alone.
+    assert update.redact("https://eric:pw@github.com/x") == "https://***@github.com/x"
+    assert update.redact("https://github.com/x/y.git") == "https://github.com/x/y.git"
+
+
+# --- the restart claim -----------------------------------------------------
+
+
+def test_claim_restart_is_won_by_exactly_one_caller():
+    """The worker and every log poll race for it; two re-execs would be very bad."""
+    state = update.UpdateState()
+    state.begin()
+    state.finish(True)
+    wins: list[int] = []
+    gate = threading.Barrier(8)
+
+    def go():
+        gate.wait(5)
+        if state.claim_restart():
+            wins.append(1)
+
+    threads = [threading.Thread(target=go) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(5)
+    assert wins == [1]
+    assert state.claim_restart() is False
+    assert state.begin() is True  # a new run gets a fresh claim
+    assert state.claim_restart() is True
+
+
+def test_worker_restarts_after_a_successful_run(paths, monkeypatch):
+    """Nobody may have the log open: the new code is on disk but this process is
+    still running the old one, so the worker itself asks for the restart."""
+    fired = restart_spy(monkeypatch)
+
+    def succeeded(state, _paths, **_kwargs):
+        state.add("Database migration")
+        state.finish(True)
+        return True
+
+    monkeypatch.setattr(update, "run_update", succeeded)
+    state = update.UpdateState()
+    assert update.start_update(paths, state) is True
+    assert wait_until(lambda: not state.running and fired == ["restart"])
+    assert fired == ["restart"]
+    assert state.claim_restart() is False  # the run's one claim is spent
+
+
+def test_worker_restart_and_a_log_poll_never_fire_twice(paths, monkeypatch):
+    fired = restart_spy(monkeypatch)
+    polls: list[bool] = []
+
+    def succeeded(state, _paths, **_kwargs):
+        state.finish(True)
+        # A browser poll lands the instant the run is marked finished.
+        polls.append(state.claim_restart())
+        return True
+
+    monkeypatch.setattr(update, "run_update", succeeded)
+    state = update.UpdateState()
+    assert update.start_update(paths, state) is True
+    assert wait_until(lambda: not state.running and len(polls) == 1)
+    assert polls == [True]
+    assert fired == []  # the poll won the claim, so the worker stood down
+
+
+def test_worker_never_restarts_a_failed_run(paths, monkeypatch):
+    fired = restart_spy(monkeypatch)
+
+    def failed(state, _paths, **_kwargs):
+        state.add("Downloading update", "fatal", ok=False)
+        state.finish(False)
+        return False
+
+    monkeypatch.setattr(update, "run_update", failed)
+    state = update.UpdateState()
+    assert update.start_update(paths, state) is True
+    assert wait_until(lambda: not state.running)
+    assert fired == []
+    assert state.claim_restart() is True  # nothing claimed it
+
+
+def test_worker_does_not_restart_when_the_caller_owns_the_restart(paths, monkeypatch):
+    """The flag the CLI-style caller passes turns the worker's restart off too."""
+    fired = restart_spy(monkeypatch)
+
+    def succeeded(state, _paths, **_kwargs):
+        state.finish(True)
+        return True
+
+    monkeypatch.setattr(update, "run_update", succeeded)
+    state = update.UpdateState()
+    assert update.start_update(paths, state, restart_on_restore=False) is True
+    assert wait_until(lambda: not state.running)
+    assert fired == []
