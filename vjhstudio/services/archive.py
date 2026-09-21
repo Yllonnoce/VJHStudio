@@ -45,6 +45,7 @@ from ..models import (
 )
 from . import backup, migrate, projects
 from . import outputs as outputs_svc
+from . import settings as settings_svc
 
 log = logging.getLogger(__name__)
 
@@ -56,6 +57,15 @@ OUTPUTS_PREFIX = "outputs/"
 NOT_AN_ARCHIVE = "not a VJHStudio backup"
 JOBS_RUNNING = "Stop the running jobs first: a restore replaces the whole database."
 COPY_CHUNK = 1024 * 1024
+
+# The only member prefixes a restore may write. Anything else in the zip - `secrets/`,
+# `backups/`, a stray `vjh.db-wal`, a directory a future version adds - is reported and
+# skipped, so an archive can never drop a file into a part of the data dir it does not own.
+EXTRACT_PREFIXES = ("uploads/", "thumbs/", OUTPUTS_PREFIX)
+
+# Cumulative *expanded* size a restore will accept, so a zip bomb runs out of patience
+# rather than out of disk. Overridable per call for tests and for a smaller host.
+MAX_RESTORE_BYTES = 20 * 1024**3
 
 # Row counts recorded in the manifest. `settings`/`app_meta` are deliberately absent:
 # they are never a thing the user exports or merges (they travel inside the db only).
@@ -83,14 +93,16 @@ class ArchiveInfo:
 
 @dataclass(frozen=True)
 class RestoreResult:
-    """What a replace-restore did. ``restart_required`` is a flag for the caller:
-    this service never restarts the process itself (a route or the CLI decides)."""
+    """What a replace-restore did. The caller always restarts afterwards - the whole
+    database underneath the running process has been swapped - so there is no flag to
+    consult; this service simply never exits by itself."""
 
     safety_backup: Path | None
     counts: dict[str, int]
     missing_outputs: int
     missing_assets: int
-    restart_required: bool = True
+    skipped: list[str]
+    outputs_root: Path
 
 
 # --- helpers ----------------------------------------------------------------
@@ -326,9 +338,11 @@ def import_archive(paths: Paths, filename: str, content: bytes) -> Path:
 # --- restore (replace) ------------------------------------------------------
 
 
-def _check_members(names: list[str]) -> None:
-    """Refuse a zip whose member names could write outside the data directory."""
-    for raw in names:
+def _check_members(infos: list[zipfile.ZipInfo], max_bytes: int) -> None:
+    """Refuse a zip whose members could write outside the data dir or fill the disk."""
+    total = 0
+    for info in infos:
+        raw = info.filename
         name = raw.rstrip("/")
         if not name:
             continue
@@ -336,6 +350,35 @@ def _check_members(names: list[str]) -> None:
         # Windows, so both are refused outright; VJHStudio never writes either.
         if "\\" in raw or ":" in raw or ".." in PurePosixPath(name).parts or name.startswith("/"):
             raise ArchiveError(f"archive member escapes the data directory: {raw!r}")
+        total += max(info.file_size, 0)
+        if total > max_bytes:
+            raise ArchiveError(
+                f"archive expands to more than {max_bytes} bytes; refusing to restore it"
+            )
+
+
+def _restore_root(session: Session, paths: Paths) -> Path:
+    """The outputs root this restore may write into.
+
+    ``paths.outputs_dir`` lives in the *restored* database, which is untrusted input: an
+    archive could point it at any directory on this machine. A root that does not resolve
+    under the data dir is refused and the setting is reset to the default, so that the
+    extraction and the app that reads those rows afterwards agree on one place.
+    """
+    configured = projects.root_for(session, paths)
+    try:
+        if configured.resolve().is_relative_to(paths.data.resolve()):
+            return configured
+    except OSError:
+        pass
+    log.warning(
+        "restored paths.outputs_dir %s is outside %s; restoring into %s instead",
+        configured,
+        paths.data,
+        paths.outputs,
+    )
+    settings_svc.set_many(session, {"paths.outputs_dir": ""})
+    return paths.outputs
 
 
 def _target(paths: Paths, root: Path, name: str) -> Path:
@@ -351,17 +394,44 @@ def _target(paths: Paths, root: Path, name: str) -> Path:
     return target
 
 
-def _stream_to(zf: zipfile.ZipFile, member: str | zipfile.ZipInfo, target: Path) -> None:
-    """Write one member through a .part file so a crash cannot leave a torn file."""
+def _swap(target: Path, write) -> None:
+    """Write through a `.part` file and `os.replace` it into place, so an interrupted
+    write can never leave a torn file where a whole one used to be."""
     target.parent.mkdir(parents=True, exist_ok=True)
     part = target.with_name(target.name + ".part")
     try:
-        with zf.open(member) as src, part.open("wb") as dst:
-            shutil.copyfileobj(src, dst, COPY_CHUNK)
+        with part.open("wb") as dst:
+            write(dst)
         os.replace(part, target)
     except BaseException:
         part.unlink(missing_ok=True)
         raise
+
+
+def _stream_to(zf: zipfile.ZipFile, member: str | zipfile.ZipInfo, target: Path) -> None:
+    def write(dst):
+        with zf.open(member) as src:
+            shutil.copyfileobj(src, dst, COPY_CHUNK)
+
+    _swap(target, write)
+
+
+def _copy_to(src: Path, target: Path) -> None:
+    def write(dst):
+        with src.open("rb") as fh:
+            shutil.copyfileobj(fh, dst, COPY_CHUNK)
+
+    _swap(target, write)
+
+
+def _put_back(paths: Paths, safety: Path | None) -> None:
+    """Undo the database swap after a failed upgrade, through the same swap routine."""
+    for suffix in ("-wal", "-shm"):
+        paths.db.with_name(paths.db.name + suffix).unlink(missing_ok=True)
+    if safety is not None and safety.exists():
+        _copy_to(safety, paths.db)
+    else:
+        paths.db.unlink(missing_ok=True)
 
 
 def _missing_assets(session: Session, paths: Paths) -> int:
@@ -379,13 +449,14 @@ def restore_replace(
     *,
     engine: Engine | None = None,
     jobs_running: int = 0,
+    max_bytes: int = MAX_RESTORE_BYTES,
 ) -> RestoreResult:
     """Replace the whole data directory with an archive's contents.
 
     Order: refuse while work is in flight -> validate the zip -> safety backup ->
-    swap `vjh.db` -> `alembic upgrade head` (the archive may be older) -> extract media
-    -> flag rows whose files are absent. The caller restarts the process when
-    ``restart_required`` says so; this service never exits.
+    swap `vjh.db` -> `alembic upgrade head` (the archive may be older; a failure puts the
+    safety backup back) -> extract the media members only -> re-sync the `is_missing`
+    flags. The caller restarts afterwards; this service never exits by itself.
     """
     zip_path = Path(zip_path)
     if int(jobs_running) > 0 or running_jobs(paths) > 0:
@@ -393,7 +464,7 @@ def restore_replace(
 
     manifest_of(zip_path)  # ArchiveError unless it is really one of ours
     with zipfile.ZipFile(zip_path) as zf:
-        _check_members(zf.namelist())
+        _check_members(zf.infolist(), max_bytes)
 
     paths.data.mkdir(parents=True, exist_ok=True)
     paths.backups.mkdir(parents=True, exist_ok=True)
@@ -410,22 +481,49 @@ def restore_replace(
     with zipfile.ZipFile(zip_path) as zf:
         _stream_to(zf, DB_NAME, paths.db)
 
-    migrate.upgrade(paths.db)  # raises MigrationFailed
+    try:
+        migrate.upgrade(paths.db)
+    except Exception as e:
+        # A half-migrated restore is worse than no restore: put the old database back
+        # before anything else touches it, and say where it came from.
+        _put_back(paths, safety)
+        where = (
+            f" The previous database was put back from {safety}."
+            if safety is not None
+            else " There was no database to put back, so the restored one was removed."
+        )
+        raise ArchiveError(f"The restored database could not be migrated.{where}") from e
 
+    skipped: list[str] = []
     fresh = db_mod.make_engine(paths.db)
     try:
         factory = db_mod.make_session_factory(fresh)
-        # The outputs root can be redirected by a setting, and the setting we must
-        # honour is the restored one - so it is read after the db is in place.
+        # The outputs root comes from the *restored* db, so it is validated before use.
         with db_mod.session_scope(factory) as s:
-            root = projects.root_for(s, paths)
+            root = _restore_root(s, paths)
         with zipfile.ZipFile(zip_path) as zf:
             for info in zf.infolist():
-                if info.is_dir() or info.filename in (MANIFEST, DB_NAME):
+                name = info.filename
+                if info.is_dir() or name in (MANIFEST, DB_NAME):
                     continue
-                _stream_to(zf, info, _target(paths, root, info.filename))
+                if not name.startswith(EXTRACT_PREFIXES):
+                    skipped.append(name)
+                    continue
+                _stream_to(zf, info, _target(paths, root, name))
+        if skipped:
+            log.warning(
+                "restore skipped %d member(s) outside %s: %s",
+                len(skipped),
+                ", ".join(EXTRACT_PREFIXES),
+                ", ".join(skipped[:10]),
+            )
         with db_mod.session_scope(factory) as s:
-            missing_outputs = outputs_svc.mark_missing(s, paths)
+            outputs_svc.mark_missing(s, paths)
+            missing_outputs = int(
+                s.execute(
+                    select(func.count()).select_from(Output).where(Output.is_missing.is_(True))
+                ).scalar_one()
+            )
             missing_assets = _missing_assets(s, paths)
             counts = _counts(s)
     finally:
@@ -436,5 +534,6 @@ def restore_replace(
         counts=counts,
         missing_outputs=missing_outputs,
         missing_assets=missing_assets,
-        restart_required=True,
+        skipped=skipped,
+        outputs_root=root,
     )

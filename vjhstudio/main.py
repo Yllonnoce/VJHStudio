@@ -240,13 +240,17 @@ def cmd_restore(args: argparse.Namespace) -> int:
     if result.safety_backup is not None:
         print(f"safety backup: {result.safety_backup}")
     print("restored: " + ", ".join(f"{k}={v}" for k, v in sorted(result.counts.items())))
+    print(f"outputs root: {result.outputs_root}")
     if result.missing_outputs or result.missing_assets:
         print(
             f"files not in the archive: {result.missing_outputs} outputs "
             f"(marked missing), {result.missing_assets} assets"
         )
-    if result.restart_required:
-        print("Restart VJHStudio to use the restored data.")
+    if result.skipped:
+        print(f"skipped {len(result.skipped)} member(s) a restore does not own:")
+        for name in result.skipped[:10]:
+            print(f"  - {name}")
+    print("Restart VJHStudio to use the restored data.")
     return 0
 
 

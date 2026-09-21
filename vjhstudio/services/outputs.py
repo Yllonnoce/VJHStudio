@@ -297,12 +297,21 @@ def remix_request(output: Output) -> dict:
 
 
 def mark_missing(session: Session, paths: Paths) -> int:
+    """Re-sync every row's ``is_missing`` flag with the disk, both ways.
+
+    Clearing matters as much as setting: a restore puts files back underneath rows that
+    were flagged long ago, and a row left flagged would hide a file that is there.
+    Returns the number of rows *newly* flagged missing.
+    """
     root = projects.root_for(session, paths)
     n = 0
-    for o in session.execute(select(Output).where(Output.is_missing.is_(False))).scalars():
+    for o in session.execute(select(Output)).scalars():
         path = contained(root, o.rel_path)
-        if path is None or not path.exists():  # escaping rows count as missing, never as files
+        gone = path is None or not path.exists()  # escaping rows count as missing, never as files
+        if gone and not o.is_missing:
             o.is_missing = True
             n += 1
+        elif not gone and o.is_missing:
+            o.is_missing = False
     session.flush()
     return n

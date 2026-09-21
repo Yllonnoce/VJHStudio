@@ -243,7 +243,7 @@ def test_restore_replace_round_trip(env, tmp_path):
 
     result = archive.restore_replace(paths, dest)
 
-    assert result.restart_required is True
+    assert result.skipped == [] and result.outputs_root == root
     assert result.safety_backup is not None and result.safety_backup.exists()
     assert result.safety_backup.name.startswith("vjh-")
     assert result.safety_backup.name.endswith("-pre-restore.db")
@@ -492,3 +492,195 @@ def test_restore_overwrites_an_existing_media_file(env):
     assert (root / "default" / "out-1.png").read_bytes() != b"garbage"
     assert (paths.uploads / info["asset_filename"]).exists()
     assert os.path.getsize(root / "default" / "out-1.png") > 0
+
+
+# --- review fixes -----------------------------------------------------------
+
+
+def _rezip(source_zip, extra: dict[str, bytes], dest):
+    """A copy of `source_zip` with extra members bolted on."""
+    with zipfile.ZipFile(source_zip) as src, zipfile.ZipFile(dest, "w") as zf:
+        for info in src.infolist():
+            zf.writestr(info.filename, src.read(info.filename))
+        for name, data in extra.items():
+            zf.writestr(name, data)
+    return dest
+
+
+def test_restore_writes_only_media_members(env, tmp_path):
+    paths, factory, engine = env
+    seed_media(paths, factory)
+    good = archive.create_archive(factory, paths, uploads=True, outputs=True)
+    evil = _rezip(
+        good,
+        {
+            "secrets/api_key": "stolen-key",
+            "vjh.db-wal": b"stale wal",
+            "backups/vjh-19700101-000000-manual.db": b"junk",
+            "install.json": b"{}",
+        },
+        tmp_path / f"{archive.ARCHIVE_PREFIX}20990301-000000.zip",
+    )
+    paths.api_key_file.write_text("real-key", encoding="utf-8")
+    engine.dispose()
+
+    result = archive.restore_replace(paths, evil)
+
+    assert paths.api_key_file.read_text(encoding="utf-8") == "real-key"
+    assert not paths.db.with_name(paths.db.name + "-wal").exists()
+    assert not (paths.backups / "vjh-19700101-000000-manual.db").exists()
+    assert not (paths.data / "install.json").exists()
+    assert sorted(result.skipped) == [
+        "backups/vjh-19700101-000000-manual.db",
+        "install.json",
+        "secrets/api_key",
+        "vjh.db-wal",
+    ]
+    # the media members it does own still arrived
+    assert (paths.outputs / "default" / "out-1.png").exists()
+
+
+def test_restore_with_nothing_skipped_reports_an_empty_list(env):
+    paths, factory, engine = env
+    seed_media(paths, factory)
+    dest = archive.create_archive(factory, paths, uploads=True, outputs=True)
+    engine.dispose()
+    assert archive.restore_replace(paths, dest).skipped == []
+
+
+def test_restore_ignores_an_outputs_root_outside_the_data_dir(env, tmp_path):
+    """The restored `paths.outputs_dir` is untrusted: an archive must not be able to
+    write into an arbitrary directory by shipping a settings row."""
+    from vjhstudio.services import settings as settings_svc
+
+    paths, factory, engine = env
+    outside = tmp_path / "outside"
+    (outside / "default").mkdir(parents=True)
+    with db.session_scope(factory) as s:
+        settings_svc.set_many(s, {"paths.outputs_dir": str(outside)})
+    seed_media(paths, factory)
+    dest = archive.create_archive(factory, paths, outputs=True)
+    engine.dispose()
+    for f in (outside / "default").iterdir():
+        f.unlink()
+
+    result = archive.restore_replace(paths, dest)
+
+    assert result.outputs_root == paths.outputs
+    assert (paths.outputs / "default" / "out-1.png").exists()
+    assert not (outside / "default" / "out-1.png").exists()
+    # and the poisoned setting is reset, so the app agrees with where the files went
+    fresh = db.make_engine(paths.db)
+    try:
+        f2 = db.make_session_factory(fresh)
+        with db.session_scope(f2) as s:
+            assert projects.root_for(s, paths) == paths.outputs
+            assert s.query(models.Output).one().is_missing is False
+    finally:
+        fresh.dispose()
+
+
+def test_restore_keeps_an_outputs_root_inside_the_data_dir(env):
+    from vjhstudio.services import settings as settings_svc
+
+    paths, factory, engine = env
+    inside = paths.data / "media"
+    (inside / "default").mkdir(parents=True)
+    with db.session_scope(factory) as s:
+        settings_svc.set_many(s, {"paths.outputs_dir": str(inside)})
+    seed_media(paths, factory)
+    dest = archive.create_archive(factory, paths, outputs=True)
+    engine.dispose()
+    (inside / "default" / "out-1.png").unlink()
+
+    result = archive.restore_replace(paths, dest)
+    assert result.outputs_root == inside
+    assert (inside / "default" / "out-1.png").exists()
+
+
+def test_restore_clears_is_missing_when_the_file_comes_back(env):
+    paths, factory, engine = env
+    seed_media(paths, factory)
+    with db.session_scope(factory) as s:
+        s.query(models.Output).one().is_missing = True
+    dest = archive.create_archive(factory, paths, outputs=True)
+    engine.dispose()
+    result = archive.restore_replace(paths, dest)
+    assert result.missing_outputs == 0
+    fresh = db.make_engine(paths.db)
+    try:
+        f2 = db.make_session_factory(fresh)
+        with db.session_scope(f2) as s:
+            assert s.query(models.Output).one().is_missing is False
+    finally:
+        fresh.dispose()
+
+
+def test_failed_upgrade_puts_the_safety_backup_back(env, monkeypatch):
+    paths, factory, engine = env
+    with db.session_scope(factory) as s:
+        s.add(models.Project(name="Only In The Archive", slug="archived-only"))
+    dest = archive.create_archive(factory, paths)
+    with db.session_scope(factory) as s:
+        s.query(models.Project).filter_by(slug="archived-only").delete()
+    engine.dispose()
+    before = paths.db.read_bytes()
+
+    def boom(*_a, **_k):
+        raise migrate.MigrationFailed("nope")
+
+    monkeypatch.setattr(archive.migrate, "upgrade", boom)
+    with pytest.raises(archive.ArchiveError) as e:
+        archive.restore_replace(paths, dest)
+
+    safety = next(paths.backups.glob("vjh-*-pre-restore.db"))
+    assert safety.name in str(e.value)
+    assert "could not be migrated" in str(e.value)
+    # the live database is the one we had, not the archived one
+    fresh = db.make_engine(paths.db)
+    try:
+        f2 = db.make_session_factory(fresh)
+        with db.session_scope(f2) as s:
+            assert s.query(models.Project).filter_by(slug="archived-only").count() == 0
+            assert s.query(models.Project).filter_by(slug="default").count() == 1
+    finally:
+        fresh.dispose()
+    assert len(paths.db.read_bytes()) == len(before)
+    assert not paths.db.with_name(paths.db.name + "-wal").exists()
+
+
+def test_failed_upgrade_without_a_previous_database(env, monkeypatch):
+    paths, factory, engine = env
+    dest = archive.create_archive(factory, paths)
+    engine.dispose()
+    paths.db.unlink()
+
+    def boom(*_a, **_k):
+        raise migrate.MigrationFailed("nope")
+
+    monkeypatch.setattr(archive.migrate, "upgrade", boom)
+    with pytest.raises(archive.ArchiveError) as e:
+        archive.restore_replace(paths, dest)
+    assert "no database to put back" in str(e.value)
+    assert not paths.db.exists()
+
+
+def test_restore_refuses_an_archive_that_expands_too_far(env):
+    paths, factory, engine = env
+    seed_media(paths, factory)
+    dest = archive.create_archive(factory, paths, uploads=True, outputs=True)
+    engine.dispose()
+    before = paths.db.read_bytes()
+    with pytest.raises(archive.ArchiveError) as e:
+        archive.restore_replace(paths, dest, max_bytes=1)
+    assert "expands to more than" in str(e.value)
+    assert paths.db.read_bytes() == before
+    assert list(paths.backups.glob("*-pre-restore.db")) == []
+
+
+def test_the_default_expanded_size_cap_is_generous(env):
+    paths, factory, engine = env
+    dest = archive.create_archive(factory, paths)
+    engine.dispose()
+    assert archive.MAX_RESTORE_BYTES == 20 * 1024**3
+    archive.restore_replace(paths, dest)  # nowhere near the cap

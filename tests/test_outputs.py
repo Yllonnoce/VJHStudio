@@ -171,3 +171,18 @@ def test_paths_outside_the_outputs_root_are_refused(env):
         assert s.get(models.Output, o.id).is_missing is True
         assert outputs.delete(s, paths, o.id) is True
     assert paths.db.exists()
+
+
+def test_mark_missing_clears_the_flag_when_the_file_is_back(env):
+    """A restore puts files back under rows flagged long ago; the sweep must unflag them."""
+    paths, f, pid = env
+    with db.session_scope(f) as s:
+        row = outputs.gallery(s)[0][0]
+        path = outputs.abs_path(paths, row)
+        content = path.read_bytes()
+        path.unlink()
+        assert outputs.mark_missing(s, paths) == 1
+        assert s.get(models.Output, row.id).is_missing is True
+        path.write_bytes(content)
+        assert outputs.mark_missing(s, paths) == 0
+        assert s.get(models.Output, row.id).is_missing is False

@@ -364,3 +364,20 @@ def test_human_size():
     assert main.human_size(512) == "512 B"
     assert main.human_size(2048) == "2.0 KB"
     assert main.human_size(5 * 1024 * 1024) == "5.0 MB"
+
+
+def test_restore_command_reports_skipped_members(tmp_path, monkeypatch, capsys):
+    import zipfile
+
+    paths, zip_path = _seeded_archive(tmp_path, monkeypatch)
+    evil = tmp_path / "vjhstudio-backup-20990401-000000.zip"
+    with zipfile.ZipFile(zip_path) as src, zipfile.ZipFile(evil, "w") as zf:
+        for info in src.infolist():
+            zf.writestr(info.filename, src.read(info.filename))
+        zf.writestr("secrets/api_key", "stolen")
+    paths.api_key_file.write_text("real", encoding="utf-8")
+    assert main.main(["restore", str(evil), "--yes"]) == 0
+    out = capsys.readouterr().out
+    assert "skipped 1 member(s)" in out and "secrets/api_key" in out
+    assert "outputs root:" in out
+    assert paths.api_key_file.read_text(encoding="utf-8") == "real"
