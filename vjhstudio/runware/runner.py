@@ -16,6 +16,12 @@ from .results import TaskResult, parse_items
 MAX_ATTEMPTS = 5
 PROTECTED = ("taskType", "taskUUID", "model", "positivePrompt")
 _UNSUPPORTED = re.compile(r"unsupported use of '?([A-Za-z0-9_.]+)'? parameter", re.I)
+# The fallback contract is about *unsupported* parameters only. RunWare reports an
+# out-of-range value ("Invalid value for 'height' parameter…") with the same
+# ``validation`` code and a populated ``.parameter``; dropping that field would delete a
+# required input, retry blindly and finally fail with a misleading cause, so every
+# message that does not say "unsupported" must surface as-is.
+_UNSUPPORTED_HINT = re.compile(r"unsupported", re.I)
 _BACKOFF = {"rateLimit": [2, 5, 15], "connection": [1, 3, 8], "serverError": [5]}
 
 
@@ -43,9 +49,12 @@ def _find_path(task: dict, name: str) -> str | None:
 
 
 def rejected_field(err: BaseException, task: dict) -> str | None:
+    message = getattr(err, "message", None) or str(err)
+    if not _UNSUPPORTED_HINT.search(message):
+        return None
     cand = getattr(err, "parameter", None)
     if not cand:
-        m = _UNSUPPORTED.search(getattr(err, "message", None) or str(err))
+        m = _UNSUPPORTED.search(message)
         cand = m.group(1) if m else None
     if not cand:
         return None
