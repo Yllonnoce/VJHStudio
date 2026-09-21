@@ -80,10 +80,20 @@ def build_image_task(
 
 
 # ---- video ---------------------------------------------------------------
-def resolution_wh(resolution: str) -> tuple[int, int]:
-    """A preset name -> pixels. Unknown names fall back to 720p: the API is always sent
+def resolution_wh(resolution: str, video: dict | None = None) -> tuple[int, int]:
+    """A preset name -> pixels. A curated ``video.dims`` entry wins over ``RESOLUTIONS``:
+    LTX-2.3 only accepts dimensions that are multiples of 64, so its 720p is 1280x704
+    while Veo's stays 1280x720. Unknown names fall back to 720p: the API is always sent
     width/height, never the preset string, so a stray value must still be renderable."""
-    return RESOLUTIONS.get((resolution or "").strip().lower(), RESOLUTIONS[DEFAULT_RESOLUTION])
+    key = (resolution or "").strip().lower()
+    dims = (video or {}).get("dims")
+    if isinstance(dims, dict):
+        for name, pair in dims.items():
+            if str(name).strip().lower() != key:
+                continue
+            if isinstance(pair, (list, tuple)) and len(pair) == 2:
+                return int(pair[0]), int(pair[1])
+    return RESOLUTIONS.get(key, RESOLUTIONS[DEFAULT_RESOLUTION])
 
 
 def provider_key(air: str) -> str:
@@ -110,7 +120,7 @@ def build_video_task(
     durations and frame rates the provider will actually accept."""
     video = dict(((model_row or {}).get("tiers") or {}).get("video") or {})
     duration = nearest(req.duration, video.get("durations") or [])
-    width, height = resolution_wh(req.resolution)
+    width, height = resolution_wh(req.resolution, video)
     task: dict = {
         "taskType": "videoInference",
         "taskUUID": task_uuid,

@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "models": [
     {"air": "runware:101@1", "slug": "bfl-flux-1-dev", "name": "FLUX.1 [dev]", "kind": "image", "creator": "black-forest-labs", "architecture": "flux-1-dev",
      "capabilities": ["io:text-to-image", "io:image-to-image"], "defaults": {"width": 1024, "height": 1024, "steps": 28, "cfg": 3.5},
@@ -28,7 +28,9 @@
      "video": {"durations": [2, 5, 8, 10, 15], "resolutions": ["720p", "1080p"], "frame_roles": ["first", "last"]}},
     {"air": "lightricks:ltx@2.3", "slug": "lightricks-ltx-2-3", "name": "LTX-2.3", "kind": "video", "creator": "lightricks", "architecture": "ltx",
      "capabilities": ["io:text-to-video", "io:image-to-video"], "price": {"unit": "per_second", "primary": 0.04, "tiers": {"rates": [{"amount": 0.04, "unit": "durationSecond", "label": "720p"}, {"amount": 0.08, "unit": "durationSecond", "label": "1080p"}]}},
-     "video": {"durations": [3, 5, 8, 10], "resolutions": ["720p", "1080p"], "fps": [24, 25, 30], "frame_roles": ["first", "last"]}},
+     "video": {"durations": [3, 5, 8, 10], "resolutions": ["720p", "1080p"],
+               "dims": {"720p": [1280, 704], "1080p": [1920, 1088]},
+               "fps": [24, 25, 30], "frame_roles": ["first", "last"]}},
     {"air": "anthropic:claude@sonnet-4.6", "slug": "anthropic-claude-sonnet-4-6", "name": "Claude Sonnet 4.6", "kind": "text", "creator": "anthropic", "architecture": "claude",
      "capabilities": ["io:text-to-text"], "price": {"unit": "per_1m_tokens", "primary": 18.0, "price_in": 3.0, "price_out": 15.0, "tiers": {}}},
     {"air": "google:gemini@3.5-flash", "slug": "google-gemini-3-5-flash", "name": "Gemini 3.5 Flash", "kind": "text", "creator": "google", "architecture": "gemini",

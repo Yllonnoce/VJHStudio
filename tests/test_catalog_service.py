@@ -27,9 +27,39 @@ def test_seed_curated_is_idempotent_and_versioned(factory):
         n1 = catalog.seed_curated(s)
         n2 = catalog.seed_curated(s)
         assert n1 >= 10 and n2 == 0
-        assert meta.get(s, catalog.SEED_VERSION_KEY) == "1"
+        assert meta.get(s, catalog.SEED_VERSION_KEY) == "2"
         flux = catalog.get_by_air(s, "runware:101@1")
         assert flux.kind == "image" and flux.price_primary == 0.0038 and flux.source == "curated"
+
+
+def test_curated_video_dims_reach_the_tier_block(factory):
+    """LTX-2.3's multiples-of-64 dimensions have to survive upsert_row into
+    ``price_tiers_json["video"]`` and out again through ``catalog.view``, which is what
+    ``build_video_task`` reads."""
+    with db.session_scope(factory) as s:
+        catalog.seed_curated(s)
+        ltx = catalog.get_by_air(s, "lightricks:ltx@2.3")
+        assert ltx.price_tiers_json["video"]["dims"] == {
+            "720p": [1280, 704],
+            "1080p": [1920, 1088],
+        }
+        assert catalog.view(ltx)["tiers"]["video"]["dims"]["720p"] == [1280, 704]
+        veo = catalog.get_by_air(s, "google:3@2")
+        assert "dims" not in veo.price_tiers_json["video"]
+
+
+def test_a_seed_version_bump_re_seeds_an_existing_catalog(factory):
+    with db.session_scope(factory) as s:
+        catalog.seed_curated(s)
+        ltx = catalog.get_by_air(s, "lightricks:ltx@2.3")
+        tiers = dict(ltx.price_tiers_json)
+        tiers["video"] = {k: v for k, v in tiers["video"].items() if k != "dims"}
+        ltx.price_tiers_json = tiers
+        meta.set(s, catalog.SEED_VERSION_KEY, "1")  # an install seeded before the bump
+        s.flush()
+        assert catalog.seed_curated(s) > 0
+        fresh = catalog.get_by_air(s, "lightricks:ltx@2.3")
+        assert fresh.price_tiers_json["video"]["dims"]["720p"] == [1280, 704]
 
 
 def test_list_models_sorted_by_price_desc_nulls_last(factory):

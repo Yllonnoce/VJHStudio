@@ -16,7 +16,14 @@ LTX = {
     "air": "lightricks:ltx@2.3",
     "kind": "video",
     "capabilities": ["io:text-to-video"],
-    "tiers": {"video": {"durations": [3, 5, 8, 10], "resolutions": ["720p"], "fps": [24, 25, 30]}},
+    "tiers": {
+        "video": {
+            "durations": [3, 5, 8, 10],
+            "resolutions": ["720p", "1080p"],
+            "dims": {"720p": [1280, 704], "1080p": [1920, 1088]},
+            "fps": [24, 25, 30],
+        }
+    },
     "provider_settings_schema": [],
 }
 BARE = {"air": "acme:vid@1", "kind": "video", "tiers": {}, "provider_settings_schema": []}
@@ -71,6 +78,31 @@ def test_resolution_mapping_is_case_insensitive_and_defaults():
     assert wh("4K") == (3840, 2160) and wh("4k") == (3840, 2160)
     assert wh("nonsense") == (1280, 720)
     assert tasks.RESOLUTIONS["1080p"] == (1920, 1080)
+
+
+def test_curated_dims_override_the_resolution_map():
+    """LTX-2.3 rejects any dimension that is not a multiple of 64, so its curated
+    ``video.dims`` wins; a model without a dims block keeps the generic preset."""
+
+    def wh(row, resolution):
+        t = tasks.build_video_task(req(resolution=resolution, model=row["air"]), "u", {}, row)
+        return t["width"], t["height"]
+
+    assert wh(LTX, "720p") == (1280, 704)
+    assert wh(LTX, "1080p") == (1920, 1088)
+    assert wh(LTX, "720P") == (1280, 704)  # the lookup stays case-insensitive
+    assert wh(VEO, "720p") == (1280, 720) and wh(VEO, "1080p") == (1920, 1080)
+    for resolution in ("720p", "1080p"):
+        w, h = wh(LTX, resolution)
+        assert w % 64 == 0 and h % 64 == 0, (resolution, w, h)
+
+
+def test_resolution_wh_takes_the_dims_block_directly():
+    video = {"dims": {"720p": [1280, 704]}}
+    assert tasks.resolution_wh("720p", video) == (1280, 704)
+    assert tasks.resolution_wh("1080p", video) == (1920, 1080)  # not listed -> generic
+    assert tasks.resolution_wh("720p", {"dims": {"720p": [1280]}}) == (1280, 720)  # malformed
+    assert tasks.resolution_wh("720p", None) == (1280, 720)
 
 
 def test_fps_only_when_the_model_lists_it():
