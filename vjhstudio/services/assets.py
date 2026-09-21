@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..config import Paths
@@ -82,6 +83,16 @@ def _thumb_name(asset: Asset) -> str:
     return f"asset-{asset.sha256[:12]}.jpg"
 
 
+def _like_escape(s: str) -> str:
+    """Escape ``\\``, ``%`` and ``_`` so a LIKE pattern built from user input can't
+    accidentally use SQL wildcards; pair with ``.like(pattern, escape="\\\\")``."""
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _find_by_sha256(session: Session, digest: str) -> Asset | None:
+    return session.execute(select(Asset).where(Asset.sha256 == digest)).scalar_one_or_none()
+
+
 def store_upload(
     session: Session,
     paths: Paths,
@@ -104,7 +115,7 @@ def store_upload(
         raise UploadError(413, f"file exceeds {max_mb} MB limit")
 
     digest = hashlib.sha256(content).hexdigest()
-    existing = session.execute(select(Asset).where(Asset.sha256 == digest)).scalar_one_or_none()
+    existing = _find_by_sha256(session, digest)
     if existing is not None:
         return existing, False
 
@@ -134,8 +145,18 @@ def store_upload(
         sha256=digest,
         tags=normalize_tags(tags),
     )
-    session.add(asset)
-    session.flush()
+    try:
+        with session.begin_nested():
+            session.add(asset)
+            session.flush()
+    except IntegrityError:
+        # Another store_upload for the same bytes committed between our lookup and our
+        # insert; the savepoint above already rolled itself back. session_scope owns the
+        # outer transaction, so we recover here rather than rolling that back too.
+        existing = _find_by_sha256(session, digest)
+        if existing is None:
+            raise
+        return existing, False
     return asset, True
 
 
@@ -154,10 +175,16 @@ def list_assets(
     if kind:
         filters.append(Asset.kind == kind)
     if tag:
-        filters.append(Asset.tags.like(f"%,{tag.strip().lower()},%"))
+        pattern = f"%,{_like_escape(tag.strip().lower())},%"
+        filters.append(Asset.tags.like(pattern, escape="\\"))
     if q:
-        like = f"%{q.strip()}%"
-        filters.append(or_(Asset.original_name.like(like), Asset.notes.like(like)))
+        pattern = f"%{_like_escape(q.strip())}%"
+        filters.append(
+            or_(
+                Asset.original_name.like(pattern, escape="\\"),
+                Asset.notes.like(pattern, escape="\\"),
+            )
+        )
     total = int(session.execute(select(func.count(Asset.id)).where(*filters)).scalar() or 0)
     page = max(1, int(page))
     per_page = max(1, int(per_page))

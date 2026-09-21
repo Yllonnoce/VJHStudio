@@ -259,6 +259,82 @@ def test_delete_refused_for_reference_asset_ids_list(booted):
         assert assets.delete(s, paths, aid) is False
 
 
+def test_list_assets_escapes_like_wildcards_in_tag(booted):
+    paths, f = booted
+    with db.session_scope(f) as s:
+        pct, _ = assets.store_upload(
+            s,
+            paths,
+            original_name="pct.png",
+            content=_png((8, 8)),
+            mime="image/png",
+            tags="100%",
+        )
+        thousand, _ = assets.store_upload(
+            s,
+            paths,
+            original_name="thousand.png",
+            content=_png((9, 9)),
+            mime="image/png",
+            tags="1000",
+        )
+        pct_id = pct.id
+        assert thousand.id != pct_id
+
+    with db.session_scope(f) as s:
+        rows, total = assets.list_assets(s, tag="100%")
+        assert total == 1 and rows[0].id == pct_id
+
+
+def test_list_assets_escapes_like_wildcards_in_q(booted):
+    paths, f = booted
+    with db.session_scope(f) as s:
+        underscore, _ = assets.store_upload(
+            s, paths, original_name="a_b.png", content=_png((10, 10)), mime="image/png"
+        )
+        assets.store_upload(
+            s, paths, original_name="axb.png", content=_png((11, 11)), mime="image/png"
+        )
+        underscore_id = underscore.id
+
+    with db.session_scope(f) as s:
+        rows, total = assets.list_assets(s, q="a_b")
+        assert total == 1 and rows[0].id == underscore_id
+
+
+def test_store_upload_tolerates_duplicate_insert_race(booted, monkeypatch):
+    """A second process can commit the same sha256 between our lookup and our insert;
+    the unique constraint should be recovered from, not raised."""
+    paths, f = booted
+    content = _png()
+    with db.session_scope(f) as s:
+        first, created = assets.store_upload(
+            s, paths, original_name="first.png", content=content, mime="image/png"
+        )
+        assert created is True
+        existing_id = first.id
+
+    calls = {"n": 0}
+    real_find = assets._find_by_sha256
+
+    def flaky_find(session, digest):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return None  # the race: our lookup misses the row another process just committed
+        return real_find(session, digest)
+
+    monkeypatch.setattr(assets, "_find_by_sha256", flaky_find)
+
+    with db.session_scope(f) as s:
+        asset, created = assets.store_upload(
+            s, paths, original_name="second.png", content=content, mime="image/png"
+        )
+        assert created is False
+        assert asset.id == existing_id
+    with db.session_scope(f) as s:
+        assert s.query(models.Asset).filter_by(sha256=first.sha256).count() == 1
+
+
 def test_abs_path_and_public_urls(booted):
     paths, f = booted
     with db.session_scope(f) as s:
