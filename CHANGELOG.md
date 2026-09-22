@@ -15,6 +15,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   active queue, balance/spend/output stats, and your projects, all on one page.
 - `?open=<id>` on the gallery deep-links straight into the lightbox for that output.
 - A portrait (9:16) twin for every video resolution preset.
+- A Queue page (`/queue`): the live queue plus a history table of the last 50 finished jobs; the header chip links there instead of the Generate form.
 
 ### Changed
 

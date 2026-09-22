@@ -29,6 +29,7 @@ PAGES = [
     "/projects",
     "/models",
     "/settings",
+    "/queue",
 ]
 
 PROMPT_FORM = {
@@ -92,6 +93,7 @@ CURRENT = [
     ("/projects", "Projects"),
     ("/models", "Models"),
     ("/settings", "Settings"),
+    ("/queue", "Queue"),
 ]
 
 

@@ -1,11 +1,11 @@
 <li id="jobs-badge" {% if oob %}hx-swap-oob="true"{% endif %}
-    hx-get="/hx/jobs/badge" hx-trigger="every 10s, jobs-changed from:body" hx-swap="outerHTML">
+    hx-get="/hx/jobs/badge?at={{ current_path|default('/', true)|urlencode }}" hx-trigger="every 10s, jobs-changed from:body" hx-swap="outerHTML">
   {% if active_jobs or unseen_jobs %}
-    <a href="/generate" class="chip {% if active_jobs %}busy{% endif %}"
+    <a href="/queue" class="chip {% if active_jobs %}busy{% endif %}"{% if current_path is defined and current_path.startswith('/queue') %} aria-current="page"{% endif %}
        title="{{ active_jobs }} in flight, {{ unseen_jobs }} finished unseen">
       {%- if active_jobs %}{{ active_jobs }} running{% endif -%}
       {%- if active_jobs and unseen_jobs %} &middot; {% endif -%}
       {%- if unseen_jobs %}{{ unseen_jobs }} done{% endif -%}
     </a>
-  {% else %}<a href="/generate" class="chip" title="Job queue">Queue</a>{% endif %}
+  {% else %}<a href="/queue" class="chip" title="Job queue"{% if current_path is defined and current_path.startswith('/queue') %} aria-current="page"{% endif %}>Queue</a>{% endif %}
 </li>

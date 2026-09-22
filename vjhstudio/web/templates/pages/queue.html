@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Queue · VJHStudio{% endblock %}
+{% block content %}
+<header class="page-head">
+  <h1>Queue</h1>
+  <p class="lead">What is running now, and what finished recently.</p>
+</header>
+<section class="gen-results queue-page">
+  {% include "generate/_queue_panel.html" %}
+</section>
+<section class="queue-history">
+  <header class="card-head"><h2>History</h2><small class="muted">Last {{ history|length }} finished jobs</small></header>
+  {% if history %}
+  <div class="table-scroll">
+    <table class="history">
+      <thead><tr><th>When</th><th>Job</th><th>Model</th><th>Status</th><th>Cost</th><th></th></tr></thead>
+      <tbody>
+        {% for j in history %}
+        <tr id="history-{{ j.id }}">
+          <td><small>{{ j.finished_at.strftime('%Y-%m-%d %H:%M') if j.finished_at else '' }}</small></td>
+          <td>{{ j.title }}</td>
+          <td><small>{{ j.model_name }}</small></td>
+          <td><span class="pill status-{{ j.status }}">{{ j.status }}</span></td>
+          <td>{% if j.cost %}${{ '%.4f'|format(j.cost) }}{% endif %}</td>
+          <td>{% if j.outputs %}<a href="/gallery?open={{ j.outputs[0].id }}">View</a>{% elif j.error_message %}<small class="error">{{ j.error_message|truncate(60) }}</small>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">No finished jobs yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

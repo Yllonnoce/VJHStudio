@@ -137,8 +137,19 @@ def panel_ctx(request: Request, oob_badge: bool = False) -> dict:
         }
 
 
+def _at(request: Request) -> str:
+    """The page a poll was issued from (`?at=/queue`), so the header chip can keep its
+    aria-current after the badge or the panel re-renders. Only a plain path counts."""
+    at = str(request.query_params.get("at") or "")
+    if at.startswith("/") and not at.startswith("//") and "\\" not in at:
+        return at
+    return request.url.path
+
+
 def _panel(request: Request, headers: dict | None = None, oob_badge: bool = True):
-    r = deps.render(request, "generate/_queue_panel.html", panel_ctx(request, oob_badge))
+    ctx = panel_ctx(request, oob_badge)
+    ctx["current_path"] = _at(request)
+    r = deps.render(request, "generate/_queue_panel.html", ctx)
     for k, v in (headers or {}).items():
         r.headers[k] = v
     return r
@@ -187,6 +198,20 @@ def _finished_trigger(events: list[dict]) -> dict:
     return {"HX-Trigger": json.dumps({"job-finished": events})} if events else {}
 
 
+HISTORY_SHOWN = 50
+
+
+@router.get("/queue")
+def queue_page(request: Request):
+    """The Queue page: the live panel plus a table of the last finished jobs. The header
+    chip links here, so "Queue" never drops the user into the creation form."""
+    ctx = panel_ctx(request)
+    with db.session_scope(request.app.state.boot.session_factory) as s:
+        done = _select(s, FINISHED, (Job.finished_at.desc(), Job.created_at.desc()), HISTORY_SHOWN)
+        ctx["history"] = _views(request, s, done)
+    return deps.render(request, "pages/queue.html", ctx)
+
+
 @router.get("/hx/jobs/active")
 def hx_active(request: Request):
     return _panel(request, _finished_trigger(_claim_finished(request)))
@@ -199,6 +224,7 @@ def hx_badge(request: Request):
     events = _claim_finished(request)
     # the claim already cleared seen_at, so show what this very response claimed
     ctx = {"oob": False, "unseen_jobs": len(events)} if events else {"oob": False}
+    ctx["current_path"] = _at(request)
     r = deps.render(request, "partials/_jobs_badge.html", ctx)
     for k, v in _finished_trigger(events).items():
         r.headers[k] = v

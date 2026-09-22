@@ -68,7 +68,7 @@ async def test_badge_claims_finished_jobs_app_wide(client, fake, app):
     await _finish_one_job(client, fake, app)
     r = await client.get("/hx/jobs/badge")
     assert r.status_code == 200 and "job-finished" in r.headers.get("HX-Trigger", "")
-    assert "1 done" in r.text and 'href="/generate"' in r.text
+    assert "1 done" in r.text and 'href="/queue"' in r.text
     r2 = await client.get("/hx/jobs/badge")
     assert "job-finished" not in r2.headers.get("HX-Trigger", "") and "1 done" not in r2.text
     r3 = await client.get("/hx/jobs/active")
@@ -123,3 +123,27 @@ async def test_job_card_reports_a_size_correction_as_an_adjustment(client, fake,
     assert r.status_code == 200
     assert "Adjusted size 1280×720 → 3840×2160" in r.text
     assert "Dropped params: seed (dropped)" in r.text and "width/height (corrected)" not in r.text
+
+
+async def test_queue_page_shows_the_panel_and_a_history_table(client, fake, app):
+    r = await client.get("/queue")
+    assert r.status_code == 200
+    assert 'id="queue-panel"' in r.text and "<h1>Queue</h1>" in r.text
+    assert "No finished jobs yet." in r.text
+    await _finish_one_job(client, fake, app)
+    r = await client.get("/queue")
+    assert "History" in r.text and 'id="history-' in r.text
+    assert "succeeded" in r.text and "/gallery?open=" in r.text
+    # the header chip points at this page and marks it current
+    assert 'href="/queue"' in r.text
+    nav = r.text.split("</nav>")[0]
+    assert nav.count('aria-current="page"') == 1
+
+
+async def test_badge_poll_keeps_the_queue_page_current(client):
+    r = await client.get("/hx/jobs/badge?at=/queue")
+    assert r.status_code == 200 and 'aria-current="page"' in r.text
+    r = await client.get("/hx/jobs/badge?at=//evil")
+    assert 'aria-current="page"' not in r.text
+    r = await client.get("/hx/jobs/badge")
+    assert 'aria-current="page"' not in r.text
