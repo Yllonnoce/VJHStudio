@@ -21,6 +21,19 @@ RESOLUTIONS: dict[str, tuple[int, int]] = {
     "4k": (3840, 2160),
 }
 DEFAULT_RESOLUTION = "720p"
+# "720p portrait" is 720p turned on its side (720x1280, 9:16). The suffix is stripped
+# before the lookup so pricing by tier ("720p") and curated dims both keep working.
+PORTRAIT_SUFFIX = " portrait"
+
+
+def split_orientation(resolution: str) -> tuple[str, bool]:
+    """``"1080p portrait"`` -> ``("1080p", True)``; anything else -> ``(name, False)``."""
+    key = (resolution or "").strip()
+    if key.lower().endswith(PORTRAIT_SUFFIX):
+        return key[: -len(PORTRAIT_SUFFIX)].strip(), True
+    return key, False
+
+
 FRAME_ROLES = ("first", "last")
 
 
@@ -139,15 +152,17 @@ def resolution_wh(resolution: str, video: dict | None = None) -> tuple[int, int]
     LTX-2.3 only accepts dimensions that are multiples of 64, so its 720p is 1280x704
     while Veo's stays 1280x720. Unknown names fall back to 720p: the API is always sent
     width/height, never the preset string, so a stray value must still be renderable."""
-    key = (resolution or "").strip().lower()
+    base, portrait = split_orientation(resolution)
+    key = base.lower()
+    w, h = RESOLUTIONS.get(key, RESOLUTIONS[DEFAULT_RESOLUTION])
     dims = (video or {}).get("dims")
     if isinstance(dims, dict):
         for name, pair in dims.items():
             if str(name).strip().lower() != key:
                 continue
             if isinstance(pair, (list, tuple)) and len(pair) == 2:
-                return int(pair[0]), int(pair[1])
-    return RESOLUTIONS.get(key, RESOLUTIONS[DEFAULT_RESOLUTION])
+                w, h = int(pair[0]), int(pair[1])
+    return (h, w) if portrait else (w, h)
 
 
 def provider_key(air: str) -> str:

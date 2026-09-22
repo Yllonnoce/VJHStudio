@@ -60,7 +60,7 @@
       <input type="hidden" name="height" value="{{ ns.h }}">
       {% else %}
       <select name="resolution">
-        {% for r in resolutions %}<option value="{{ r }}" {% if cur_res == r|lower %}selected{% endif %}>{{ r }}</option>{% endfor %}
+        {% for r in resolutions %}<option value="{{ r }}" {% if cur_res == r|lower %}selected{% endif %}>{{ r }}{% if 'portrait' in r|lower %} (9:16){% else %} (16:9){% endif %}</option>{% endfor %}
       </select>
       {% endif %}
       {% if errors.get('resolution') %}<small class="error">{{ errors['resolution'] }}</small>{% endif %}

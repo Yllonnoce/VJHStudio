@@ -22,7 +22,7 @@ from runware import RunwareError
 from ... import db
 from ...models import CatalogModel
 from ...runware.errors import classify
-from ...runware.tasks import nearest, resolution_wh
+from ...runware.tasks import PORTRAIT_SUFFIX, nearest, resolution_wh, split_orientation
 from ...schemas.image import ImageRequest, PromptForm
 from ...schemas.video import VideoRequest
 from ...services import assets as assets_svc
@@ -305,6 +305,18 @@ def provider_schema(session, air: str) -> list[dict]:
     return list((m.provider_settings_schema if m else None) or [])
 
 
+def with_portrait(names: list[str]) -> list[str]:
+    """``["720p", "1080p"]`` -> ``["720p", "720p portrait", "1080p", "1080p portrait"]``:
+    every named resolution gets its 9:16 twin right after it. A name that already says
+    portrait is left alone."""
+    out: list[str] = []
+    for name in names:
+        out.append(name)
+        if not split_orientation(name)[1]:
+            out.append(f"{name}{PORTRAIT_SUFFIX}")
+    return out
+
+
 def _video_presets(tiers: dict, resolutions: list[str]) -> list[tuple[int, int, str]]:
     """The curated resolution presets as pixels -- ``tiers.video.dims`` when the row
     carries one (LTX's 720p is 1280x704), the generic table otherwise. These are what a
@@ -368,7 +380,9 @@ def video_params_ctx(
     c = m.constraints_json if m is not None else None
     caps = list((m.capabilities_json if m else None) or [])
     durations = [d for d in (tiers.get("durations") or []) if isinstance(d, (int, float))]
-    resolutions = [str(r) for r in (tiers.get("resolutions") or [])] or list(FALLBACK_RESOLUTIONS)
+    resolutions = with_portrait(
+        [str(r) for r in (tiers.get("resolutions") or [])] or list(FALLBACK_RESOLUTIONS)
+    )
     fps_options = [f for f in (tiers.get("fps") or []) if isinstance(f, (int, float))]
     dims = _dims_block(m)
     size_mode = _size_mode(dims)

@@ -168,3 +168,12 @@ def test_duration_validator_range():
         with pytest.raises(ValidationError):
             req(duration=bad)
     assert req(duration=1).duration == 1 and req(duration=30).duration == 30
+
+
+def test_portrait_resolution_names_swap_the_sides():
+    assert tasks.split_orientation("1080p portrait") == ("1080p", True)
+    assert tasks.split_orientation("720p") == ("720p", False)
+    assert tasks.resolution_wh("720p portrait", None) == (720, 1280)
+    assert tasks.resolution_wh("1080p Portrait", None) == (1080, 1920)
+    # curated dims turn on their side too: LTX's 720p is 1280x704 -> 704x1280
+    assert tasks.resolution_wh("720p portrait", {"dims": {"720p": [1280, 704]}}) == (704, 1280)

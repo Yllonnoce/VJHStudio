@@ -315,3 +315,26 @@ async def test_a_saved_video_prompt_dedupes_against_the_generated_one(client, fa
         prompt = s.query(models.Prompt).one()
         assert prompt.id == pid and prompt.kind == "video" and prompt.use_count == 1
         assert s.query(models.Job).one().prompt_id == pid
+
+
+async def test_video_options_offer_a_portrait_twin_for_every_resolution(client):
+    # LTX is rule mode: the portrait option carries snapped, swapped pixels
+    r = await client.get(f"/hx/model-options?mode=video&air={LTX}")
+    assert r.status_code == 200
+    assert 'value="720p portrait" data-w="704" data-h="1280"' in r.text
+    assert 'value="1080p portrait" data-w="1088" data-h="1920"' in r.text
+    # a model with no constraints keeps the plain select, now with 9:16 twins
+    r = await client.get("/hx/model-options?mode=video&air=bytedance:seedance@2.0")
+    assert r.status_code == 200
+    assert '<option value="720p portrait"' in r.text and "(9:16)" in r.text
+    assert r.text.index('value="720p"') < r.text.index('value="720p portrait"')
+
+
+async def test_portrait_resolution_prices_by_its_landscape_tier(client):
+    a = await client.get(f"/hx/generate/estimate?mode=video&air={LTX}&duration=5&resolution=720p")
+    b = await client.get(
+        f"/hx/generate/estimate?mode=video&air={LTX}&duration=5&resolution=720p%20portrait"
+    )
+    assert a.status_code == b.status_code == 200
+    money = re.compile(r"\$\d+(?:\.\d+)?")
+    assert money.findall(a.text) and money.findall(a.text) == money.findall(b.text)
