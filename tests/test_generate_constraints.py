@@ -2,7 +2,9 @@
 inputs, dropdown filtering, the first-frame badge and the two pre-flight refusals.
 
 Rows are seeded straight through the session factory so each test owns the exact
-``constraints_json`` it needs; the curated catalog ships none until Task 7.
+``constraints_json`` it needs. As of Task 7 the curated snapshot itself ships a
+``klingai:kling-video@3-4k`` row with its own (slightly different) constraints; ``_add``
+upserts rather than inserts so this module's ``KLING_C`` still wins for the tests here.
 """
 
 import pytest
@@ -10,6 +12,7 @@ import pytest
 from vjhstudio import db, models
 from vjhstudio.runware.tasks import build_video_task
 from vjhstudio.schemas.video import VideoRequest
+from vjhstudio.services import catalog
 
 KLING_4K = "klingai:kling-video@3-4k"
 VEO = "vjh:veo-values@1"
@@ -54,17 +57,16 @@ FORM = {
 
 def _add(app, air, kind, name, caps, constraints_json, price=0.1):
     with db.session_scope(app.state.boot.session_factory) as s:
-        row = models.CatalogModel(
-            air=air,
-            name=name,
-            kind=kind,
-            source="curated",
-            capabilities_json=list(caps),
-            constraints_json=constraints_json,
-            price_primary=price,
-            price_unit="per_second" if kind == "video" else "per_image",
-        )
-        s.add(row)
+        row = catalog.get_by_air(s, air)
+        if row is None:
+            row = models.CatalogModel(air=air, name=name, kind=kind, source="curated")
+            s.add(row)
+        row.name = name
+        row.kind = kind
+        row.capabilities_json = list(caps)
+        row.constraints_json = constraints_json
+        row.price_primary = price
+        row.price_unit = "per_second" if kind == "video" else "per_image"
         s.flush()
         return row.id
 
@@ -111,8 +113,9 @@ async def test_video_duration_values_render_a_select(client, seeded):
 
 
 async def test_unknown_constraints_keep_the_resolution_select(client):
-    """A curated row carries no constraints yet: today's behaviour, unchanged."""
-    r = await client.get("/hx/model-options?mode=video&air=lightricks:ltx@2.3")
+    """A curated row that ships no constraints block of its own (Seedance, as of Task 7's
+    curated snapshot) keeps today's behaviour, unchanged."""
+    r = await client.get("/hx/model-options?mode=video&air=bytedance:seedance@2.0")
     assert r.status_code == 200
     assert '<select name="resolution">' in r.text
     assert 'name="size"' not in r.text

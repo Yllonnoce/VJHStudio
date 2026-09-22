@@ -27,7 +27,7 @@ def test_seed_curated_is_idempotent_and_versioned(factory):
         n1 = catalog.seed_curated(s)
         n2 = catalog.seed_curated(s)
         assert n1 >= 10 and n2 == 0
-        assert meta.get(s, catalog.SEED_VERSION_KEY) == "2"
+        assert meta.get(s, catalog.SEED_VERSION_KEY) == "3"
         flux = catalog.get_by_air(s, "runware:101@1")
         assert flux.kind == "image" and flux.price_primary == 0.0038 and flux.source == "curated"
 
@@ -60,6 +60,34 @@ def test_a_seed_version_bump_re_seeds_an_existing_catalog(factory):
         assert catalog.seed_curated(s) > 0
         fresh = catalog.get_by_air(s, "lightricks:ltx@2.3")
         assert fresh.price_tiers_json["video"]["dims"]["720p"] == [1280, 704]
+
+
+def test_seed_curated_stores_kling_4k_dims_list_on_an_empty_db(factory):
+    with db.session_scope(factory) as s:
+        catalog.seed_curated(s)
+        kling_4k = catalog.get_by_air(s, "klingai:kling-video@3-4k")
+        assert kling_4k is not None
+        c = kling_4k.constraints_json
+        assert c["dims"]["mode"] == "list"
+        assert c["dims"]["list"] == [[3840, 2160], [2160, 3840], [2880, 2880]]
+        assert c["duration"] == {"type": "integer", "min": 3, "max": 15, "step": 1, "default": 5}
+
+
+def test_reseeding_does_not_overwrite_a_row_whose_sources_api_is_set(factory):
+    with db.session_scope(factory) as s:
+        catalog.seed_curated(s)
+        kling_4k = catalog.get_by_air(s, "klingai:kling-video@3-4k")
+        harvested = {
+            "dims": {"mode": "list", "list": [[1, 1]]},
+            "sources": {"docs": None, "api": "2026-09-22T00:00:00", "observed": None},
+        }
+        kling_4k.constraints_json = harvested
+        s.flush()
+        # A version bump (or force=True) is the only way seed_curated re-runs upsert_row for
+        # a row it already seeded; either way, the harvested block must survive untouched.
+        assert catalog.seed_curated(s, force=True) > 0
+        fresh = catalog.get_by_air(s, "klingai:kling-video@3-4k")
+        assert fresh.constraints_json == harvested
 
 
 def test_list_models_sorted_by_price_desc_nulls_last(factory):

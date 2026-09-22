@@ -133,6 +133,24 @@ If the test worked, your balance appears at the top of the page.
 4. Watch the progress bar on the right; when it finishes, your image appears there and in the
    **Gallery**.
 
+## Models
+
+Click **Models** in the top menu to see every model VJHStudio knows about, with its price and a
+few badges.
+
+Some models only accept certain image sizes or video lengths, and a few video models can only edit
+an existing video rather than make a new one. VJHStudio starts out knowing the common cases, but you
+can ask it to check for sure: click **Harvest constraints**. This asks RunWare which sizes and
+lengths each model accepts, and reads the model's page on RunWare's own docs site. It is free —
+nothing is generated and nothing is charged, and the check stops itself immediately if your balance
+ever moves.
+
+Once a model has been checked, the Models page shows a small **sizes known** badge next to it, and
+the **Generate** page only offers sizes that actually work for that model — no more guessing a size
+and having the job rejected. Video models that can only edit an existing video (and cannot yet be
+given one) are hidden from the Generate dropdown; they stay on the Models page with a badge
+explaining why.
+
 ## Starting it again
 
 You do not have to repeat the install. To use the app again:

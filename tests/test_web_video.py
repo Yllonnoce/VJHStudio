@@ -257,13 +257,19 @@ async def test_remix_marks_the_remixed_duration_selected(client, fake, app):
     Jinja ``{% with %}``; since ``params`` is a plain dict, attribute-first lookup found
     the dict's built-in ``.values`` method instead of the ``"values"`` key, so remixed
     values (including duration) never reached the rendered form -- only the
-    /hx/model-options partial (rendered directly, no dict wrapping) was unaffected."""
+    /hx/model-options partial (rendered directly, no dict wrapping) was unaffected.
+
+    LTX now ships a curated ``duration`` rule (float, min/max, no enumerated values as of
+    Task 7), so its panel renders a number input rather than a select, and a remixed whole
+    second reads back as "5.0" (the stored duration is a float); the value still has to land
+    in that input's ``value`` attribute for the same reason it used to have to land in the
+    selected ``<option>``."""
     r = await _run_video(client, fake, app, model=LTX, duration="5")
     assert r.status_code == 200
     oid = (await client.get("/api/jobs")).json()[0]["outputs"][0]["id"]
     r = await client.get(f"/generate?remix={oid}")
     assert r.status_code == 200
-    assert re.search(r'<option value="5"[^>]*\bselected\b[^>]*>', r.text)
+    assert re.search(r'name="duration"[^>]*value="5(\.0)?"', r.text)
 
 
 async def test_remix_resolves_frame_assets_into_ref_chips(client, fake, app):
