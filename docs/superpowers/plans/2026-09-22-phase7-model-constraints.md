@@ -195,7 +195,7 @@ from __future__ import annotations
 
 from vjhstudio.models.catalog import CatalogModel
 from vjhstudio.runware.sizes import nearest_size_in, snap_to_rule  # noqa: F401  (re-exported for callers)
-from vjhstudio.services.catalog import utcnow  # the same helper catalog.py uses (check its import and copy it)
+from vjhstudio.models import utcnow
 
 Size = tuple[int, int]
 PARAM_KEYS = ("duration", "fps", "steps", "strength", "CFGScale")
