@@ -119,6 +119,18 @@ def _docs_dims(docs: dict) -> dict | None:
     return None
 
 
+def _carry_labels(dims: dict, previous: dict) -> dict:
+    """Keep the tier names a stronger pass already knew for the sizes a new list still
+    offers. The names drive the price tier, so losing them re-prices the job from the
+    short-side heuristic instead of the model's own labels."""
+    if dims.get("mode") != "list":
+        return dims
+    keep = {f"{int(w)}x{int(h)}" for w, h in dims.get("list") or []}
+    old = (previous.get("labels") or {}) if previous.get("mode") == "list" else {}
+    dims.setdefault("labels", {k: v for k, v in old.items() if k in keep})
+    return dims
+
+
 def merge_sources(existing: dict | None, *, docs: dict | None, api: dict | None, now: str) -> dict:
     out: dict = dict(existing or {})
     sources = dict(out.get("sources") or {"docs": None, "api": None, "observed": None})
@@ -131,17 +143,18 @@ def merge_sources(existing: dict | None, *, docs: dict | None, api: dict | None,
         if docs.get("inputs"):
             out["inputs"] = {**(out.get("inputs") or {}), **docs["inputs"]}
         dd = _docs_dims(docs)
-        if dd:
-            out["dims"] = dd
+        # The docs are the weakest source: a docs-only pass (no key, a client that fell
+        # over, an unreadable balance, one model's probe erroring) still runs for every
+        # row, and it must not undo dims an API probe or a real job established.
+        owned = bool(sources.get("observed")) or bool(sources.get("api") and not api)
+        if dd and not owned:
+            out["dims"] = _carry_labels(dd, _dims(out))
     if api:
         sources["api"] = now
         if api.get("params"):
             out["params"] = list(api["params"])
         if api.get("dims") and api["dims"].get("mode") != "unknown":
-            dims = dict(api["dims"])
-            if dims.get("mode") == "list":
-                dims.setdefault("labels", (out.get("dims") or {}).get("labels") or {})
-            out["dims"] = dims
+            out["dims"] = _carry_labels(dict(api["dims"]), _dims(out))
         for path in api.get("missing") or []:
             if path.startswith("inputs."):
                 out.setdefault("inputs", {})[path.split(".", 1)[1]] = {"required": True}
@@ -152,7 +165,7 @@ def merge_sources(existing: dict | None, *, docs: dict | None, api: dict | None,
 
 def observe_dims(existing: dict | None, dims: dict, now: str) -> dict:
     out = dict(existing or {})
-    out["dims"] = dict(dims)
+    out["dims"] = _carry_labels(dict(dims), _dims(out))
     sources = dict(out.get("sources") or {"docs": None, "api": None, "observed": None})
     sources["observed"] = now
     out["sources"] = sources
@@ -451,7 +464,8 @@ async def _check_balance(state: HarvestState, client, before: float) -> None:
         state.message = (
             "STOPPED: the balance changed during the harvest "
             f"(before {_money(before)}, after {_money(after)}). Nothing more was sent. "
-            "Please report this."
+            "If a generation finished while it ran, that explains it; otherwise please "
+            "report this."
         )
     else:
         state.message = stopped

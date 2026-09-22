@@ -130,3 +130,66 @@ def test_720p_preset_survives_the_rule_fit_filter():
     most common video preset, so the fit filter's boundary must keep it."""
     opts = C.size_options(LTX, "video", [(1280, 720, "720p")])
     assert [(o["w"], o["h"]) for o in opts] == [(1280, 704)]
+
+
+# ---- the docs must never overwrite a stronger source ----------------------
+DOCS_LIST = {"params": {}, "dims": [[1024, 1024]], "dim_labels": {"1024x1024": "Square"}}
+
+
+def _existing(**sources) -> dict:
+    return {
+        "dims": {"mode": "list", "list": [[1280, 720]], "labels": {"1280x720": "720p"}},
+        "sources": {"docs": "t0", "api": None, "observed": None, **sources},
+    }
+
+
+def test_docs_only_run_leaves_observed_dims_alone():
+    """A run with no key (or a client that fell over) still refreshes the docs half; it
+    must not undo a correction a real job paid for."""
+    existing = _existing(observed="t1")
+    out = C.merge_sources(existing, docs=DOCS_LIST, api=None, now="t2")
+    assert out["dims"] == existing["dims"]
+    assert out["sources"] == {"docs": "t2", "api": None, "observed": "t1"}
+
+
+def test_docs_only_run_leaves_api_dims_alone():
+    existing = _existing(api="t1")
+    out = C.merge_sources(existing, docs=DOCS_LIST, api=None, now="t2")
+    assert out["dims"] == existing["dims"]
+    assert out["sources"] == {"docs": "t2", "api": "t1", "observed": None}
+
+
+def test_a_fresh_api_result_still_beats_the_docs_and_the_older_api_dims():
+    api = {"params": ["width"], "dims": {"mode": "list", "list": [[1920, 1080]]}, "missing": []}
+    out = C.merge_sources(_existing(api="t1"), docs=DOCS_LIST, api=api, now="t2")
+    assert out["dims"]["list"] == [[1920, 1080]]
+    assert out["sources"] == {"docs": "t2", "api": "t2", "observed": None}
+
+
+def test_docs_dims_still_fill_a_row_no_stronger_source_has_touched():
+    out = C.merge_sources(
+        {"sources": {"docs": "t0", "api": None, "observed": None}},
+        docs=DOCS_LIST,
+        api=None,
+        now="t2",
+    )
+    assert out["dims"] == {
+        "mode": "list",
+        "list": [[1024, 1024]],
+        "labels": {"1024x1024": "Square"},
+    }
+
+
+def test_observe_dims_keeps_the_labels_of_the_sizes_that_survive():
+    """A size correction replaces the list; the curated tier names for the sizes still in
+    it have to travel with it, or the estimate re-prices from the short-side heuristic."""
+    existing = {
+        "dims": {
+            "mode": "list",
+            "list": [[1280, 720], [832, 480]],
+            "labels": {"1280x720": "720p", "832x480": "480p"},
+        }
+    }
+    out = C.observe_dims(existing, {"mode": "list", "list": [[1280, 720]]}, now="t")
+    assert out["dims"]["labels"] == {"1280x720": "720p"}
+    assert out["dims"]["list"] == [[1280, 720]] and out["sources"]["observed"] == "t"

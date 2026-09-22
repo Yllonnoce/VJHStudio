@@ -64,8 +64,10 @@ def rejected_field(err: BaseException, task: dict) -> str | None:
     path = cand if _has_path(task, cand) else _find_path(task, cand.split(".")[-1])
     if not path or path.split(".")[0] in PROTECTED or path in PROTECTED:
         return None
-    if path.split(".")[-1] in PAIR:
-        return None  # width/height are corrected (size_correction), never dropped
+    if path in PAIR:
+        # Only the task's OWN width/height: those are corrected (size_correction) rather
+        # than dropped. A nested one — a frame image's size, say — is an ordinary field.
+        return None
     return path
 
 

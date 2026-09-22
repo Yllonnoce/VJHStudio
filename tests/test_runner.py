@@ -291,3 +291,14 @@ def test_size_correction_ignores_a_nested_field_that_merely_contains_width():
     )
     e.parameter = "inputs.frameImages.0.width"
     assert runner.size_correction(e, {"width": 1280, "height": 720}) is None
+
+
+def test_a_nested_width_is_still_dropped():
+    """Only the task's own width/height are corrected instead of dropped; a nested one
+    (a frame image's size, say) is an ordinary unsupported field."""
+    e = RunwareError(
+        "unsupportedParameter", "Unsupported use of 'inputs.frameImages.width' parameter."
+    )
+    e.parameter = "inputs.frameImages.width"
+    task = {"width": 1280, "height": 720, "inputs": {"frameImages": {"width": 512}}}
+    assert runner.rejected_field(e, task) == "inputs.frameImages.width"

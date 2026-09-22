@@ -213,7 +213,10 @@ async def test_a_balance_change_stops_the_harvest(client, app, fake):
     state = await _harvest(app, api_key=KEY)
 
     assert state.message.startswith("STOPPED: the balance changed")
-    assert "10.0" in state.message and "9.0" in state.message
+    assert "before $10.00, after $9.00" in state.message
+    # a background generation finishing mid-harvest moves the balance too, and the
+    # message has to say so before it asks for a report
+    assert "If a generation finished while it ran, that explains it" in state.message
     assert not state.running
 
 

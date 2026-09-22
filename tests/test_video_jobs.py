@@ -265,9 +265,12 @@ async def test_a_corrected_size_is_recorded_on_the_catalog_row(env):
         assert j.status == "succeeded", j.error_message
         assert j.dropped_params_json[0]["action"] == "corrected"
         m = catalog.get_by_air(s, air)
+        # a list-mode dims block always carries a labels map; this row had none to
+        # inherit, so it comes out empty rather than absent
         assert m.constraints_json["dims"] == {
             "mode": "list",
             "list": [[3840, 2160], [2160, 3840], [2880, 2880]],
+            "labels": {},
         }
         assert m.constraints_json["sources"]["observed"] is not None
         assert m.constraints_updated_at is not None
