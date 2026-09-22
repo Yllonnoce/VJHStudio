@@ -338,3 +338,12 @@ async def test_portrait_resolution_prices_by_its_landscape_tier(client):
     assert a.status_code == b.status_code == 200
     money = re.compile(r"\$\d+(?:\.\d+)?")
     assert money.findall(a.text) and money.findall(a.text) == money.findall(b.text)
+
+
+async def test_resolution_gets_two_thirds_of_the_parameter_row(client):
+    r = await client.get(f"/hx/model-options?mode=video&air={LTX}")
+    assert 'class="grid grid-res"' in r.text
+    from pathlib import Path
+
+    css = (Path(__file__).parents[1] / "vjhstudio/web/static/css/app.css").read_text()
+    assert ".grid-res{grid-template-columns:minmax(0,1fr) minmax(0,2fr)}" in css

@@ -526,3 +526,7 @@ table.history td,table.history th{vertical-align:top}
 body > header.container{position:sticky;top:0;z-index:40;background:var(--sp-bg);padding-top:.5rem;padding-bottom:0}
 body > header.container > nav{border-radius:0 0 var(--sp-radius) var(--sp-radius)}
 [id]{scroll-margin-top:calc(var(--vjh-header-h, 4.5rem) + 1rem)}
+
+/* ── Video parameters: Resolution needs the room, Duration does not ── */
+.grid-res{grid-template-columns:minmax(0,1fr) minmax(0,2fr)}
+@media (max-width:767px){.grid-res{grid-template-columns:1fr}}
