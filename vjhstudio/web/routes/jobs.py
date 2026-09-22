@@ -9,6 +9,7 @@ by :func:`job_view`, which both this module and the generate routes render from.
 from __future__ import annotations
 
 import json
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -18,7 +19,7 @@ from sqlalchemy.orm import Session
 from ... import db
 from ...models import CatalogModel, Job, JobStatus, Output, Project, utcnow
 from ...schemas.image import ImageRequest
-from ...services import costs, generate
+from ...services import costs, generate, meta
 from ...services import jobs as jobs_svc
 from ...services import settings as settings_svc
 from .. import deps
@@ -128,6 +129,12 @@ def panel_ctx(request: Request, oob_badge: bool = False) -> dict:
     with db.session_scope(request.app.state.boot.session_factory) as s:
         active = _select(s, ACTIVE, (Job.created_at.asc(), Job.id.asc()))
         done = _select(s, FINISHED, (Job.finished_at.desc(), Job.created_at.desc()), FINISHED_SHOWN)
+        # "Clear finished" hides everything that had finished by the time it was clicked;
+        # jobs finishing later show up again. The Queue page's history keeps them all.
+        cleared = meta.get(s, "queue.cleared_at")
+        if cleared:
+            cutoff = datetime.fromisoformat(cleared)
+            done = [j for j in done if j.finished_at and j.finished_at > cutoff]
         return {
             "active_jobs": len(active),
             "jobs_active": _views(request, s, active),
@@ -243,6 +250,8 @@ def hx_job(request: Request, job_id: str):
 @router.post("/jobs/seen")
 def mark_seen(request: Request):
     _claim_finished(request)
+    with db.session_scope(request.app.state.boot.session_factory) as s:
+        meta.set(s, "queue.cleared_at", utcnow().isoformat())
     return _panel(request)
 
 

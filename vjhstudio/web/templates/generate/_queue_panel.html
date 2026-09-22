@@ -10,7 +10,7 @@
   {% if jobs_done %}
     <h4>Recent</h4>
     {% for j in jobs_done %}{% include "generate/_job_card.html" %}{% endfor %}
-    <button type="button" class="secondary outline" hx-post="/jobs/seen" hx-target="#queue-panel" hx-swap="outerHTML">Mark seen</button>
+    <button type="button" class="secondary outline" hx-post="/jobs/seen" hx-target="#queue-panel" hx-swap="outerHTML" title="Hide these finished jobs from the queue (the Queue page keeps them)">Clear finished</button>
   {% elif not jobs_active %}
     <p class="muted">Nothing queued yet.</p>
   {% endif %}

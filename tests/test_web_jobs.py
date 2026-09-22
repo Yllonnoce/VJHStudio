@@ -147,3 +147,19 @@ async def test_badge_poll_keeps_the_queue_page_current(client):
     assert 'aria-current="page"' not in r.text
     r = await client.get("/hx/jobs/badge")
     assert 'aria-current="page"' not in r.text
+
+
+async def test_clear_finished_hides_done_jobs_until_a_newer_one_finishes(client, fake, app):
+    await _finish_one_job(client, fake, app)
+    r = await client.get("/hx/jobs/active")
+    assert 'id="job-' in r.text and "Clear finished" in r.text
+    r = await client.post("/jobs/seen")
+    assert r.status_code == 200 and 'id="job-' not in r.text
+    assert "Nothing queued yet." in r.text
+    # the Queue page's history still lists it
+    r = await client.get("/queue")
+    assert 'id="history-' in r.text
+    # a job that finishes afterwards shows up again
+    await _finish_one_job(client, fake, app)
+    r = await client.get("/hx/jobs/active")
+    assert r.text.count('id="job-') == 1
