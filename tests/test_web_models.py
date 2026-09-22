@@ -26,10 +26,11 @@ async def test_hx_models_partial_hides_hidden_by_default(client):
 async def test_api_models_json(client):
     r = await client.get("/api/models?kind=video")
     rows = r.json()
+    # Kling 3.0 4K ($0.42/s) is the dearest curated video model since snapshot v3.
     assert (
-        rows[0]["air"] == "google:3@2"
+        rows[0]["air"] == "klingai:kling-video@3-4k"
         and rows[0]["family"] == "video"
-        and rows[0]["label"].startswith("Veo 3.1")
+        and rows[0]["label"].startswith("Kling 3.0 4K")
     )
     assert (
         rows[-1]["price_primary"] is None or rows[-1]["price_primary"] <= rows[0]["price_primary"]
