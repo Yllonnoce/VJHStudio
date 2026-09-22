@@ -491,7 +491,8 @@ async def _harvest(
                     docs_by_air,
                     client=client,
                     concurrency=api_concurrency,
-                , force=force)
+                    force=force,
+                )
             finally:
                 # Safety rule 4, and it runs even if the pool itself blew up: the
                 # balance must be checked whenever a probe has been sent at all.
