@@ -7,20 +7,32 @@ from fastapi.responses import JSONResponse
 
 from ... import db
 from ...runware.catalog_api import ContentAPI
-from ...services import catalog
+from ...services import catalog, constraints
 from .. import deps
+from .system import _local_only
 
 router = APIRouter()
 KINDS = ("image", "video", "text")
 
 
+_view = catalog.view  # one shape for /api/models, the row partials and the task builders
+
+
+def _row_view(m) -> dict:
+    """``catalog.view`` plus the two things only the Models table needs: whether the
+    model can be generated with at all, and how much is known about its sizes."""
+    v = _view(m)
+    v["generate_capable"] = constraints.is_generate_capable(
+        m.kind, m.capabilities_json or [], m.constraints_json
+    )
+    v["dims_mode"] = ((m.constraints_json or {}).get("dims") or {}).get("mode") or "unknown"
+    return v
+
+
 def _rows(request: Request, kind: str, include_hidden: bool) -> list[dict]:
     with db.session_scope(request.app.state.boot.session_factory) as s:
         ms = catalog.list_models(s, kind, include_hidden=include_hidden)
-        return [_view(m) for m in ms]
-
-
-_view = catalog.view  # one shape for /api/models, the row partials and the task builders
+        return [_row_view(m) for m in ms]
 
 
 def _list_ctx(request: Request, kind: str, include_hidden: bool = False) -> dict:
@@ -39,7 +51,11 @@ def _refresh_ctx(request: Request, message: str | None = None, error: str | None
 
 @router.get("/models")
 def models_page(request: Request):
-    ctx = {"lists": {k: _list_ctx(request, k) for k in KINDS}, **_refresh_ctx(request)}
+    ctx = {
+        "lists": {k: _list_ctx(request, k) for k in KINDS},
+        **_refresh_ctx(request),
+        "harvest": constraints.STATE.snapshot(),
+    }
     return deps.render(request, "pages/models.html", ctx)
 
 
@@ -143,7 +159,7 @@ def _toggle(request: Request, model_id: int, field: str):
             m = catalog.set_flag(s, model_id, field)  # type: ignore[arg-type]
         except LookupError:
             return JSONResponse({"error": "unknown model"}, status_code=404)
-        view = _view(m)
+        view = _row_view(m)
     return deps.render(request, "catalog/_row.html", {"m": view, "kind": view["kind"]})
 
 
@@ -155,3 +171,33 @@ def favourite(request: Request, model_id: int):
 @router.post("/models/{model_id}/hide")
 def hide(request: Request, model_id: int):
     return _toggle(request, model_id, "is_hidden")
+
+
+# --- constraint harvest ----------------------------------------------------
+
+
+def _harvest_ctx(conflict: str = "") -> dict:
+    return {"harvest": constraints.STATE.snapshot(), "conflict": conflict}
+
+
+@router.post("/models/harvest")
+async def harvest_models(request: Request):
+    """Start the (free) constraint harvest in the background. The partial it returns
+    polls itself until the run is over, exactly like the update log does."""
+    _local_only(request)
+    started = constraints.start_harvest(
+        request.app.state,
+        api_key=request.app.state.api_key() or "",
+        transport=request.app.state.setting("runware.transport"),
+    )
+    return deps.render(
+        request,
+        "catalog/_harvest_status.html",
+        _harvest_ctx("" if started else "A harvest is already running."),
+        200 if started else 409,
+    )
+
+
+@router.get("/hx/models/harvest-status")
+def harvest_status(request: Request):
+    return deps.render(request, "catalog/_harvest_status.html", _harvest_ctx())

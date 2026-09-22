@@ -108,7 +108,7 @@ def create_app(
         )
         app.state.update_task = asyncio.create_task(_update_watch()) if watch_updates else None
         yield
-        for background in (task, app.state.update_task):
+        for background in (task, app.state.update_task, app.state.harvest_task):
             if background:
                 background.cancel()
                 # Let the cancellation land before the engine goes: a check still in
@@ -129,6 +129,7 @@ def create_app(
     app.state.download_transport = download_transport
     app.state.runner = None
     app.state.update_task = None
+    app.state.harvest_task = None  # set by services.constraints.start_harvest
     app.state.api_key = lambda: secrets.effective_api_key(paths, env)
     app.state.key_source = lambda: secrets.key_source(paths, env)
 

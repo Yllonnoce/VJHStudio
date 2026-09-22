@@ -4,6 +4,7 @@
 <h1>Models</h1>
 <p>Sorted by price, most expensive first. Prices come from RunWare's public catalog.</p>
 <section id="refresh">{% include "catalog/_refresh_status.html" %}</section>
+<section id="harvest">{% include "catalog/_harvest_status.html" %}</section>
 <section id="search">
   <h2>Find more models</h2>
   <form hx-post="/hx/models/search" hx-target="#search-results" hx-swap="innerHTML">

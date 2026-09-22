@@ -1,4 +1,4 @@
-"""CLI entry point: serve | migrate | update | backup | restore | version | doctor."""
+"""CLI entry point: serve | migrate | update | backup | restore | probe | version | doctor."""
 
 from __future__ import annotations
 
@@ -305,6 +305,48 @@ def cmd_restore(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_probe(args: argparse.Namespace) -> int:
+    """Learn what each model accepts. Free: docs pages plus two requests per model
+    that RunWare always rejects before it bills (see the probe safety rules)."""
+    import asyncio
+
+    from . import boot, db
+    from .runware.client import open_client
+    from .services import constraints
+    from .services import settings as settings_svc
+
+    paths = config.resolve_paths()
+    try:
+        info = boot.boot(paths)
+    except migrate.MigrationFailed as e:
+        print(str(e), file=sys.stderr)
+        return config.MIGRATION_FAIL_EXIT_CODE
+    try:
+        with db.session_scope(info.session_factory) as s:
+            transport = settings_svc.get(s, "runware.transport")
+        state = asyncio.run(
+            constraints.harvest(
+                info.session_factory,
+                client_factory=open_client,
+                api_key=secrets.effective_api_key(paths) or "",
+                kinds=tuple(args.kind) or ("video", "image"),
+                airs=args.air or None,
+                docs=args.docs,
+                api=args.api,
+                transport=transport,
+                state=constraints.HarvestState(),
+            )
+        )
+    finally:
+        info.engine.dispose()
+    for row in state.rows:
+        print(
+            f"{row['air']:<40} docs={row['docs']:<10} api={row['api']:<10} sizes={row['dims_mode']}"
+        )
+    print(state.message)
+    return 1 if state.message.startswith("STOPPED") else 0
+
+
 def cmd_version(_args: argparse.Namespace) -> int:
     c = gitinfo.current_commit()
     print(f"VJHStudio {__version__}" + (f" ({c.short} {c.subject})" if c else ""))
@@ -378,6 +420,14 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--merge", action="store_true", help="merge instead of replace")
     r.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     r.set_defaults(func=cmd_restore)
+    pr = sub.add_parser("probe", help="learn what each model accepts (free, sends no job)")
+    pr.add_argument(
+        "--kind", action="append", choices=("image", "video"), default=[], help="repeatable"
+    )
+    pr.add_argument("--air", action="append", default=[], help="one model only; repeatable")
+    pr.add_argument("--no-docs", dest="docs", action="store_false", help="skip the docs pages")
+    pr.add_argument("--no-api", dest="api", action="store_false", help="skip the API probes")
+    pr.set_defaults(docs=True, api=True, func=cmd_probe)
     sub.add_parser("version", help="print version").set_defaults(func=cmd_version)
     sub.add_parser("doctor", help="print environment diagnostics").set_defaults(func=cmd_doctor)
     return p

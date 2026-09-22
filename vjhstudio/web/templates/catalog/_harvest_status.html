@@ -1,0 +1,23 @@
+<form id="harvest-form" hx-post="/models/harvest" hx-target="this" hx-swap="outerHTML">
+  <button type="submit" class="secondary"{% if harvest.running %} disabled aria-busy="true"{% endif %}>Harvest constraints</button>
+  <small>Free: reads each model's docs page and asks RunWare which sizes it accepts. Nothing is generated.</small>
+  {% if conflict %}<p class="error">{{ conflict }}</p>{% endif %}
+  {% if harvest.running %}
+  <div hx-get="/hx/models/harvest-status" hx-trigger="every 2s" hx-target="#harvest-form" hx-swap="outerHTML">Harvesting… {{ harvest.done }}/{{ harvest.total }}</div>
+  {% else %}
+    {% if harvest.message %}<p class="{{ 'error' if harvest.message.startswith('STOPPED') else 'ok' }}">{{ harvest.message }}</p>{% endif %}
+    {% if harvest.rows %}
+    <details>
+      <summary>{{ harvest.rows|length }} model{{ '' if harvest.rows|length == 1 else 's' }}</summary>
+      <table>
+        <thead><tr><th>Model</th><th>Docs</th><th>API</th><th>Sizes</th></tr></thead>
+        <tbody>
+        {% for row in harvest.rows %}
+          <tr><td><code>{{ row.air }}</code></td><td>{{ row.docs }}</td><td>{{ row.api }}</td><td>{{ row.dims_mode }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </details>
+    {% endif %}
+  {% endif %}
+</form>

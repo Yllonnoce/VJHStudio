@@ -1,5 +1,7 @@
 <tr id="model-{{ m.id }}" class="{% if m.is_hidden %}hidden-model{% endif %}">
-  <td><strong>{{ m.name }}</strong><br><small><code>{{ m.air }}</code>{% if m.creator %} · {{ m.creator }}{% endif %}</small></td>
+  <td><strong>{{ m.name }}</strong><br><small><code>{{ m.air }}</code>{% if m.creator %} · {{ m.creator }}{% endif %}</small>
+    {% if m.dims_mode in ('list', 'rule') %}<small class="chip">sizes known</small>{% endif %}
+    {% if m.generate_capable is defined and not m.generate_capable %}<small class="chip warn">video-to-video only — not supported yet</small>{% endif %}</td>
   <td title="{{ m.label }}">{{ m.label.split(' — ', 1)[1] if ' — ' in m.label else '' }}</td>
   <td>{{ m.family }}</td>
   <td>{{ m.source }}</td>
