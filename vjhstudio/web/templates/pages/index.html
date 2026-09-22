@@ -25,7 +25,7 @@
   {% include "partials/_recent_strip.html" %}
 </section>
 
-{% if active_count %}
+{% if jobs_active %}
 <section class="dash-section" id="dash-progress">
   <header class="card-head"><h2>In progress</h2></header>
   {% include "generate/_queue_panel.html" %}
@@ -39,7 +39,7 @@
   </article>
   <article class="stat">
     <div class="muted">Spent today</div>
-    <div class="value">${{ '%.2f'|format(spend_today) }}</div>
+    <div class="value">${{ '%.2f'|format(today_spend) }}</div>
   </article>
   <article class="stat">
     <div class="muted">Outputs</div>

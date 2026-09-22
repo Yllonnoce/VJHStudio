@@ -30,7 +30,7 @@
   {# Subject gets no chips -- it is the user's own idea -- but a roomy box and a
      fuller example placeholder. #}
   <label>Subject
-    <textarea name="subject" rows="3" x-model="fields.subject" @input="vjhAutosize($el)"
+    <textarea name="subject" rows="3" x-model="fields.subject" @input="autosize($el)"
               placeholder="a red fox in a snowy forest, looking back over its shoulder">{{ form.get('subject', '') }}</textarea>
   </label>
   {{ idea_field('style', 'Style', 'oil painting', form, ideas) }}
@@ -40,14 +40,14 @@
   {{ idea_field('composition', 'Composition', 'rule of thirds', form, ideas) }}
   {{ idea_field('colour', 'Colour', 'muted earth tones', form, ideas) }}
   <label>Extras
-    <textarea name="extras" rows="2" x-model="fields.extras" @input="vjhAutosize($el)"
+    <textarea name="extras" rows="2" x-model="fields.extras" @input="autosize($el)"
               placeholder="fine detail, sharp focus">{{ form.get('extras', '') }}</textarea>
   </label>
   {{ idea_row('extras', 'Extras', ideas.get('extras', [])) }}
   {# video models take no negative prompt: the field stays in the DOM for the shared
      partial but is hidden (and ignored server-side) while the Video tab is active #}
   <label x-show="mode === 'image'">Negative
-    <textarea name="negative" rows="2" x-model="fields.negative" @input="vjhAutosize($el)"
+    <textarea name="negative" rows="2" x-model="fields.negative" @input="autosize($el)"
               placeholder="extra limbs, blurry">{{ form.get('negative', '') }}</textarea>
   </label>
 
@@ -71,7 +71,7 @@
   </div>
 
   <label>Final prompt
-    <textarea name="final_prompt" rows="4" x-model="finalPrompt" @input="vjhAutosize($el)"
+    <textarea name="final_prompt" rows="4" x-model="finalPrompt" @input="autosize($el)"
               placeholder="Leave empty to use the composed prompt">{{ final_prompt|default('', true) }}</textarea>
   </label>
 

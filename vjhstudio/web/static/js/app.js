@@ -254,6 +254,16 @@ window.generateForm = function (initial) {
       }
     },
 
+    // Grow the text area the user is typing in (@input on the element itself). Gated
+    // exactly like _grow: where the browser supports `field-sizing: content` it already
+    // sizes the box, and writing an inline `height` here would out-rank that rule for
+    // the rest of the page's life -- freezing the box at whatever height the first
+    // keystroke happened to produce.
+    autosize(el) {
+      if (VJH_FIELD_SIZING || !window.vjhAutosize) return;
+      window.vjhAutosize(el);
+    },
+
     // Grow one text area after a *programmatic* change (a chip, a polish card) -- typing
     // is covered by @input on the element itself. A no-op where the browser sizes text
     // areas itself, and after $nextTick so Alpine has written the new value first.

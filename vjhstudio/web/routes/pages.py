@@ -19,9 +19,8 @@ def _slugs(session) -> dict[int, str]:
 
 @router.get("/")
 def index(request: Request):
-    runner = getattr(request.app.state, "runner", None)
     with db.session_scope(request.app.state.boot.session_factory) as s:
-        ctx = dashboard.context(s, runner)
+        ctx = dashboard.context(s)
         slugs = _slugs(s)
         ctx["recent"] = [
             {
@@ -31,5 +30,7 @@ def index(request: Request):
             }
             for o in ctx["recent"]
         ]
+    # `jobs_active` and `today_spend` both come from here, so the "In progress" heading
+    # and the panel it wraps are gated on one answer and the spend is counted once.
     ctx.update(panel_ctx(request))
     return deps.render(request, "pages/index.html", ctx)

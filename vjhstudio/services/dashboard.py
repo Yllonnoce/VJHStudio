@@ -1,6 +1,11 @@
-"""The home dashboard: recents, live queue count, spend, balance and per-project totals,
-assembled from the existing services in a single read. No web imports here — the route
-is what turns this into a page.
+"""The home dashboard: recents, balance and per-project totals, assembled from the
+existing services in a single read. No web imports here — the route is what turns this
+into a page.
+
+The live queue is *not* assembled here. ``routes.jobs.panel_ctx`` already reads the
+active jobs and today's spend for the queue panel the page embeds, and the route merges
+that in; duplicating either would mean two answers to the same question on one render —
+which is exactly how the "In progress" heading came to disagree with the panel beneath it.
 """
 
 from __future__ import annotations
@@ -10,12 +15,8 @@ from sqlalchemy.orm import Session
 from . import account, costs, outputs, projects
 
 
-def context(session: Session, runner) -> dict:
-    """Everything ``routes.pages.index`` needs to render the home page.
-
-    ``runner`` is ``request.app.state.runner``; it is ``None`` before the app has
-    finished starting up, in which case nothing is reported as active.
-    """
+def context(session: Session) -> dict:
+    """Everything ``routes.pages.index`` needs that the queue panel does not supply."""
     recent, outputs_total = outputs.gallery(session, per_page=12)
     by_project = costs.totals_by_project(session)  # one grouped query, not one per project
     project_rows = [
@@ -24,8 +25,6 @@ def context(session: Session, runner) -> dict:
     ]
     return {
         "recent": recent,
-        "active_count": len(runner.active_ids()) if runner is not None else 0,
-        "spend_today": costs.today_spend(session),
         "balance": account.cached_balance(session),
         "outputs_total": outputs_total,
         "projects": project_rows,

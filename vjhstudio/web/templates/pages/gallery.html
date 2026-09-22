@@ -44,13 +44,18 @@
 </dialog>
 {% if open_id %}
 {# Arriving from the dashboard's Recent strip: open the matching card's own lightbox
-   button, same as a click would. Deferred to DOMContentLoaded so htmx and app.js
-   (both loaded with `defer`) have already run. #}
+   button, same as a click would. htmx and app.js are `defer` scripts, so their own
+   DOMContentLoaded listeners are registered *after* this inline one and run after it.
+   Clicking straight from here therefore fired before htmx had processed `hx-get` and
+   opened an empty lightbox -- so the click is pushed one turn later, by which time
+   every deferred listener has run and the button is wired. #}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-  var card = document.getElementById('output-{{ open_id }}');
-  var btn = card && card.querySelector('button.gallery-thumb, button.gallery-details');
-  if (btn) { btn.click(); }
+  setTimeout(function () {
+    var card = document.getElementById('output-{{ open_id }}');
+    var btn = card && card.querySelector('button.gallery-thumb, button.gallery-details');
+    if (btn) { btn.click(); }
+  }, 0);
 });
 </script>
 {% endif %}

@@ -3,6 +3,9 @@
 import asyncio
 from contextlib import asynccontextmanager
 
+from vjhstudio import db
+from vjhstudio.models import Job
+
 FORM = {
     "project_id": "1",
     "model": "runware:101@1",
@@ -82,10 +85,38 @@ async def test_home_no_active_job_hides_in_progress(client):
     assert "In progress" not in r.text
 
 
+async def test_home_in_progress_follows_the_database_not_the_runner(client, app):
+    """The section and the panel it wraps must agree. The panel renders `jobs_active`,
+    read from the database; gating the section on the runner's in-memory ids instead
+    hid a queued job the panel would happily have shown (and, after a restart, every
+    job in the queue)."""
+    with db.session_scope(app.state.boot.session_factory) as s:
+        s.add(
+            Job(
+                id="queued-but-unclaimed",
+                project_id=1,
+                kind="image",
+                status="queued",
+                model_air="runware:101@1",
+                request_json={},
+            )
+        )
+    assert app.state.runner.active_ids() == []  # nothing in flight in memory
+    r = await client.get("/")
+    assert r.status_code == 200
+    assert "In progress" in r.text and 'id="queue-panel"' in r.text
+
+
 async def test_gallery_open_id_addresses_the_lightbox_opener(client, fake, app):
     await _make(client, fake, app)
     oid = (await client.get("/api/jobs")).json()[0]["outputs"][0]["id"]
     r = await client.get(f"/gallery?open={oid}")
     assert r.status_code == 200
     assert f"output-{oid}" in r.text
-    assert "DOMContentLoaded" in r.text
+    # htmx and app.js are `defer` scripts, so they register their own DOMContentLoaded
+    # listeners *after* this inline one. Clicking straight from that listener fired
+    # before `hx-get` was wired and opened an empty lightbox, so the click has to be
+    # deferred a turn (setTimeout) or hung off htmx's own `htmx:load`.
+    opener = r.text[r.text.rindex("<script>") : r.text.rindex("</script>")]
+    assert "DOMContentLoaded" in opener or "htmx:load" in opener
+    assert "setTimeout" in opener or "htmx:load" in opener

@@ -10,7 +10,9 @@ from pathlib import Path
 
 from vjhstudio.services import ideas
 
-APP_JS = Path(__file__).resolve().parent.parent / "vjhstudio" / "web" / "static" / "js" / "app.js"
+WEB = Path(__file__).resolve().parent.parent / "vjhstudio" / "web"
+APP_JS = WEB / "static" / "js" / "app.js"
+BUILDER_HTML = WEB / "templates" / "generate" / "_prompt_builder.html"
 
 
 def _app_js() -> str:
@@ -132,3 +134,9 @@ def test_autosize_is_skipped_where_field_sizing_is_supported():
     assert "if (VJH_FIELD_SIZING || !window.vjhAutosize) return;" in app_js  # _grow()
     assert "this._grow(field)" in app_js  # toggleIdea()
     assert "this._grow('final_prompt')" in app_js  # usePolish()
+    # Typing goes through the component's own gated `autosize(el)`; calling the raw
+    # helper from `@input` skipped the feature test and froze the box on Chrome/Safari.
+    assert "autosize(el) {" in app_js
+    builder = BUILDER_HTML.read_text()
+    assert "vjhAutosize" not in builder
+    assert builder.count('@input="autosize($el)"') == 4
