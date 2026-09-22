@@ -14,12 +14,15 @@ USER_AGENT = "Mozilla/5.0 (compatible; VJHStudio/0.3; +https://github.com/yllonn
 _PARAM = re.compile(
     r'<dl class="component-APIParameter[^"]*" id="request-([^"]+)"[^>]*>(.*?)</dl>', re.S
 )
-# Real docs pages slugify nested parameter ids to lowercase, hyphen-joined anchors
-# (id="request-inputs-frameimages"), which loses the camelCase the RunWare API actually
-# uses. Where present, the breadcrumb right after <dt> (<code>inputs</code> » <code>
-# frameImages</code>) still carries the correctly-cased path, so it takes priority over
-# the id; the id (dots or hyphens) is only the fallback for un-nested params.
+# Real docs pages slugify every parameter id to an all-lowercase anchor
+# (id="request-cfgscale", id="request-inputs-frameimages"), which loses the camelCase the
+# RunWare API actually uses (CFGScale, frameImages, ...). The id is therefore never a
+# reliable source for the name: nested rows carry the correctly-cased path in the
+# breadcrumb right after <dt> (<code>inputs</code> » <code>frameImages</code>), and
+# top-level rows carry it in their own heading (<h3><a href="#...">CFGScale</a></h3>).
+# The id is only a last-resort fallback when neither is present.
 _BREADCRUMB = re.compile(r'<dt[^>]*>\s*<span[^>]*>(.*?)</span>\s*<div class="header"', re.S)
+_HEADING = re.compile(r"<h3[^>]*>\s*<a[^>]*>([^<]*)</a>", re.S)
 _ATTR = re.compile(r'<span data-name="([^"]+)"[^>]*>([^<]*)</span>')
 _ALLOWED = re.compile(r"Allowed values.*?<ul>(.*?)</ul>", re.S)
 _CODE = re.compile(r"<code[^>]*>([^<]*)</code>")
@@ -70,6 +73,17 @@ def _dotted_name(raw_id: str, body: str) -> str:
         segments = [htmllib.unescape(c).strip() for c in _CODE.findall(m.group(1))]
         if segments:
             return ".".join(segments)
+    # A dot in the id means it already spells out the nested path in its original case
+    # (the synthetic/legacy id="request-inputs.video" form, which has no breadcrumb to
+    # confirm it) — trust it as-is rather than the heading, which would only give the
+    # leaf ("video"), not the full path.
+    if "." in raw_id:
+        return raw_id.replace("-", ".")
+    m = _HEADING.search(body)
+    if m:
+        heading = htmllib.unescape(m.group(1)).strip()
+        if heading:
+            return heading
     return raw_id.replace("-", ".")
 
 

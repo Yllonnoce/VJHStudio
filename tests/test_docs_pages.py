@@ -56,6 +56,21 @@ def test_aleph_inputs():
     assert "width" not in d["params"]
 
 
+def test_flux_camelcase_names_come_from_the_heading_not_the_lowercased_id():
+    d = load("flux-dev.html")
+    assert "CFGScale" in d["params"]
+    assert "numberResults" in d["params"]
+    assert d["params"]["CFGScale"] == {"type": "float", "min": 0, "max": 20, "step": 0.01}
+    assert d["params"]["numberResults"] == {
+        "type": "integer",
+        "min": 1,
+        "max": 20,
+        "default": 1,
+    }
+    assert "cfgscale" not in d["params"]
+    assert "numberresults" not in d["params"]
+
+
 def test_dotted_and_hyphenated_ids_parse_the_same():
     dotted = (
         '<dl class="component-APIParameter level-1" id="request-inputs.video">'
