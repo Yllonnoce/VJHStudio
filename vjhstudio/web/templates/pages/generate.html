@@ -1,5 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Generate · VJHStudio{% endblock %}
+{# Boosted navigation snapshots the page body into htmx's history cache when you leave
+   it. This page is the one page driven by Alpine (x-data/x-for), and an Alpine-rendered
+   snapshot re-initialises on restore -- the x-for reference chips in generate/_refs.html
+   would be generated a second time on top of the ones already in the snapshot, and the
+   inputs' typed values are DOM properties that never made it into the saved HTML. So we
+   opt this page out of the cache entirely: htmx skips the save while this <main> is on
+   screen, Back then misses the cache, and htmx.config.refreshOnHistoryMiss (app.js)
+   turns that miss into a plain reload. The draft lives in localStorage, so nothing the
+   user typed is lost by refetching. #}
+{% block main_attrs %} hx-history="false"{% endblock %}
 {% block content %}
 <header class="page-head">
   <h1>Generate</h1>

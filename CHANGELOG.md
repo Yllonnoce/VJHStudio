@@ -28,6 +28,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   rail on the right, and results below both. Every page has a title and subtitle, and the current
   page is highlighted in the navigation. Action buttons are inline instead of full-width bars, and
   prompt rows are more compact. Navigation wraps instead of overflowing on narrow screens, and the top bar stays put while the page scrolls underneath it.
+- Menu clicks swap only the page body; the top bar with its balance and queue chips stays in place.
 
 ### Fixed
 

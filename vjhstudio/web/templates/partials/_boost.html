@@ -1,0 +1,19 @@
+{# Shared navigation boost.
+
+   Every top-bar link is an htmx "boosted" link: the click still fetches the same URL,
+   but htmx swaps only the response's <main> into the page's <main>. The header itself
+   is never torn down and redrawn, so the balance chip, the queue chip and the theme
+   button keep their DOM nodes (and their polling timers) across a page change.
+
+   The attributes sit on each <a> rather than on the surrounding <ul> on purpose: the
+   badge <li>s carry their own hx-get polls, and an inherited hx-target="main" /
+   hx-select="main" / hx-push-url="true" would make every poll swap the page body and
+   push /hx/jobs/badge into the browser's history.
+
+   htmx 2.0.4 still updates document.title here: makeFragment() reads the <title> out
+   of the *whole* response before hx-select narrows it down (vendor/htmx.min.js, the
+   `l.title = n.title` in swap(), which runs ahead of the `if (o.select)` branch), and
+   swap() applies it afterwards unless hx-swap says ignoreTitle. No fallback needed. #}
+{% macro boost() -%}
+hx-boost="true" hx-target="main" hx-select="main" hx-swap="outerHTML show:window:top" hx-push-url="true"
+{%- endmacro %}

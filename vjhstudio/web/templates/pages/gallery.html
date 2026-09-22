@@ -57,15 +57,27 @@
    DOMContentLoaded listeners are registered *after* this inline one and run after it.
    Clicking straight from here therefore fired before htmx had processed `hx-get` and
    opened an empty lightbox -- so the click is pushed one turn later, by which time
-   every deferred listener has run and the button is wired. #}
+   every deferred listener has run and the button is wired.
+
+   Boosted navigation re-runs this script when htmx swaps the new <main> in, and by
+   then DOMContentLoaded has long since fired -- waiting for it would mean waiting
+   forever. So the listener is only used while the document is still parsing; on a
+   swap the opener runs straight away (still one turn later, for the reason above). #}
 <script>
-document.addEventListener('DOMContentLoaded', function () {
-  setTimeout(function () {
-    var card = document.getElementById('output-{{ open_id }}');
-    var btn = card && card.querySelector('button.gallery-thumb, button.gallery-details');
-    if (btn) { btn.click(); }
-  }, 0);
-});
+(function () {
+  function vjhOpenRequestedCard() {
+    setTimeout(function () {
+      var card = document.getElementById('output-{{ open_id }}');
+      var btn = card && card.querySelector('button.gallery-thumb, button.gallery-details');
+      if (btn) { btn.click(); }
+    }, 0);
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', vjhOpenRequestedCard);
+  } else {
+    vjhOpenRequestedCard();
+  }
+})();
 </script>
 {% endif %}
 {% endblock %}

@@ -676,14 +676,72 @@ window.restartWatcher = function (bootId, returnTo) {
 };
 
 // ── Sticky top bar: publish its height so sticky rails and anchors sit below it ──
+// Exported, because boosted navigation (below) has to re-measure: the nav wraps onto a
+// second line as soon as the Update badge or a busy Queue chip appears, and the page
+// that was just swapped in needs the new height for its sticky rails and anchors.
+window.vjhMeasureHeader = function () {
+  var h = document.querySelector('body > header');
+  if (!h) return;
+  document.documentElement.style.setProperty('--vjh-header-h', h.offsetHeight + 'px');
+};
+
 (function () {
-  function measure() {
-    var h = document.querySelector('body > header');
-    if (!h) return;
-    document.documentElement.style.setProperty('--vjh-header-h', h.offsetHeight + 'px');
-  }
+  var measure = window.vjhMeasureHeader;
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', measure);
   else measure();
   window.addEventListener('resize', measure);
   window.addEventListener('load', measure);
+})();
+
+// ── Boosted navigation: the top bar stays put, only <main> is swapped ────────────
+// The header's links carry hx-boost (templates/partials/_boost.html), so a menu click
+// fetches the page and htmx puts just its <main> in place. The header is therefore not
+// re-rendered, and the two things the server used to settle for us have to be redone
+// here: which link is the current one, and how tall the bar ended up.
+//
+// The "current" rule is _header.html's macro, to the letter: "/" matches only the exact
+// path, every other link matches when the path sits under it (/generate/video is still
+// Generate). Only links the macro itself would mark carry `data-navlink`, so the logo
+// and the "Update available" / "No API key" chips (both /settings...) are left alone,
+// exactly as they are server-side.
+window.vjhMarkCurrentNav = function () {
+  var path = window.location.pathname;
+  var links = document.querySelectorAll('body > header nav a[data-navlink]');
+  Array.prototype.forEach.call(links, function (a) {
+    var href = a.getAttribute('href') || '';
+    var current = href === '/' ? path === '/' : (href !== '' && path.indexOf(href) === 0);
+    if (current) a.setAttribute('aria-current', 'page');
+    else a.removeAttribute('aria-current');
+  });
+};
+
+(function () {
+  if (!window.htmx) return;   // restarting.html loads app.js on its own, without htmx
+
+  // Back/forward: htmx snapshots the page body into localStorage as you leave a page
+  // and replays it on popstate. The Generate page opts out (hx-history="false" on its
+  // <main>), because replaying an Alpine-rendered snapshot would double its x-for
+  // chips; with this flag the resulting cache miss becomes a plain reload of the
+  // restored URL instead of a second fetch stitched into the old body.
+  window.htmx.config.refreshOnHistoryMiss = true;
+
+  function settle() {
+    window.vjhMarkCurrentNav();
+    window.vjhMeasureHeader();
+  }
+
+  // pushedIntoHistory/replacedInHistory fire after history.pushState but before the
+  // swap, so location is already the new one; the extra frame lets the new <main>
+  // land before the bar is measured.
+  function settleSoon() {
+    settle();
+    setTimeout(settle, 0);
+  }
+
+  document.addEventListener('htmx:pushedIntoHistory', settleSoon);
+  document.addEventListener('htmx:replacedInHistory', settleSoon);
+  document.addEventListener('htmx:historyRestore', settleSoon);
+  window.addEventListener('popstate', settleSoon);
+  // A badge swap (Queue going busy, the Update chip appearing) can rewrap the nav.
+  document.addEventListener('htmx:afterSettle', function () { window.vjhMeasureHeader(); });
 })();

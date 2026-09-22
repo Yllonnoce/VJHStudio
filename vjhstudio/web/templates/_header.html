@@ -1,13 +1,19 @@
+{% from "partials/_boost.html" import boost %}
 {# `current_path` comes from deps.render (request.url.path). A link is current when
    it is the exact path (Home) or when the path sits under it (/generate/video is
    still "Generate"); the logo is deliberately not a nav link, so "/" marks Home
-   once and only once. #}
+   once and only once.
+
+   `data-navlink` marks exactly the links this rule applies to, so app.js can redo
+   the same marking client-side after a boosted swap (the header is not re-rendered
+   then, so the server-side `aria-current` above would otherwise stay on the old
+   page's link). The Queue chip carries the same marker in partials/_jobs_badge.html. #}
 {% macro navlink(href, label) -%}
-<li><a href="{{ href }}"{% if (href == '/' and current_path == '/') or (href != '/' and current_path.startswith(href)) %} aria-current="page"{% endif %}>{{ label }}</a></li>
+<li><a href="{{ href }}" data-navlink {{ boost() }}{% if (href == '/' and current_path == '/') or (href != '/' and current_path.startswith(href)) %} aria-current="page"{% endif %}>{{ label }}</a></li>
 {%- endmacro %}
 <header class="container">
   <nav>
-    <ul><li><strong><a href="/">VJHStudio</a></strong></li></ul>
+    <ul><li><strong><a href="/" {{ boost() }}>VJHStudio</a></strong></li></ul>
     <ul>
       {{ navlink('/', 'Home') }}
       {{ navlink('/generate', 'Generate') }}
