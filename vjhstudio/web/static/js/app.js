@@ -448,9 +448,14 @@ function vjhTestNotification() {
 }
 
 // ── Lightbox (Gallery) ───────────────────────────────────────────────────────────
+// `show()`, not `showModal()`: a modal dialog goes into the browser's top layer,
+// which paints over the sticky top bar and makes it unclickable. Non-modal keeps
+// the bar usable while the details are open; the dialog is sized to sit below it
+// (app.css). What a modal would have given for free -- Esc, and a click outside
+// the panel -- is re-added below.
 function vjhOpenLightbox() {
   const dlg = document.getElementById('lightbox');
-  if (dlg && typeof dlg.showModal === 'function' && !dlg.open) dlg.showModal();
+  if (dlg && typeof dlg.show === 'function' && !dlg.open) dlg.show();
 }
 
 document.body.addEventListener('close-lightbox', () => {
@@ -458,13 +463,23 @@ document.body.addEventListener('close-lightbox', () => {
   if (dlg && dlg.open) dlg.close();
 });
 
+// A click that lands on the dialog itself is a click on the dim area around the
+// panel (the article), so it closes -- the same as clicking a modal's backdrop.
+document.addEventListener('click', (e) => {
+  const dlg = document.getElementById('lightbox');
+  if (dlg && dlg.open && e.target === dlg) dlg.close();
+});
+
 // ArrowLeft/ArrowRight step through neighbouring images when the detail partial
-// provides `.lb-prev`/`.lb-next` controls; Esc closing the dialog is native <dialog>
-// behaviour and needs no JS.
+// provides `.lb-prev`/`.lb-next` controls. Esc is free for a modal dialog only,
+// so it is handled here.
 document.addEventListener('keydown', (e) => {
   const dlg = document.getElementById('lightbox');
   if (!dlg || !dlg.open) return;
-  if (e.key === 'ArrowLeft') {
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    dlg.close();
+  } else if (e.key === 'ArrowLeft') {
     const btn = dlg.querySelector('.lb-prev');
     if (btn) btn.click();
   } else if (e.key === 'ArrowRight') {

@@ -5,6 +5,9 @@
   {% else %}
   <img src="{{ url }}" alt="{{ o.prompt_text|truncate(80) }}" class="lightbox-image">
   {% endif %}
+  {# Prompt + params are one block so the phone sheet has a single scrolling
+     region between the fixed media and the pinned action row (app.css). #}
+  <div class="lightbox-meta">
   <h3>{{ o.prompt_text }}</h3>
   {% if o.negative_prompt %}<p class="muted">Negative: {{ o.negative_prompt }}</p>{% endif %}
   <table class="params-table">
@@ -18,6 +21,7 @@
       <tr><th>Path</th><td><code id="output-path-{{ o.id }}">{{ o.rel_path }}</code></td></tr>
     </tbody>
   </table>
+  </div>
   <footer class="lightbox-actions">
     <a role="button" class="secondary outline" href="/outputs/{{ o.id }}/download">Download</a>
     <button type="button" class="secondary outline" hx-post="/outputs/{{ o.id }}/favourite"

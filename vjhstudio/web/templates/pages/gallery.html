@@ -37,10 +37,17 @@
 
 {% include "gallery/_grid.html" %}
 
-<dialog id="lightbox">
-  <button type="button" class="secondary outline lightbox-close" aria-label="Close"
-          onclick="document.getElementById('lightbox').close()">&times;</button>
-  <div id="lightbox-body"></div>
+{# Opened NON-modally (vjhOpenLightbox in app.js) so the top bar stays visible and
+   usable: a modal dialog is put in the browser's top layer and would cover it. The
+   dialog element is the dimmed area below the header and this article is the panel;
+   app.js closes it on Esc and on a click on the dim area (a non-modal dialog gets
+   neither for free). #}
+<dialog id="lightbox" aria-label="Output details">
+  <article>
+    <button type="button" class="secondary outline lightbox-close" aria-label="Close"
+            onclick="document.getElementById('lightbox').close()">&times;</button>
+    <div id="lightbox-body"></div>
+  </article>
 </dialog>
 {% if open_id %}
 {# Arriving from the dashboard's Recent strip: open the matching card's own lightbox
