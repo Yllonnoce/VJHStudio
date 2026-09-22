@@ -49,11 +49,37 @@ def test_veo_allowed_values_and_optional_input():
     assert [1280, 720] in d["dims"] and d["dim_labels"]["1280x720"].startswith("720p")
 
 
+def test_veo_string_allowed_values_stay_strings():
+    d = load("veo-3-1.html")
+    assert d["params"]["outputFormat"] == {
+        "type": "string",
+        "default": "MP4",
+        "values": ["MP4", "WEBM", "MOV"],
+    }
+
+
 def test_aleph_inputs():
     d = load("aleph-2-0.html")
     assert d["inputs"]["video"] == {"required": True}
     assert d["inputs"]["frameImages"] == {"required": False, "min_items": 1, "max_items": 2}
     assert "width" not in d["params"]
+
+
+def test_kling_nested_object_parameter_does_not_corrupt_parent_or_drop_children():
+    d = load("kling-4k.html")
+    parent = d["params"]["providerSettings.klingai.multiPrompt"]
+    assert parent["type"] == "array of objects"
+    assert parent["max_items"] == 6
+    assert "required" not in parent
+    assert "min" not in parent
+    assert "max" not in parent
+    assert d["params"]["providerSettings.klingai.multiPrompt.prompt"] == {
+        "type": "string",
+        "required": True,
+        "min": 3,
+        "max": 512,
+    }
+    assert "providerSettings.klingai.multiPrompt.duration" in d["params"]
 
 
 def test_flux_camelcase_names_come_from_the_heading_not_the_lowercased_id():
