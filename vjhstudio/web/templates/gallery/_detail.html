@@ -1,7 +1,7 @@
 <div class="lightbox-detail">
   {% if o.kind == 'video' %}
   <video src="{{ url }}" class="lightbox-image" preload="metadata" muted controls playsinline
-         poster="/static/img/video-poster.svg" aria-label="{{ o.filename }}"></video>
+         poster="{{ poster or '/static/img/video-poster.svg' }}" aria-label="{{ o.filename }}"></video>
   {% else %}
   <img src="{{ url }}" alt="{{ o.prompt_text|truncate(80) }}" class="lightbox-image">
   {% endif %}

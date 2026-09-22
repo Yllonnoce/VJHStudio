@@ -2,10 +2,10 @@
   {% for c in recent %}
   <a class="gallery-card recent-card" href="/gallery?open={{ c.o.id }}">
     <span class="gallery-thumb">
-      {% if c.o.kind == 'video' %}
-        <img src="/static/img/video-poster.svg" alt="{{ c.o.filename }}" loading="lazy" width="150" height="150">
-      {% elif c.thumb %}
+      {% if c.thumb %}
         <img src="{{ c.thumb }}" alt="{{ c.o.prompt_text|truncate(60) }}" loading="lazy" width="150" height="150">
+      {% elif c.o.kind == 'video' %}
+        <img src="/static/img/video-poster.svg" alt="{{ c.o.filename }}" loading="lazy" width="150" height="150">
       {% else %}
         <span class="chip">{{ c.o.filename }}</span>
       {% endif %}

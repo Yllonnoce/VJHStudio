@@ -402,6 +402,7 @@ class JobRunner:
             dims=dims,
             duration_s=params["duration"] if video else None,
             thumbnail=not video,  # a video still is a poster, not a Pillow thumbnail
+            poster=video,  # ...and a poster is an ffmpeg frame out of the clip
         )
         task_type = "videoInference" if video else "imageInference"
         total = 0.0

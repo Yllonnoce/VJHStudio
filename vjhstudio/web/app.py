@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import threading
 from collections.abc import Mapping
 from contextlib import asynccontextmanager, suppress
 
@@ -17,6 +18,7 @@ from ..runware.catalog_api import ContentAPI
 from ..runware.client import open_client
 from ..services import catalog, gitinfo, migrate, update
 from ..services import jobs as jobs_svc
+from ..services import outputs as outputs_svc
 from ..services import settings as settings_svc
 from .csrf import CrossSiteBlockMiddleware
 from .deps import STATIC_DIR
@@ -79,6 +81,25 @@ def create_app(
             except Exception as e:  # noqa: BLE001 - a background refresh must never crash the app
                 log.warning("catalog refresh skipped: %s", e)
 
+        async def _backfill_posters():
+            """Videos saved before this app could grab a frame still show the generic
+            icon; fill them in once, in a worker thread, after the app is already up.
+
+            Cancelling the task cannot interrupt the thread, so shutdown sets
+            ``app.state.stop_posters`` and the worker returns between rows -- before it
+            would open the session that a disposed engine could no longer serve."""
+            try:
+                made = await asyncio.to_thread(
+                    outputs_svc.backfill_posters,
+                    app.state.boot.session_factory,
+                    paths,
+                    should_stop=app.state.stop_posters.is_set,
+                )
+                if made:
+                    log.info("video posters made: %d", made)
+            except Exception as e:  # noqa: BLE001 - a backfill must never crash the app
+                log.warning("video poster backfill skipped: %s", e)
+
         async def _update_watch():
             """Cache the "N commits behind" notice for the header badge. Manual
             updates only: this never pulls anything, it only counts commits."""
@@ -101,6 +122,9 @@ def create_app(
         )
         await app.state.runner.start(requeue=app.state.boot.requeued_jobs)
         task = asyncio.create_task(_maybe_refresh()) if app.state.auto_refresh else None
+        app.state.poster_task = (
+            asyncio.create_task(_backfill_posters()) if app.state.auto_refresh else None
+        )
         watch_updates = (
             app.state.auto_refresh
             and env.get("VJHSTUDIO_OFFLINE") != "1"
@@ -108,7 +132,15 @@ def create_app(
         )
         app.state.update_task = asyncio.create_task(_update_watch()) if watch_updates else None
         yield
-        for background in (task, app.state.update_task, app.state.harvest_task):
+        # Ask the poster worker to stop *before* anything is awaited or disposed: the
+        # thread it runs in only notices between rows.
+        app.state.stop_posters.set()
+        for background in (
+            task,
+            app.state.update_task,
+            app.state.harvest_task,
+            app.state.poster_task,
+        ):
             if background:
                 background.cancel()
                 # Let the cancellation land before the engine goes: a check still in
@@ -129,6 +161,8 @@ def create_app(
     app.state.download_transport = download_transport
     app.state.runner = None
     app.state.update_task = None
+    app.state.poster_task = None
+    app.state.stop_posters = threading.Event()  # shutdown's only handle on that worker
     app.state.harvest_task = None  # set by services.constraints.start_harvest
     app.state.api_key = lambda: secrets.effective_api_key(paths, env)
     app.state.key_source = lambda: secrets.key_source(paths, env)

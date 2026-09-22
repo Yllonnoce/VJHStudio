@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session, object_session
+from sqlalchemy.orm import Session, object_session, sessionmaker
 
 from .. import __version__
+from .. import db as db_mod
 from ..config import Paths
 from ..models import Job, Output, Project, utcnow
-from ..runware.download import SavedFile, make_thumbnail, write_sidecar
+from ..runware.download import SavedFile, make_poster, make_thumbnail, write_sidecar
 from . import projects, prompts
 
 log = logging.getLogger(__name__)
@@ -71,6 +73,7 @@ class Prepared:
     height: int | None
     params: dict
     duration_s: float | None = None
+    poster_rel_path: str | None = None
 
 
 def meta_for(session: Session, job: Job) -> OutputMeta:
@@ -101,12 +104,16 @@ def prepare(
     dims: tuple[int | None, int | None] | None = None,
     duration_s: float | None = None,
     thumbnail: bool = True,
+    poster: bool = False,
 ) -> list[Prepared]:
     """Sidecars, dimensions and thumbnails. Deliberately does no DB work: JPEG encoding
     must not happen inside a write transaction.
 
     ``dims`` supplies width/height for files Pillow cannot open (video), and
-    ``thumbnail=False`` skips the still that only makes sense for an image."""
+    ``thumbnail=False`` skips the still that only makes sense for an image.
+    ``poster=True`` asks ffmpeg for a frame out of a video instead; the frame is stored
+    as both the poster *and* the thumbnail, so every existing "thumb" consumer -- job
+    cards, the home strip, the backup archive -- shows it without knowing about posters."""
     out: list[Prepared] = []
     for f in saved:
         item = f.item
@@ -128,10 +135,13 @@ def prepare(
         side = write_sidecar(f.path, sidecar)
         w, h = dims if dims is not None else _dims(f.path)
         thumb_rel: str | None = None
+        poster_rel: str | None = None
+        still = paths.thumbs / f"{f.path.stem}.jpg"
         if thumbnail:
-            thumb = paths.thumbs / f"{f.path.stem}.jpg"
-            if make_thumbnail(f.path, thumb) is not None:
-                thumb_rel = thumb.relative_to(paths.data).as_posix()
+            if make_thumbnail(f.path, still) is not None:
+                thumb_rel = still.relative_to(paths.data).as_posix()
+        elif poster and make_poster(f.path, still) is not None:
+            poster_rel = thumb_rel = still.relative_to(paths.data).as_posix()
         out.append(
             Prepared(
                 saved=f,
@@ -142,6 +152,7 @@ def prepare(
                 height=h,
                 params=params,
                 duration_s=duration_s,
+                poster_rel_path=poster_rel,
             )
         )
     return out
@@ -158,6 +169,7 @@ def insert(session: Session, meta: OutputMeta, prepared: list[Prepared]) -> list
             rel_path=p.rel_path,
             sidecar_rel_path=p.sidecar_rel_path,
             thumb_rel_path=p.thumb_rel_path,
+            poster_rel_path=p.poster_rel_path,
             model_air=meta.model_air,
             prompt_text=meta.prompt_text,
             negative_prompt=meta.negative_prompt,
@@ -192,6 +204,59 @@ def record_outputs(
     meta = meta_for(session, job)
     root = root or projects.root_for(session, paths)
     return insert(session, meta, prepare(paths, meta, saved, params, sidecar_extra, root=root))
+
+
+def backfill_posters(
+    session_factory: sessionmaker[Session],
+    paths: Paths,
+    limit: int | None = None,
+    *,
+    should_stop: Callable[[], bool] | None = None,
+) -> int:
+    """Give every video output that still has no poster a frame out of its own file.
+
+    Best effort by design: a row whose file is gone, or that ffmpeg cannot read, is
+    skipped and the next one is tried. The frame grab happens outside any session and
+    each row is committed on its own, so a crash keeps whatever was already done and the
+    next start picks up the rest.
+
+    ``should_stop`` is checked before every row. This runs in a worker thread that an
+    ``asyncio`` cancellation cannot interrupt, so shutdown sets the flag and the loop
+    returns between rows -- crucially *before* opening another session, which after
+    ``engine.dispose()`` would be a use of a torn-down engine.
+    Returns the number of posters actually written.
+    """
+    query = (
+        select(Output.id, Output.rel_path)
+        .where(Output.kind == "video", Output.poster_rel_path.is_(None))
+        .order_by(Output.created_at.desc(), Output.id.desc())
+    )
+    if limit is not None:
+        query = query.limit(max(0, int(limit)))
+    with db_mod.session_scope(session_factory) as s:
+        root = projects.root_for(s, paths)
+        todo = list(s.execute(query).all())
+    made = 0
+    for output_id, rel_path in todo:
+        if should_stop is not None and should_stop():
+            log.info("video poster backfill stopping early after %d", made)
+            break
+        src = contained(root, rel_path)
+        if src is None or not src.is_file():
+            continue
+        dest = paths.thumbs / f"{src.stem}.jpg"
+        if make_poster(src, dest) is None:
+            continue
+        poster_rel = dest.relative_to(paths.data).as_posix()
+        with db_mod.session_scope(session_factory) as s:
+            row = s.get(Output, output_id)
+            if row is None:
+                continue
+            row.poster_rel_path = poster_rel
+            if not row.thumb_rel_path:
+                row.thumb_rel_path = poster_rel
+        made += 1
+    return made
 
 
 def _as_datetime(value: str | date | datetime | None) -> datetime | None:
@@ -266,12 +331,16 @@ def delete(session: Session, paths: Paths, output_id: int) -> bool:
     if o is None:
         return False
     root = projects.root_for(session, paths)
+    # The poster is usually the very same file as the thumbnail, so the same path can
+    # appear twice here; ``unlink(missing_ok=True)`` makes the second pass a no-op.
+    rels = (o.rel_path, o.sidecar_rel_path, o.thumb_rel_path, o.poster_rel_path)
     targets = (
         contained(root, o.rel_path),
         contained(root, o.sidecar_rel_path),
         contained(paths.data, o.thumb_rel_path),
+        contained(paths.data, o.poster_rel_path),
     )
-    for rel, path in zip((o.rel_path, o.sidecar_rel_path, o.thumb_rel_path), targets, strict=True):
+    for rel, path in zip(rels, targets, strict=True):
         if rel and path is None:
             # a row pointing outside the data root is never followed onto the filesystem
             log.warning("refusing to delete %r: outside the outputs root", rel)

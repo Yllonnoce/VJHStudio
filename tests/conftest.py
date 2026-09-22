@@ -1,4 +1,6 @@
 import io
+import subprocess
+from pathlib import Path
 
 import httpx
 import pytest
@@ -6,6 +8,7 @@ from PIL import Image
 
 from tests.fakes.fake_runware import FakeRunware, fake_factory
 from vjhstudio import config
+from vjhstudio.runware import download
 from vjhstudio.services import restart as restart_svc
 from vjhstudio.web.app import create_app
 
@@ -34,6 +37,33 @@ def paths(tmp_path):
 @pytest.fixture
 def fake():
     return FakeRunware()
+
+
+HAVE_FFMPEG = download.ffmpeg_exe() is not None
+
+
+@pytest.fixture
+def make_mp4():
+    """Build a tiny real MP4 with the very ffmpeg the app would use for the poster.
+
+    Hermetic: `imageio-ffmpeg` ships the binary in its wheel, so this touches no
+    network and no system package. Skips when the platform has no ffmpeg at all."""
+    exe = download.ffmpeg_exe()
+    if exe is None:
+        pytest.skip("no ffmpeg available")
+
+    def build(dest, seconds: float = 1.0, size: str = "64x64", colour: str = "red"):
+        dest = Path(dest)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            [exe, "-nostdin", "-v", "error", "-y", "-f", "lavfi",
+             "-i", f"color=c={colour}:s={size}:d={seconds:g}",
+             "-pix_fmt", "yuv420p", str(dest)],
+            check=True, capture_output=True,
+        )  # fmt: skip
+        return dest
+
+    return build
 
 
 def _png_bytes(size: int = 64) -> bytes:

@@ -4,7 +4,7 @@
      the lightbox gets its own link below the player #}
   <div class="gallery-thumb gallery-video">
     <video src="{{ url }}" preload="metadata" muted controls playsinline width="200" height="200"
-           poster="/static/img/video-poster.svg" aria-label="{{ o.filename }}"></video>
+           poster="{{ poster or '/static/img/video-poster.svg' }}" aria-label="{{ o.filename }}"></video>
     {% if o.is_favourite %}<span class="gallery-fav" aria-label="Favourite">★</span>{% endif %}
   </div>
   <button type="button" class="secondary outline gallery-details" hx-get="/hx/outputs/{{ o.id }}"

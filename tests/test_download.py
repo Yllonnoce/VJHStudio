@@ -79,3 +79,59 @@ def test_sidecar_and_thumbnail(tmp_path):
     with Image.open(thumb) as im:
         assert max(im.size) == 384 and im.format == "JPEG"
     assert download.make_thumbnail(tmp_path / "missing.png", tmp_path / "t2.jpg") is None
+
+
+# ---- video posters -------------------------------------------------------
+def test_make_poster_grabs_a_frame_from_a_video(tmp_path, make_mp4):
+    clip = make_mp4(tmp_path / "20260920-120000-abcdef.mp4", size="800x450")
+    poster = download.make_poster(clip, tmp_path / "thumbs" / f"{clip.stem}.jpg")
+    assert poster is not None and poster.exists()
+    with Image.open(poster) as im:
+        assert im.format == "JPEG" and max(im.size) <= 384 and im.size == (384, 216)
+
+
+def test_make_poster_falls_back_to_the_first_frame_of_a_very_short_clip(tmp_path, make_mp4):
+    """0.5 s into a 0.2 s clip is past the end: ffmpeg exits 0 and writes nothing, so the
+    poster has to come from frame 0 instead."""
+    clip = make_mp4(tmp_path / "short.mp4", seconds=0.2, size="32x32", colour="blue")
+    poster = download.make_poster(clip, tmp_path / "short.jpg")
+    assert poster is not None
+    with Image.open(poster) as im:
+        assert im.format == "JPEG" and im.size == (32, 32)
+
+
+def test_make_poster_returns_none_for_a_non_video(tmp_path):
+    (tmp_path / "notes.mp4").write_text("this is not a video at all", encoding="utf-8")
+    assert download.make_poster(tmp_path / "notes.mp4", tmp_path / "t.jpg") is None
+    assert not (tmp_path / "t.jpg").exists()
+    assert download.make_poster(tmp_path / "gone.mp4", tmp_path / "t.jpg") is None
+
+
+def test_make_poster_returns_none_without_ffmpeg(tmp_path, monkeypatch):
+    (tmp_path / "clip.mp4").write_bytes(b"\0" * 64)
+    monkeypatch.setattr(download, "ffmpeg_exe", lambda: None)
+    assert download.make_poster(tmp_path / "clip.mp4", tmp_path / "t.jpg") is None
+
+
+def test_make_poster_never_accepts_a_stale_jpeg(tmp_path):
+    """A JPEG left at the destination by an earlier run must not be returned as this
+    clip's frame: each attempt clears the file first, so a failed grab is a failed grab."""
+    stale = tmp_path / "poster.jpg"
+    Image.new("RGB", (10, 10), (255, 0, 0)).save(stale, "JPEG")
+    (tmp_path / "clip.mp4").write_text("not a video", encoding="utf-8")
+    assert download.make_poster(tmp_path / "clip.mp4", stale) is None
+    assert not stale.exists()
+
+
+def test_make_poster_does_not_inherit_stdin(tmp_path, make_mp4, monkeypatch):
+    clip = make_mp4(tmp_path / "clip.mp4")
+    seen = {}
+    real = download.subprocess.run
+
+    def spy(cmd, **kw):
+        seen.update(kw)
+        return real(cmd, **kw)
+
+    monkeypatch.setattr(download.subprocess, "run", spy)
+    assert download.make_poster(clip, tmp_path / "p.jpg") is not None
+    assert seen["stdin"] is download.subprocess.DEVNULL

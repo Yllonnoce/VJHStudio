@@ -19,6 +19,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The Models page can sort each list by price (default) or by name.
 - A Queue page (`/queue`): the live queue plus a history table of the last 50 finished jobs; the header chip links there instead of the Generate form.
 - Upload a first frame (or seed/reference image) straight from the Generate page; models that need a first frame say so in the References section.
+- Video outputs get a real thumbnail (a frame from the clip) in the gallery, the lightbox, job cards and the home page; existing videos are filled in on the next start (`vjhstudio thumbs` does it on demand).
 
 ### Changed
 

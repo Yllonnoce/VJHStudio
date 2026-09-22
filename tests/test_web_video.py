@@ -10,6 +10,7 @@ from PIL import Image
 from starlette.datastructures import FormData
 
 from vjhstudio import db, models
+from vjhstudio.runware import download
 from vjhstudio.web.routes.generate import parse_video_request
 
 VEO = "google:3@2"
@@ -26,6 +27,9 @@ FORM = {
     "resolution": "720p",
     "output_format": "MP4",
 }
+
+
+HAVE_FFMPEG = download.ffmpeg_exe() is not None
 
 
 def _png() -> bytes:
@@ -208,7 +212,9 @@ async def test_submit_video_runs_the_job_and_saves_an_mp4(client, fake, app):
     assert rows[0]["status"] == "succeeded" and rows[0]["kind"] == "video"
     url = rows[0]["outputs"][0]["url"]
     assert url.endswith(".mp4")
-    assert rows[0]["outputs"][0]["thumb_url"] is None
+    # a video output now carries the frame ffmpeg grabbed out of it, like an image's thumb
+    thumb = rows[0]["outputs"][0]["thumb_url"]
+    assert thumb.startswith("/files/thumbs/") if HAVE_FFMPEG else thumb is None
     got = await client.get(url + "?download=1")
     assert got.status_code == 200 and "attachment" in got.headers.get("content-disposition", "")
 
@@ -235,11 +241,48 @@ async def test_gallery_video_card_and_detail(client, fake, app):
     await _run_video(client, fake, app)
     oid = (await client.get("/api/jobs")).json()[0]["outputs"][0]["id"]
     r = await client.get("/hx/gallery?kind=video")
-    assert "<video" in r.text and "video-poster.svg" in r.text
+    # the poster is the grabbed frame when there is an ffmpeg, the generic icon otherwise
+    poster = "/files/thumbs/" if HAVE_FFMPEG else "video-poster.svg"
+    assert "<video" in r.text and f'poster="{poster}' in r.text
     assert (await client.get("/hx/gallery?kind=image")).text.count("<video") == 0
     r = await client.get(f"/hx/outputs/{oid}")
     assert "<video" in r.text and "Remix" in r.text and "Download" in r.text
     assert "Use as reference" not in r.text
+
+
+async def test_gallery_video_card_falls_back_to_the_generic_poster(client, app):
+    """A video whose frame could never be grabbed (no ffmpeg, unreadable file) keeps the
+    play-triangle icon rather than showing an empty black box."""
+    with db.session_scope(app.state.boot.session_factory) as s:
+        s.add(
+            models.Job(
+                id="job-no-poster",
+                project_id=1,
+                kind="video",
+                status=models.JobStatus.succeeded.value,
+                model_air=VEO,
+                request_json={"project_id": 1, "model": VEO},
+                title="a fox running",
+            )
+        )
+    with db.session_scope(app.state.boot.session_factory) as s:
+        s.add(
+            models.Output(
+                job_id="job-no-poster",
+                project_id=1,
+                kind="video",
+                filename="no-poster.mp4",
+                rel_path="default/no-poster.mp4",
+                sidecar_rel_path="default/no-poster.json",
+                model_air=VEO,
+                prompt_text="a fox running",
+                params_json={},
+            )
+        )
+    r = await client.get("/hx/gallery?kind=video")
+    assert 'poster="/static/img/video-poster.svg"' in r.text
+    oid = (await client.get("/hx/gallery?kind=video")).text.split('id="output-')[1].split('"')[0]
+    assert 'poster="/static/img/video-poster.svg"' in (await client.get(f"/hx/outputs/{oid}")).text
 
 
 # ---- remix ---------------------------------------------------------------

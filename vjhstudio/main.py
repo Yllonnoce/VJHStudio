@@ -1,4 +1,4 @@
-"""CLI entry point: serve | migrate | update | backup | restore | probe | version | doctor."""
+"""CLI entry point: serve | migrate | update | backup | restore | thumbs | probe | version | doctor."""
 
 from __future__ import annotations
 
@@ -305,6 +305,26 @@ def cmd_restore(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_thumbs(args: argparse.Namespace) -> int:
+    """Make the missing video thumbnails now. The app does this by itself on the next
+    start; this is for doing it on demand, or watching it while it runs."""
+    from . import boot
+    from .services import outputs as outputs_svc
+
+    paths = config.resolve_paths()
+    try:
+        info = boot.boot(paths)
+    except migrate.MigrationFailed as e:
+        print(str(e), file=sys.stderr)
+        return config.MIGRATION_FAIL_EXIT_CODE
+    try:
+        made = outputs_svc.backfill_posters(info.session_factory, paths, limit=args.limit)
+    finally:
+        info.engine.dispose()
+    print(f"{made} video thumbnail{'' if made == 1 else 's'} made")
+    return 0
+
+
 def cmd_probe(args: argparse.Namespace) -> int:
     """Learn what each model accepts. Free: docs pages plus two requests per model
     that RunWare always rejects before it bills (see the probe safety rules)."""
@@ -421,6 +441,9 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--merge", action="store_true", help="merge instead of replace")
     r.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     r.set_defaults(func=cmd_restore)
+    th = sub.add_parser("thumbs", help="make thumbnails for videos that still have none")
+    th.add_argument("--limit", type=int, default=None, help="stop after this many videos")
+    th.set_defaults(func=cmd_thumbs)
     pr = sub.add_parser("probe", help="learn what each model accepts (free, sends no job)")
     pr.add_argument(
         "--kind", action="append", choices=("image", "video"), default=[], help="repeatable"
