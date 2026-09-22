@@ -135,6 +135,59 @@ def test_esc_and_a_click_on_the_dimmed_area_still_close_the_lightbox():
     assert "close-lightbox" in APP_JS  # the htmx-driven close is untouched
 
 
+def test_a_drag_that_ends_on_the_dim_area_does_not_close_the_lightbox():
+    """Selecting the prompt text and releasing the button outside the panel fires a
+    click whose target is the dialog; only a press AND release out there may close."""
+    assert "vjhLightboxDownTarget = e.target" in APP_JS
+    assert "vjhLightboxDownTarget === dlg" in APP_JS
+
+
+def test_escape_is_only_swallowed_when_it_was_aimed_at_the_lightbox():
+    """An unconditional preventDefault would eat Esc from an open select or a search
+    field elsewhere on the page while the details happen to be open."""
+    esc = APP_JS[APP_JS.index("if (e.key === 'Escape')") :]
+    esc = esc[: esc.index("} else if")]
+    assert "if (dlg.contains(e.target)) e.preventDefault();" in esc
+
+
+def test_the_page_behind_the_lightbox_does_not_scroll():
+    """A modal dialog blocks the page under it; a non-modal one does not, so the class
+    goes on when it opens and comes off on the dialog's own close event -- which covers
+    Esc, the close button, the dim area and the delete path alike."""
+    assert "html.vjh-lightbox-open{overflow:hidden}" in APP_CSS
+    assert "classList.add('vjh-lightbox-open')" in APP_JS
+    close = APP_JS[APP_JS.index("dlg.addEventListener('close'") :]
+    assert "classList.remove('vjh-lightbox-open')" in close[: close.index("});")]
+    assert APP_JS.count("classList.remove('vjh-lightbox-open')") == 1
+
+
+def test_the_scrolling_regions_keep_their_overscroll():
+    """Without this, reaching the end of the params table hands the scroll to the
+    gallery behind the panel -- the usual phone "the page ran away" surprise."""
+    body = APP_CSS[APP_CSS.index("#lightbox-body{") :]
+    assert "overscroll-behavior:contain" in body[: body.index("}")]
+    phone = _phone_block()
+    meta = phone[phone.index(".lightbox-meta{") :]
+    assert "overscroll-behavior:contain" in meta[: meta.index("}")]
+
+
+def test_dvh_has_a_vh_fallback():
+    """`dvh` is the right unit (it follows a mobile browser's address bar) but an older
+    browser drops the whole declaration, leaving the sheet auto-height."""
+    block = _phone_block()
+    assert "height:100vh;height:100dvh" in block
+    assert "max-height:60vh;max-height:60dvh" in block
+
+
+def test_focus_goes_somewhere_sensible_around_the_lightbox():
+    """`show()` runs the focusing steps, so autofocus puts the keyboard on Close; and
+    when a delete re-fetches the grid the focused card disappears with it."""
+    assert 'class="secondary outline lightbox-close" aria-label="Close" autofocus' in GALLERY_HTML
+    swap = APP_JS[APP_JS.index("htmx:afterSwap") :]
+    assert "gallery-grid" in swap and "document.activeElement" in swap
+    assert "button.gallery-thumb" in swap
+
+
 def test_the_lightbox_buttons_state_their_swap():
     """hx-swap is inherited, and #gallery-grid (the cards' parent) sets outerHTML for
     its own reload -- so without this the detail REPLACES #lightbox-body and every

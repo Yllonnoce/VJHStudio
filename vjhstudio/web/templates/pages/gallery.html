@@ -44,7 +44,9 @@
    neither for free). #}
 <dialog id="lightbox" aria-label="Output details">
   <article>
-    <button type="button" class="secondary outline lightbox-close" aria-label="Close"
+    {# autofocus: `show()` runs the dialog focusing steps, so the keyboard lands on
+       Close rather than staying on the card behind the panel. #}
+    <button type="button" class="secondary outline lightbox-close" aria-label="Close" autofocus
             onclick="document.getElementById('lightbox').close()">&times;</button>
     <div id="lightbox-body"></div>
   </article>
