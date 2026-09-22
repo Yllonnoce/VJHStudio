@@ -96,11 +96,18 @@ def _grid_ctx(request: Request, filters: dict, page: int) -> dict:
 @router.get("/gallery")
 def gallery_page(request: Request):
     filters = _filters_from(request)
+    open_id = _int_or_none(request.query_params.get("open", ""))
     with db.session_scope(request.app.state.boot.session_factory) as s:
         proj = projects.list_all(s)
         models = catalog.list_models(s, "image") + catalog.list_models(s, "video")
         labels = {m.air: catalog.label(m) for m in models}
-    ctx = {"filters": filters, "projects": proj, "models": models, "labels": labels}
+    ctx = {
+        "filters": filters,
+        "projects": proj,
+        "models": models,
+        "labels": labels,
+        "open_id": open_id,
+    }
     ctx.update(_grid_ctx(request, filters, 1))
     return deps.render(request, "pages/gallery.html", ctx)
 

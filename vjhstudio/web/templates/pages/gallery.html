@@ -39,4 +39,16 @@
           onclick="document.getElementById('lightbox').close()">&times;</button>
   <div id="lightbox-body"></div>
 </dialog>
+{% if open_id %}
+{# Arriving from the dashboard's Recent strip: open the matching card's own lightbox
+   button, same as a click would. Deferred to DOMContentLoaded so htmx and app.js
+   (both loaded with `defer`) have already run. #}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  var card = document.getElementById('output-{{ open_id }}');
+  var btn = card && card.querySelector('button.gallery-thumb, button.gallery-details');
+  if (btn) { btn.click(); }
+});
+</script>
+{% endif %}
 {% endblock %}

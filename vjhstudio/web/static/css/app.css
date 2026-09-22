@@ -312,3 +312,20 @@ video.lightbox-image{width:100%;max-height:70vh;background:#000}
 .update-dismiss{width:auto;margin:0;padding:.2rem .7rem;font-size:.8rem}
 .restart-page{max-width:40rem;margin-top:3rem}
 .restart-page progress{margin:.5rem 0 1rem}
+
+/* ── Dashboard (Phase 8) ── */
+.hero-grid{display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+.hero-card{padding:1.25rem}
+.hero-card [role=button]{width:100%;margin-top:.5rem}
+.dash-section{margin:1.75rem 0}
+.card-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.75rem}
+.card-head h2{margin:0}
+.recent-strip{display:grid;gap:.75rem;grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+.recent-card{display:block;border:1px solid var(--sp-border);border-radius:var(--sp-radius-sm);background:var(--sp-surface);text-decoration:none;color:inherit}
+.recent-card:hover{border-color:var(--sp-accent)}
+.recent-strip .gallery-thumb img{height:150px}
+.recent-strip .chip{display:block;padding:2.25rem 1rem;text-align:center;border-radius:0}
+.dash-section .queue-panel{position:static;max-height:none}
+.stat-row{display:grid;gap:.75rem;grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+.stat{padding:.75rem 1rem}
+.stat .value{font-size:1.4rem;font-weight:700}

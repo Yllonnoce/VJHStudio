@@ -1,0 +1,22 @@
+<div class="recent-strip">
+  {% for c in recent %}
+  <a class="gallery-card recent-card" href="/gallery?open={{ c.o.id }}">
+    <span class="gallery-thumb">
+      {% if c.o.kind == 'video' %}
+        <img src="/static/img/video-poster.svg" alt="{{ c.o.filename }}" loading="lazy" width="150" height="150">
+      {% elif c.thumb %}
+        <img src="{{ c.thumb }}" alt="{{ c.o.prompt_text|truncate(60) }}" loading="lazy" width="150" height="150">
+      {% else %}
+        <span class="chip">{{ c.o.filename }}</span>
+      {% endif %}
+      {% if c.o.is_favourite %}<span class="gallery-fav" aria-label="Favourite">★</span>{% endif %}
+    </span>
+    <footer class="gallery-card-meta">
+      <small class="muted">{{ c.o.created_at.strftime('%Y-%m-%d %H:%M') }}</small>
+      {% if c.o.cost %}<small class="cost">${{ '%.4f'|format(c.o.cost) }}</small>{% endif %}
+    </footer>
+  </a>
+  {% else %}
+  <p class="muted" id="dash-empty">Nothing generated yet. Create an image to get started.</p>
+  {% endfor %}
+</div>
