@@ -166,6 +166,17 @@ Your browser opens at http://127.0.0.1:8080 again.
 
 To stop the app, close the terminal window, or click in it and press Ctrl+C.
 
+### On your phone or tablet
+
+You can open VJHStudio on a phone or tablet that is on the same Wi-Fi, and use your browser's
+"Add to Home Screen" so it gets an icon and opens like an app. Normally the app only answers on
+the computer it runs on, so first start it with `VJHSTUDIO_HOST=0.0.0.0 ./start.sh` (on Windows,
+`set VJHSTUDIO_HOST=0.0.0.0` and then `start.bat`), then on the phone open
+`http://<your computer's IP address>:8080` — something like `http://192.168.1.24:8080`. Please
+note: while it runs that way, anyone else on the same network can reach your VJHStudio, see your
+images and spend your RunWare balance, so only do this on a network you trust, and go back to the
+normal start when you are done.
+
 ## If something goes wrong
 
 **"git is not recognized"** (or "command not found: git")

@@ -54,6 +54,10 @@ function _vjhApplyOnAccent() {
   if (!accent) return;
   var best = vjhContrastText(accent);
   document.documentElement.style.setProperty('--sp-on-accent', best);
+  // The browser paints the phone's status bar / tab strip from <meta theme-color>;
+  // base.html ships the Midnight accent, this follows the chosen theme.
+  var meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', accent);
 }
 
 /* ── Storage helpers ─────────────────────────────────────────────────────────
