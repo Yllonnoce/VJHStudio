@@ -19,9 +19,11 @@ _view = catalog.view  # one shape for /api/models, the row partials and the task
 
 
 def _row_view(m) -> dict:
-    """``catalog.view`` plus the two things only the Models table needs: whether the
-    model can be generated with at all, and how much is known about its sizes."""
+    """``catalog.view`` plus the three things only the Models table needs: the row's one
+    warning chip, whether the model can be generated with at all, and how much is known
+    about its sizes."""
     v = _view(m)
+    v["badge"] = catalog.badge(m)
     v["generate_capable"] = constraints.is_generate_capable(
         m.kind, m.capabilities_json or [], m.constraints_json
     )

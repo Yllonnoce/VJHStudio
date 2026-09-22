@@ -333,3 +333,20 @@ def test_build_video_task_snaps_an_off_list_size():
     req = VideoRequest(project_id=1, model=KLING_4K, width=1280, height=720)
     task = build_video_task(req, "u", {}, ruled)
     assert (task["width"], task["height"]) == (1280, 704)
+
+
+# ---- the dropdown's fallback option --------------------------------------
+async def test_a_filtered_out_default_says_the_mode_not_the_catalog(client, seeded):
+    """Aleph is in the catalog; the Generate dropdown just cannot drive it."""
+    await client.post("/settings", data={"defaults.video_model": ALEPH})
+    r = await client.get("/generate/video")
+    assert r.status_code == 200
+    assert f"{ALEPH} (not supported for this mode)" in r.text
+    assert "(not in catalog)" not in r.text
+
+
+async def test_an_air_the_catalog_has_never_seen_still_says_not_in_catalog(client, seeded):
+    await client.post("/settings", data={"defaults.video_model": "someone:custom@1"})
+    r = await client.get("/generate/video")
+    assert r.status_code == 200
+    assert "someone:custom@1 (not in catalog)" in r.text

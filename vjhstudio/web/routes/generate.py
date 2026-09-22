@@ -653,6 +653,15 @@ class _QueryLike:
         return ["on" if self._data[key] else "off"]
 
 
+def _unsupported(s, air: str) -> bool:
+    """True when the air names a real catalog row that this form simply cannot drive —
+    the dropdown filtered it out, so the option says so instead of "not in catalog"."""
+    m = catalog.get_by_air(s, air) if air else None
+    return m is not None and not constraints.is_generate_capable(
+        m.kind, m.capabilities_json or [], m.constraints_json
+    )
+
+
 def _page(request: Request, remix: str, mode: str, ref: str = "", role: str = "", prompt: str = ""):
     app = request.app
     with db.session_scope(app.state.boot.session_factory) as s:
@@ -721,6 +730,8 @@ def _page(request: Request, remix: str, mode: str, ref: str = "", role: str = ""
             "labels": {m.air: catalog.label(m) for m in models + video_models + text_models},
             "selected": image_air,
             "video_selected": video_air,
+            "selected_unsupported": _unsupported(s, image_air),
+            "video_selected_unsupported": _unsupported(s, video_air),
             "projects": projects.list_active(s),
             "selected_project": initial.get("project_id"),
             "form": dict(initial.get("form") or {}),

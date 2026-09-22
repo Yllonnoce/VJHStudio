@@ -25,6 +25,7 @@ FIX = Path(__file__).parent / "fixtures" / "docs"
 KLING = "klingai:9@4"
 IMAGE = "acme:9@1"
 ALEPH = "runway:9@2"
+I2V = "vjh:i2v-probe@1"
 KEY = "abcdefgh1234"
 
 PARAMS_MSG = (
@@ -388,6 +389,13 @@ async def test_row_badges_show_known_sizes_and_unsupported_models(client, app):
                     "inputs": {"video": {"required": True}},
                 },
             },
+            {
+                "air": I2V,
+                "name": "FrameStart Probe",
+                "kind": "video",
+                "capabilities_json": ["io:image-to-video"],
+                "source": "curated",
+            },
         ],
     )
     body = (await client.get("/models")).text
@@ -400,6 +408,9 @@ async def test_row_badges_show_known_sizes_and_unsupported_models(client, app):
     aleph = row_html("Aleph Probe")
     assert "video-to-video only — not supported yet" in aleph
     assert "sizes known" not in aleph
+    # the row badge is services/catalog.badge(), so the first-frame case shows here too
+    # (as its own chip, not only inside the label's title attribute)
+    assert '<small class="chip warn">needs a first frame</small>' in row_html("FrameStart Probe")
 
 
 # --- (f) the CLI -----------------------------------------------------------

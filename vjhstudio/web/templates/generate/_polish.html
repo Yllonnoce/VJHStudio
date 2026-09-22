@@ -24,7 +24,7 @@
      the mode select is touched #}
   <label id="polish-model-field" x-show="polishMode === 'textInference'"
          {% if polish_mode != 'textInference' %}style="display:none"{% endif %}>Text model
-    {% with name='polish_model', select_id='polish-model-select', options=text_models, selected=polish_model, allow_empty=True %}{% include "catalog/_model_select.html" %}{% endwith %}
+    {% with name='polish_model', select_id='polish-model-select', options=text_models, selected=polish_model, selected_unsupported=False, allow_empty=True %}{% include "catalog/_model_select.html" %}{% endwith %}
   </label>
   <button type="button" class="secondary" id="polish-button"
           hx-post="/hx/prompt/polish" hx-include="#generate-form"
