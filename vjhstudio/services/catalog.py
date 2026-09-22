@@ -171,6 +171,15 @@ def upsert_row(session: Session, row: dict, source: str) -> CatalogModel:
     m.hero_image_url = row.get("hero_image_url") or m.hero_image_url
     if row.get("provider_settings_schema") is not None:
         m.provider_settings_schema = row["provider_settings_schema"]
+    if row.get("constraints") is not None:
+        # A curated snapshot only ever *seeds* a model's constraints; it must never clobber
+        # what a real probe or an observed correction already learned (sources.api/observed).
+        # The content-API refresh path never passes a "constraints" key at all, so this branch
+        # simply does not run there and curated constraints survive a price refresh untouched.
+        existing_sources = ((m.constraints_json or {}).get("sources")) or {}
+        if not existing_sources.get("api") and not existing_sources.get("observed"):
+            m.constraints_json = row["constraints"]
+            m.constraints_updated_at = utcnow()
     if price:
         m.price_unit = price.get("unit") or m.price_unit
         # Guard: an observed price refines the estimate, it never blanks a price we already

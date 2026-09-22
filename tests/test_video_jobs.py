@@ -242,16 +242,21 @@ KLING_MSG = (
 async def test_a_corrected_size_is_recorded_on_the_catalog_row(env):
     """A size the runner had to correct mid-job (``runner.size_correction``) is free,
     confirmed evidence of what the model actually accepts: the catalog row should learn
-    it without a separate probe, and the job should still succeed and record the drop."""
+    it without a separate probe, and the job should still succeed and record the drop.
+
+    Uses Seedance rather than the module's usual ``VIDEO_AIR`` (Veo): as of Task 7's curated
+    snapshot, Veo ships known dims already, so it can no longer stand in for "a model the
+    catalog knows nothing about yet". Seedance still ships without a constraints block."""
+    air = "bytedance:seedance@2.0"
     paths, f, _ = env
     with db.session_scope(f) as s:
-        assert catalog.get_by_air(s, VIDEO_AIR).constraints_json is None
+        assert catalog.get_by_air(s, air).constraints_json is None
     e = RunwareError("unsupportedParameter", KLING_MSG)
     e.parameter = "width"
     fake = FakeRunware({"run": [e, [{"videoURL": "http://x/v.mp4", "cost": 0.8}]]})
     r = _runner(env, fake)
     await r.start()
-    job = generate.enqueue_video(f, paths, _req(f))
+    job = generate.enqueue_video(f, paths, _req(f, model=air))
     r.submit(job.id)
     await r.wait_idle()
     await r.stop()
@@ -259,7 +264,7 @@ async def test_a_corrected_size_is_recorded_on_the_catalog_row(env):
         j = s.get(models.Job, job.id)
         assert j.status == "succeeded", j.error_message
         assert j.dropped_params_json[0]["action"] == "corrected"
-        m = catalog.get_by_air(s, VIDEO_AIR)
+        m = catalog.get_by_air(s, air)
         assert m.constraints_json["dims"] == {
             "mode": "list",
             "list": [[3840, 2160], [2160, 3840], [2880, 2880]],
