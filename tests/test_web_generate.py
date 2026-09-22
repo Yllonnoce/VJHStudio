@@ -29,6 +29,23 @@ async def test_generate_page_renders(client):
     )
 
 
+async def test_generate_page_layout(client):
+    r = await client.get("/generate/video")
+    assert r.status_code == 200
+    text = r.text
+    assert '<header class="page-head">' in text
+    assert "Describe what you want; VJHStudio writes the prompt." in text
+    assert 'class="gen-layout"' in text
+    rail_idx = text.index('<aside class="gen-rail')
+    assert rail_idx != -1
+    rail_section = text[rail_idx : text.index("</aside>", rail_idx)]
+    assert "Generate" in rail_section and "gen-submit" in rail_section
+    assert 'class="estimate"' in rail_section or "estimate" in rail_section
+    assert text.index("gen-results") > text.index("gen-rail")
+    assert text.count('id="queue-panel"') == 1
+    assert 'id="mode-tab-image"' in text and 'id="mode-tab-video"' in text
+
+
 async def test_model_options_diffusion_vs_instruction(client):
     r = await client.get("/hx/model-options?air=runware:101@1")
     assert 'name="steps"' in r.text and 'value="28"' in r.text

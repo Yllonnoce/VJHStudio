@@ -1,4 +1,4 @@
-<aside id="queue-panel" class="gen-col queue-panel"
+<aside id="queue-panel" class="queue-panel"
        hx-get="/hx/jobs/active" hx-trigger="{% if jobs_active %}every 2s, {% endif %}jobs-changed from:body"
        hx-swap="outerHTML">
   <header class="queue-head">

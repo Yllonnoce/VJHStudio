@@ -123,11 +123,20 @@ tr.hidden-model{opacity:.55}
 }
 
 /* ── Generate page ────────────────────────────────────────────────────── */
-.gen-grid{display:grid;gap:1.25rem;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr) minmax(0,.95fr);align-items:start}
-#generate-form{display:contents}            /* the form's two columns are grid items */
+/* The form is `display:contents`, so it contributes no box of its own; `.gen-modes`
+   (a form child) sits above `.gen-layout` (a nested grid, also a form child) in normal
+   flow, and `.gen-layout` holds exactly two items: the builder and the rail. */
+#generate-form{display:contents}
+.page-head{margin:0 0 1.25rem}
+.page-head h1{margin:0 0 .25rem;font-size:1.9rem}
+.page-head .lead{margin:0;color:var(--sp-muted)}
+.gen-layout{display:grid;gap:1.25rem;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);align-items:start}
 .gen-col{min-width:0}
-.gen-card{border:1px solid var(--sp-border);border-radius:var(--sp-radius);padding:1rem;background:var(--sp-surface)}
+.gen-card,.gen-prompt{border:1px solid var(--sp-border);border-radius:var(--sp-radius);padding:1rem;background:var(--sp-surface)}
 .gen-col h3{margin-top:0}
+.gen-rail{min-width:0;position:sticky;top:1rem;max-height:calc(100vh - 2rem);overflow-y:auto}
+.gen-results{margin-top:1.75rem}
+.gen-results h2{margin-bottom:.75rem}
 .prompt-preview{border:1px dashed var(--sp-border);border-radius:var(--sp-radius-sm);padding:.6rem .8rem;margin:.75rem 0}
 .prompt-preview output{display:block;min-height:1.2em;word-break:break-word}
 .estimate{display:inline-block;margin:.5rem 0}
@@ -193,10 +202,21 @@ tr.hidden-model{opacity:.55}
 .pill.status-cancelled{background:color-mix(in srgb, var(--sp-warning) 20%, var(--sp-surface))}
 .pill.status-running{background:color-mix(in srgb, var(--sp-accent) 25%, var(--sp-surface))}
 .chip.busy{background:color-mix(in srgb, var(--sp-accent) 30%, var(--sp-surface))}
+/* Below the two columns, the panel is no longer a sticky rail: it is the full-width
+   "Results" section, and its cards flow in a responsive grid. The header, the "Recent"
+   subheading and the "Mark seen" button span every column; only the job cards wrap. */
+.gen-results .queue-panel{
+  position:static;max-height:none;
+  display:grid;gap:.85rem;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));align-items:start;
+}
+.gen-results .queue-panel > .queue-head,
+.gen-results .queue-panel > h4,
+.gen-results .queue-panel > .muted,
+.gen-results .queue-panel > button{grid-column:1 / -1}
 
 @media (max-width: 1100px){
-  .gen-grid{grid-template-columns:1fr}
-  .queue-panel{position:static;max-height:none}
+  .gen-layout{grid-template-columns:1fr}
+  .gen-rail{position:static;max-height:none}
 }
 
 /* ── Gallery ──────────────────────────────────────────────────────────── */
