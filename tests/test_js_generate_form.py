@@ -19,6 +19,7 @@ COMPOSE_JS = REPO_ROOT / "vjhstudio" / "web" / "static" / "js" / "compose.js"
 POLISH_RESULTS_HTML = (
     REPO_ROOT / "vjhstudio" / "web" / "templates" / "generate" / "_polish_results.html"
 )
+REFS_HTML = REPO_ROOT / "vjhstudio" / "web" / "templates" / "generate" / "_refs.html"
 
 NODE = shutil.which("node")
 
@@ -197,3 +198,42 @@ async def test_generate_page_has_one_save_prompt_dialog_and_the_polish_panel(cli
     html = r.text
     assert html.count('id="save-prompt"') == 1
     assert 'id="polish-results"' in html
+
+
+# ---- uploadRef: the Generate page's own upload path ----------------------------------
+
+
+def test_upload_ref_posts_the_file_to_assets_upload_and_asks_for_json():
+    src = _app_js()
+    idx = src.index("async uploadRef(role, input)")
+    window = src[idx : idx + 1400]
+    assert "fetch('/assets/upload'" in window
+    assert "method: 'POST'" in window
+    assert "Accept: 'application/json'" in window
+    assert "new FormData()" in window and "fd.append('files', file)" in window
+    # the stored asset becomes a chip through the same addRef() the picker feeds
+    assert "this.addRef({ id: asset.id" in window and "thumb: asset.thumb_url" in window
+    assert "role }" in window
+    # failures land in the existing toast strip with the server's own message
+    assert "vjhToast((body && body.error)" in window
+    assert "input.value = ''" in window  # re-picking the same file must still fire
+
+
+def test_needs_first_frame_is_read_off_the_swapped_params_panel():
+    src = _app_js()
+    idx = src.index("_syncNeedsFirstFrame() {")
+    window = src[idx : idx + 400]
+    assert "document.getElementById('model-params')" in window
+    assert "panel.dataset.needsFirstFrame === 'true'" in window
+    assert "needsFirstFrame: false," in src  # declared as state, so x-show is reactive
+    assert "document.addEventListener('htmx:afterSwap', () => this._syncNeedsFirstFrame());" in src
+
+
+def test_refs_template_loops_every_role_through_upload_ref():
+    """The four roles are a Jinja loop (the rendered per-role markup is asserted in
+    tests/test_web_generate.py); this only pins the wiring the loop emits."""
+    html = REFS_HTML.read_text()
+    assert "uploadRef('{{ role }}', $event.target)" in html
+    assert "('first', 'first frame')" in html and "('seed', 'seed image')" in html
+    assert 'type="file"' in html and 'accept="image/*"' in html
+    assert "x-show=\"mode === 'video' && needsFirstFrame\"" in html

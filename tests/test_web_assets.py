@@ -278,3 +278,53 @@ async def test_asset_card_links_to_generate_as_a_reference(client):
     assert "Use as reference" in r.text
     assert f"/generate?ref=asset:{aid}&amp;role=reference" in r.text
     assert (await client.get(f"/generate?ref=asset:{aid}&role=reference")).status_code == 200
+
+
+# ---- JSON upload (the Generate page's "Upload first frame") ------------------------
+async def test_upload_with_accept_json_returns_the_stored_asset(client):
+    r = await client.post(
+        "/assets/upload",
+        files=[("files", ("frame.png", _png(), "image/png"))],
+        headers={"Accept": "application/json"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert isinstance(body, list) and len(body) == 1
+    row = body[0]
+    assert set(row) == {"id", "name", "thumb_url", "kind"}
+    assert isinstance(row["id"], int) and row["name"] == "frame.png" and row["kind"] == "image"
+    assert row["thumb_url"].startswith("/files/asset-thumbs/")
+    # the asset really is in the library the picker reads from
+    picker = await client.get("/hx/assets/picker?kind=image&role=first")
+    assert f'data-asset-id="{row["id"]}"' in picker.text
+
+
+async def test_upload_json_dedupes_to_the_same_asset_id(client):
+    hdr = {"Accept": "application/json"}
+    first = await client.post(
+        "/assets/upload", files=[("files", ("a.png", _png(), "image/png"))], headers=hdr
+    )
+    again = await client.post(
+        "/assets/upload", files=[("files", ("copy.png", _png(), "image/png"))], headers=hdr
+    )
+    assert again.status_code == 200
+    assert again.json()[0]["id"] == first.json()[0]["id"]
+
+
+async def test_upload_json_error_is_a_json_message_not_the_grid(client):
+    r = await client.post(
+        "/assets/upload",
+        files=[("files", ("note.txt", b"hello", "text/plain"))],
+        headers={"Accept": "application/json"},
+    )
+    assert r.status_code == 422
+    assert "unsupported content type" in r.json()["error"]
+    assert "<div" not in r.text
+
+
+async def test_upload_without_accept_json_still_returns_the_grid(client):
+    """The Assets page's htmx form sends Accept: */*, and must keep getting the partial."""
+    r = await client.post("/assets/upload", files=[("files", ("a.png", _png(), "image/png"))])
+    assert r.status_code == 200
+    assert 'id="asset-grid"' in r.text or 'id="asset-' in r.text
+    assert not r.text.lstrip().startswith("[")

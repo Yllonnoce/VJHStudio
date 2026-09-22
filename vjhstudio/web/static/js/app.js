@@ -53,6 +53,11 @@ window.generateForm = function (initial) {
     mode: initial.mode === 'video' ? 'video' : 'image',
     refs: Array.isArray(initial.refs) ? initial.refs.slice() : [],
     pickerRole: 'reference',
+    // Set from #model-params' data-needs-first-frame on load and after every swap of
+    // that panel (init() below): an image-to-video-only model has no text-only path,
+    // so the References section says so before the pre-flight 422 has to.
+    needsFirstFrame: false,
+    uploading: '',
     // the prompt library: the row this form was loaded from (posted back so the job
     // links it instead of creating a second one) and the polish blob to store on it
     promptId: initial.prompt_id || '',
@@ -160,6 +165,45 @@ window.generateForm = function (initial) {
 
     removeRef(index) { this.refs.splice(index, 1); },
 
+    // "Upload first frame" (and the seed/last/reference twins): post the picked file
+    // straight to the Assets library, then drop the stored asset into this role with
+    // the same addRef() the picker dialog feeds. Asking for JSON is what makes
+    // /assets/upload answer with [{id, name, thumb_url, kind}] instead of the grid.
+    async uploadRef(role, input) {
+      const file = input && input.files && input.files[0];
+      if (!file) return;
+      input.value = '';   // so picking the same file again still fires `change`
+      this.uploading = role;
+      try {
+        const res = await fetch('/assets/upload', {
+          method: 'POST',
+          headers: { Accept: 'application/json' },
+          body: (function () { const fd = new FormData(); fd.append('files', file); return fd; })(),
+        });
+        let body = null;
+        try { body = await res.json(); } catch (e) { body = null; }
+        if (!res.ok) {
+          vjhToast((body && body.error) || ('Upload failed (' + res.status + ')'), 'error');
+          return;
+        }
+        const asset = (body || [])[0];
+        if (!asset || !asset.id) { vjhToast('Upload failed: nothing was stored.', 'error'); return; }
+        this.addRef({ id: asset.id, name: asset.name, thumb: asset.thumb_url || '', role });
+      } catch (e) {
+        vjhToast('Upload failed: ' + e, 'error');
+      } finally {
+        this.uploading = '';
+      }
+    },
+
+    // #model-params is htmx-swapped whole on every model/mode change, so the flag is
+    // re-read from the fresh markup rather than pushed in; reading the live node keeps
+    // this right whichever element htmx fired afterSwap on.
+    _syncNeedsFirstFrame() {
+      const panel = document.getElementById('model-params');
+      this.needsFirstFrame = !!panel && panel.dataset.needsFirstFrame === 'true';
+    },
+
     openPicker(role) {
       this.pickerRole = role;
       const dlg = document.getElementById('ref-picker');
@@ -218,6 +262,8 @@ window.generateForm = function (initial) {
           this.$el.querySelectorAll('textarea').forEach((t) => window.vjhAutosize(t));
         });
       }
+      this._syncNeedsFirstFrame();
+      document.addEventListener('htmx:afterSwap', () => this._syncNeedsFirstFrame());
       window.addEventListener('ref-picked', (e) => this.addRef(e.detail || {}));
       window.addEventListener('use-polish', (e) => this.usePolish(e.detail || {}));
 
