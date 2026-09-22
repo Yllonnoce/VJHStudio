@@ -1,4 +1,4 @@
-<li id="balance-chip" {% if oob %}hx-swap-oob="true"{% endif %} hx-get="/hx/header/balance" hx-trigger="every 60s, job-finished from:body" hx-swap="outerHTML">
+<li id="balance-chip" {% if oob %}hx-swap-oob="true"{% endif %} hx-get="/hx/header/balance" hx-trigger="load delay:300ms, every 60s, job-finished from:body" hx-swap="outerHTML">
   {% if not has_api_key %}<a href="/settings#api" class="chip warn">No API key</a>
   {% elif balance %}<span class="chip{% if stale %} warn{% endif %}" title="{% if stale %}RunWare could not be reached; last known balance, {% else %}fetched {% endif %}{{ balance.fetched_at.strftime('%Y-%m-%d %H:%M') }} UTC">${{ '%.2f'|format(balance.amount) }}{% if stale %} ?{% endif %}</span>
   {% else %}<a href="/settings#api" class="chip">Balance unknown</a>{% endif %}

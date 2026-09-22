@@ -134,3 +134,8 @@ async def test_header_balance_keeps_the_last_amount_when_runware_is_down(client,
     fake.script["account_management"] = [RunwareError("connectionFailed", "offline")]
     r = await client.get("/hx/header/balance")
     assert r.status_code == 200 and "$12.50 ?" in r.text and "last known" in r.text
+
+
+async def test_balance_chip_refreshes_right_after_each_page_load(client):
+    r = await client.get("/gallery")
+    assert 'hx-trigger="load delay:300ms, every 60s, job-finished from:body"' in r.text

@@ -33,6 +33,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Tablet and laptop widths (576–1400 px) had no side gutter: content sat flush against the viewport edge. Every page keeps a 16 px gutter now.
 - The video Resolution dropdown gets two thirds of its row so the full size label ("720p portrait (9:16) — 704×1280") is readable.
 - "Mark seen" on the queue panel did nothing visible; it is now "Clear finished" and hides the finished jobs from the panel (the Queue page keeps the full history).
+- The header balance chip refreshes right after every page load as well, so no page shows a stale or unknown balance for a minute.
 - The header balance chip asks RunWare again when its cached value is older than 30 seconds and after every finished job; if RunWare cannot be reached it shows the last known amount marked with a question mark. Before, the cache was only refreshed by the Test button in Settings.
 - Headings and inputs no longer render with Pico's light-theme colours when a dark theme is active
   (the theme bridge now outranks Pico's specificity).
