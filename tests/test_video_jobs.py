@@ -4,6 +4,7 @@ import json
 import httpx
 import pytest
 from PIL import Image
+from runware import RunwareError
 
 from tests.fakes.fake_runware import FakeRunware, fake_factory
 from vjhstudio import boot, config, db, models
@@ -229,3 +230,39 @@ async def test_image_jobs_are_unaffected_by_the_kind_dispatch(env):
         assert out.kind == "image" and out.width == 64 and out.duration_s is None
         assert out.thumb_rel_path and (paths.data / out.thumb_rel_path).exists()
         assert s.query(models.UsageEntry).one().task_type == "imageInference"
+
+
+KLING_MSG = (
+    "Unsupported use of width/height parameters. The specified dimensions are not supported "
+    "for the kling video 3.0 4k model. Supported values are: '3840x2160', '2160x3840', "
+    "'2880x2880'."
+)
+
+
+async def test_a_corrected_size_is_recorded_on_the_catalog_row(env):
+    """A size the runner had to correct mid-job (``runner.size_correction``) is free,
+    confirmed evidence of what the model actually accepts: the catalog row should learn
+    it without a separate probe, and the job should still succeed and record the drop."""
+    paths, f, _ = env
+    with db.session_scope(f) as s:
+        assert catalog.get_by_air(s, VIDEO_AIR).constraints_json is None
+    e = RunwareError("unsupportedParameter", KLING_MSG)
+    e.parameter = "width"
+    fake = FakeRunware({"run": [e, [{"videoURL": "http://x/v.mp4", "cost": 0.8}]]})
+    r = _runner(env, fake)
+    await r.start()
+    job = generate.enqueue_video(f, paths, _req(f))
+    r.submit(job.id)
+    await r.wait_idle()
+    await r.stop()
+    with db.session_scope(f) as s:
+        j = s.get(models.Job, job.id)
+        assert j.status == "succeeded", j.error_message
+        assert j.dropped_params_json[0]["action"] == "corrected"
+        m = catalog.get_by_air(s, VIDEO_AIR)
+        assert m.constraints_json["dims"] == {
+            "mode": "list",
+            "list": [[3840, 2160], [2160, 3840], [2880, 2880]],
+        }
+        assert m.constraints_json["sources"]["observed"] is not None
+        assert m.constraints_updated_at is not None

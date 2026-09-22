@@ -184,3 +184,101 @@ async def test_duration_ms_excludes_retry_backoff():
     )
     assert res.attempts == 2 and slept == [2]
     assert res.duration_ms is not None and res.duration_ms < 100
+
+
+KLING_MSG = (
+    "Unsupported use of width/height parameters. The specified dimensions are not supported "
+    "for the kling video 3.0 4k model. Supported values are: '3840x2160', '2160x3840', "
+    "'2880x2880'."
+)
+LTX_MSG = (
+    "Invalid value for 'width' parameter. Video width must be an integer value between 128 "
+    "and 2048, in multiples of 64."
+)
+
+
+def test_width_height_are_never_dropped():
+    e = RunwareError(
+        "unsupportedParameter",
+        "Unsupported use of width/height parameters. Supported values are: '3840x2160'.",
+    )
+    e.parameter = "width"
+    assert runner.rejected_field(e, {"width": 1280, "height": 720}) is None
+
+
+def test_size_correction_picks_nearest_listed_size():
+    e = RunwareError("unsupportedParameter", KLING_MSG)
+    e.parameter = "width"
+    new, rec = runner.size_correction(e, {"width": 1280, "height": 720, "taskUUID": "t"})
+    assert (new["width"], new["height"]) == (3840, 2160)
+    assert rec == {
+        "field": "width/height",
+        "action": "corrected",
+        "from": [1280, 720],
+        "to": [3840, 2160],
+        "dims": {"mode": "list", "list": [[3840, 2160], [2160, 3840], [2880, 2880]]},
+    }
+
+
+def test_size_correction_snaps_to_rule():
+    e = RunwareError("invalidValue", LTX_MSG)
+    e.parameter = "width"
+    new, rec = runner.size_correction(e, {"width": 1280, "height": 720})
+    assert (new["width"], new["height"]) == (1280, 704) and rec["dims"]["mode"] == "rule"
+
+
+def test_size_correction_returns_none_without_a_rule_or_list():
+    e = RunwareError(
+        "unsupportedParameter", "Unsupported width/height combination for this model architecture."
+    )
+    e.parameter = "width"
+    assert runner.size_correction(e, {"width": 1, "height": 1}) is None
+
+
+async def test_run_with_policy_corrects_size_once_then_succeeds():
+    e = RunwareError("unsupportedParameter", KLING_MSG)
+    e.parameter = "width"
+    fake = FakeRunware({"run": [e, [{"taskType": "videoInference", "videoURL": "http://x/v.mp4"}]]})
+    res = await runner.run_with_policy(
+        fake,
+        {
+            "taskType": "videoInference",
+            "taskUUID": "a",
+            "model": "k",
+            "positivePrompt": "p",
+            "width": 1280,
+            "height": 720,
+        },
+        timeout_s=5,
+        cancel_event=None,
+        on_progress=None,
+        sleep=_no_sleep,
+    )
+    sent = [p for n, p in fake.calls if n == "run"]
+    assert (sent[1]["width"], sent[1]["height"]) == (3840, 2160) and sent[1]["taskUUID"] != "a"
+    assert res.dropped[0]["action"] == "corrected"
+
+
+async def test_a_second_size_rejection_fails_the_job():
+    e = RunwareError("unsupportedParameter", KLING_MSG)
+    e.parameter = "width"
+    e2 = RunwareError("unsupportedParameter", KLING_MSG)
+    e2.parameter = "width"
+    fake = FakeRunware({"run": [e, e2]})
+    with pytest.raises(RunwareError):
+        await runner.run_with_policy(
+            fake,
+            {
+                "taskType": "videoInference",
+                "taskUUID": "a",
+                "model": "k",
+                "positivePrompt": "p",
+                "width": 1,
+                "height": 1,
+            },
+            timeout_s=5,
+            cancel_event=None,
+            on_progress=None,
+            sleep=_no_sleep,
+        )
+    assert len([1 for n, _ in fake.calls if n == "run"]) == 2

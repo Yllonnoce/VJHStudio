@@ -26,7 +26,7 @@ from ..runware.errors import classify
 from ..runware.tasks import build_image_task, build_video_task
 from ..schemas.image import ImageRequest
 from ..schemas.video import VideoRequest
-from . import assets, catalog, costs, projects
+from . import assets, catalog, constraints, costs, projects
 from . import outputs as outputs_svc
 from . import settings as settings_svc
 
@@ -416,7 +416,23 @@ class JobRunner:
                 )
             if result.duration_ms is not None:  # retries/backoff would poison the average
                 costs.observe_latency(s, plan.model_air, result.duration_ms)
+            self._persist_size_corrections(s, plan, result)
         return total
+
+    def _persist_size_corrections(self, s, plan: _Plan, result) -> None:
+        """A size the runner had to correct mid-job (``runner.size_correction``) is free,
+        confirmed evidence of what the model actually accepts: record it on the catalog
+        row so future jobs and the Models page pick it up without another probe."""
+        now = utcnow().isoformat()
+        for rec in result.dropped:
+            if rec.get("action") != "corrected":
+                continue
+            model = catalog.get_by_air(s, plan.model_air)
+            if model is None:
+                continue
+            constraints.store(
+                s, model, constraints.observe_dims(model.constraints_json, rec["dims"], now)
+            )
 
     # ---- state writes ----------------------------------------------------
     def _save_task(self, job_id: str, task: dict, dropped: list[dict]) -> None:

@@ -11,10 +11,13 @@ from collections.abc import Awaitable, Callable
 
 from runware import RunOptions, RunwareError
 
+from .probe import parse_supported_dims
 from .results import TaskResult, parse_items
+from .sizes import nearest_size_in
 
 MAX_ATTEMPTS = 5
 PROTECTED = ("taskType", "taskUUID", "model", "positivePrompt")
+PAIR = ("width", "height")
 _UNSUPPORTED = re.compile(r"unsupported use of '?([A-Za-z0-9_.]+)'? parameter", re.I)
 # The fallback contract is about *unsupported* parameters only. RunWare reports an
 # out-of-range value ("Invalid value for 'height' parameter…") with the same
@@ -61,7 +64,36 @@ def rejected_field(err: BaseException, task: dict) -> str | None:
     path = cand if _has_path(task, cand) else _find_path(task, cand.split(".")[-1])
     if not path or path.split(".")[0] in PROTECTED or path in PROTECTED:
         return None
+    if path.split(".")[-1] in PAIR:
+        return None  # width/height are corrected (size_correction), never dropped
     return path
+
+
+def size_correction(err: BaseException, task: dict) -> tuple[dict, dict] | None:
+    """RunWare's own rejection names the model's supported sizes (a list) or its size
+    rule (min/max/step); pick the nearest one instead of dropping width/height, which
+    would delete required fields and still fail. Returns ``None`` when the message
+    isn't about width/height or the correction wouldn't change anything."""
+    message = getattr(err, "message", None) or str(err)
+    param = str(getattr(err, "parameter", "") or "")
+    if not ("width" in param or "height" in param or "width/height" in message):
+        return None
+    dims = parse_supported_dims(message)
+    if dims.get("mode") == "unknown" or "width" not in task or "height" not in task:
+        return None
+    w, h = int(task["width"]), int(task["height"])
+    nw, nh = nearest_size_in(dims, w, h)
+    if (nw, nh) == (w, h):
+        return None
+    new = copy.deepcopy(task)
+    new["width"], new["height"] = nw, nh
+    return new, {
+        "field": "width/height",
+        "action": "corrected",
+        "from": [w, h],
+        "to": [nw, nh],
+        "dims": dims,
+    }
 
 
 def _delete_path(task: dict, path: str) -> None:
@@ -136,6 +168,15 @@ async def run_with_policy(
         except RunwareError as e:
             last = e
             if e.code == "validation":
+                if not any(r.get("action") == "corrected" for r in dropped):
+                    corrected = size_correction(e, current)
+                    if corrected is not None:
+                        current, rec = corrected
+                        dropped.append(rec)
+                        current["taskUUID"] = str(uuid.uuid4())
+                        if on_attempt:
+                            on_attempt(current, dropped)
+                        continue
                 fld = rejected_field(e, current)
                 if fld is None:
                     raise
