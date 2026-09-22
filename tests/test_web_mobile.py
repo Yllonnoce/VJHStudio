@@ -219,3 +219,12 @@ async def test_the_lightbox_detail_still_carries_its_actions(client, fake, app):
     assert 'class="lightbox-meta"' in r.text
     assert 'class="lightbox-actions"' in r.text
     assert r.text.index('class="lightbox-image"') < r.text.index('class="lightbox-meta"')
+
+
+def test_a_closed_lightbox_is_not_painted():
+    """#lightbox{display:flex} outranks Pico's dialog:not([open]){display:none}; without
+    this rule a closed lightbox drew a dim wash over the whole gallery on a cold load."""
+    from pathlib import Path
+
+    css = (Path(__file__).parents[1] / "vjhstudio/web/static/css/app.css").read_text()
+    assert "#lightbox:not([open]){display:none}" in css
