@@ -9,8 +9,8 @@ def test_version_is_semver():
     assert re.fullmatch(r"\d+\.\d+\.\d+", vjhstudio.__version__)
 
 
-def test_version_is_0_3_0():
-    assert __version__ == "0.3.0"
+def test_version_is_0_4_0():
+    assert __version__ == "0.4.0"
 
 
 async def test_health_reports_the_version(client):
@@ -43,3 +43,17 @@ def test_changelog_has_a_0_3_0_section_mentioning_constraints_and_harvest():
 def test_readme_explains_the_harvest_constraints_button():
     text = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     assert "Harvest constraints" in text
+
+
+def test_changelog_has_a_0_4_0_section_mentioning_chips_and_dashboard():
+    text = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert "## 0.4.0" in text
+    section = text.split("## 0.4.0", 1)[1].split("\n## ", 1)[0].lower()
+    assert "idea chip" in section or "chips" in section
+    assert "dashboard" in section
+
+
+def test_readme_mentions_idea_chips_and_the_home_dashboard_cards():
+    text = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    assert "idea" in text.lower()
+    assert "Create an image" in text

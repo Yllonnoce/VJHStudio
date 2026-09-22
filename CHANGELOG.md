@@ -4,6 +4,31 @@ All notable changes to VJHStudio are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.4.0 — 2026-09-22
+
+### Added
+
+- Idea chips under Style, Mood, Lighting, Camera, Composition, Colour and Extras on the Generate
+  page: click a phrase to add it to that field, click it again to remove it. Subject, Extras,
+  Negative and the final prompt are now growing text areas instead of single-line inputs.
+- A home dashboard: "Create an image" / "Create a video" cards, your 12 most recent outputs, the
+  active queue, balance/spend/output stats, and your projects, all on one page.
+- `?open=<id>` on the gallery deep-links straight into the lightbox for that output.
+- A portrait (9:16) twin for every video resolution preset.
+
+### Changed
+
+- Generate is now a two-column page: the prompt builder on the left, a sticky "Model & settings"
+  rail on the right, and results below both. Every page has a title and subtitle, and the current
+  page is highlighted in the navigation. Action buttons are inline instead of full-width bars, and
+  prompt rows are more compact. Navigation wraps instead of overflowing on narrow screens.
+
+### Fixed
+
+- Headings and inputs no longer render with Pico's light-theme colours when a dark theme is active
+  (the theme bridge now outranks Pico's specificity).
+- No page scrolls horizontally at phone width.
+
 ## 0.3.0 — 2026-09-22
 
 ### Fixed

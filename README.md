@@ -126,11 +126,14 @@ If the test worked, your balance appears at the top of the page.
 
 ## Make your first image
 
-1. Click **Generate** in the top menu.
+1. The home page has two big cards, **Create an image** and **Create a video**. Click **Create an
+   image** (or click **Generate** in the top menu).
 2. Type a few words into **Subject** — for example "a red fox in a snowy forest".
-3. Pick a model from the dropdown if you want something other than the default, then click
+3. Under Style, Mood, Lighting and the other boxes, click a few of the ideas to add them, or just
+   type your own. Clicking an idea again removes it.
+4. Pick a model from the dropdown if you want something other than the default, then click
    **Generate**.
-4. Watch the progress bar on the right; when it finishes, your image appears there and in the
+5. Watch the progress bar; when it finishes, your image appears in **Results** and in the
    **Gallery**.
 
 ## Models
