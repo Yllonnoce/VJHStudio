@@ -123,3 +123,10 @@ def test_observe_dims_overrides_and_stamps():
     out = C.observe_dims(KLING, {"mode": "list", "list": [[1280, 720]]}, now="t2")
     assert out["dims"]["list"] == [[1280, 720]] and out["sources"]["observed"] == "t2"
     assert out["duration"] == KLING["duration"]
+
+
+def test_720p_preset_survives_the_rule_fit_filter():
+    """1280x720 on a 64-step grid moves height by exactly step/4 (720 -> 704). That is the
+    most common video preset, so the fit filter's boundary must keep it."""
+    opts = C.size_options(LTX, "video", [(1280, 720, "720p")])
+    assert [(o["w"], o["h"]) for o in opts] == [(1280, 704)]
