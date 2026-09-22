@@ -19,6 +19,17 @@ def test_compose_is_deterministic_and_ordered():
     assert prompts.compose(form) == "a, c, z" == prompts.compose(form)
 
 
+def test_clean_collapses_the_newlines_a_text_area_subject_can_contain():
+    """Subject, Extras, Negative and Final prompt are text areas (Phase 8), so a user can
+    press Enter inside them; `clean`'s \\s+ already folds any run of whitespace -- including
+    newlines -- into one space, and static/js/compose.js mirrors it, so the preview and the
+    composed prompt agree."""
+    assert prompts.clean("a red fox\n\nin a snowy forest  ") == "a red fox in a snowy forest"
+    assert prompts.compose({"subject": "line one\nline two", "style": "oil painting"}) == (
+        "line one line two, oil painting"
+    )
+
+
 def test_build_negative_merges_and_dedupes():
     form = PromptForm(negative="blurry, Text", use_default_negative=True, no_text=True)
     neg = prompts.build_negative(form, "blurry, low quality", no_text=True)

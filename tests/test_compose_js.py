@@ -71,3 +71,28 @@ def test_compose_prompt_still_exists():
 
 def test_autosize_is_a_no_op_without_a_textarea():
     assert _run('(vjhAutosize(null), vjhAutosize({tagName: "INPUT"}), "ok")') == "ok"
+
+
+# `field-sizing: content` beats nothing except an inline `height`, so vjhAutosize -- the
+# fallback that writes exactly that -- must only ever be reached for a real text area.
+# app.js additionally skips it wholesale where the browser supports `field-sizing`
+# (see test_autosize_is_skipped_where_field_sizing_is_supported in test_prompt_ideas.py).
+def test_autosize_never_writes_a_height_on_a_non_textarea():
+    fake = '{tagName: "INPUT", style: {height: "7px"}, scrollHeight: 999}'
+    assert _run("(function(){var e = " + fake + "; vjhAutosize(e); return e.style.height;})()") == (
+        "7px"
+    )
+
+
+def test_autosize_grows_a_textarea_to_its_content_capped_at_twelve_lines():
+    stub = "globalThis.getComputedStyle = function () { return {lineHeight: '20px'}; };"
+    grew = _run(
+        "(function(){" + stub + "var e = {tagName: 'TEXTAREA', style: {}, scrollHeight: 100};"
+        "vjhAutosize(e); return e.style.height;})()"
+    )
+    capped = _run(
+        "(function(){" + stub + "var e = {tagName: 'TEXTAREA', style: {}, scrollHeight: 4000};"
+        "vjhAutosize(e); return e.style.height;})()"
+    )
+    assert grew == "100px"
+    assert capped == "240px"  # 12 lines x 20px

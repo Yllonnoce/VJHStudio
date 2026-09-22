@@ -5,9 +5,17 @@ these assertions hold with JavaScript disabled; Alpine only takes over `active` 
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from vjhstudio.services import ideas
+
+APP_JS = Path(__file__).resolve().parent.parent / "vjhstudio" / "web" / "static" / "js" / "app.js"
+
+
+def _app_js() -> str:
+    return APP_JS.read_text()
+
 
 KEYS = ("style", "mood", "lighting", "camera", "composition", "colour", "extras")
 
@@ -56,6 +64,19 @@ async def test_generate_page_renders_idea_chips_server_side(client):
     assert "hasIdea($el.dataset.field, $el.dataset.phrase)" in row
 
 
+async def test_every_lighting_phrase_in_the_json_has_a_chip(client):
+    """The blob Alpine reads and the buttons Jinja rendered come from one call to
+    load_ideas(); this pins them together so a template change cannot drop a chip."""
+    html = (await client.get("/generate/image")).text
+    blob = json.loads(
+        html.split('id="prompt-ideas" type="application/json">', 1)[1].split("</script>", 1)[0]
+    )
+    start = html.index('aria-label="Lighting ideas"')
+    row = html[start : html.index("</div>", start)]
+    assert len(blob["lighting"]) == row.count('data-field="lighting"')
+    assert len(blob["lighting"]) == len(ideas.load_ideas()["lighting"])
+
+
 async def test_builder_long_fields_are_textareas(client):
     html = (await client.get("/generate/image")).text
     assert '<textarea name="subject"' in html
@@ -87,9 +108,7 @@ def test_generate_form_wires_the_chip_helpers():
     """Source-level guard (same convention as tests/test_js_generate_form.py): the
     template's chip handlers must exist on the Alpine component, and the component must
     read the JSON blob the builder renders."""
-    app_js = (
-        Path(__file__).resolve().parent.parent / "vjhstudio" / "web" / "static" / "js" / "app.js"
-    ).read_text()
+    app_js = _app_js()
     for needle in (
         "toggleIdea(field, phrase)",
         "hasIdea(field, phrase)",
@@ -100,3 +119,16 @@ def test_generate_form_wires_the_chip_helpers():
         "getElementById('prompt-ideas')",
     ):
         assert needle in app_js, needle
+
+
+def test_autosize_is_skipped_where_field_sizing_is_supported():
+    """vjhAutosize writes an inline `height`, which would out-rank `field-sizing: content`
+    and freeze the box for every later programmatic change (a polish card filling Final
+    prompt, a chip pushing Extras onto a new line). So the fallback is gated on the
+    feature test, and the two programmatic writers grow their own box."""
+    app_js = _app_js()
+    assert "CSS.supports('field-sizing', 'content')" in app_js
+    assert "if (!VJH_FIELD_SIZING) {" in app_js  # the one-off pass in init()
+    assert "if (VJH_FIELD_SIZING || !window.vjhAutosize) return;" in app_js  # _grow()
+    assert app_js.count("this._grow(") == 2  # toggleIdea() and usePolish()
+    assert "this._grow('final_prompt')" in app_js

@@ -19,6 +19,14 @@ const VJH_ROLE_LABELS = {
 };
 const VJH_MULTI_ROLES = ['reference'];
 
+// Chrome/Safari size a text area to its content on their own; anywhere else vjhAutosize
+// (compose.js) does it by hand. That fallback writes an inline `height`, which would then
+// out-rank `field-sizing: content` for the rest of the page's life -- so where the browser
+// supports it, we must never touch `style.height` at all.
+const VJH_FIELD_SIZING = (
+  typeof CSS !== 'undefined' && !!CSS.supports && CSS.supports('field-sizing', 'content')
+);
+
 function vjhEmptyFields() {
   const f = {};
   VJH_FIELD_KEYS.forEach((k) => { f[k] = ''; });
@@ -78,6 +86,7 @@ window.generateForm = function (initial) {
     toggleIdea(field, phrase) {
       if (!(field in this.fields) || !window.vjhToggleIdea) return;
       this.fields[field] = window.vjhToggleIdea(this.fields[field], phrase);
+      this._grow(field);   // Extras is a text area: a chip can push it onto a new line
     },
 
     hasIdea(field, phrase) {
@@ -160,6 +169,7 @@ window.generateForm = function (initial) {
       detail = detail || {};
       this.finalPrompt = detail.text || '';
       this.polishJson = detail.polishJson || '';
+      this._grow('final_prompt');   // a polished prompt is usually longer than the box
     },
 
     // ── save-prompt dialog ──────────────────────────────────────────────────
@@ -179,10 +189,12 @@ window.generateForm = function (initial) {
       this.polishMode = this.$el.dataset.polishMode || 'promptEnhance';
       // Restored drafts and remixes arrive after the browser sized the boxes, so grow
       // every text area once on load; @input keeps them in step from then on.
-      this.$nextTick(() => {
-        if (!window.vjhAutosize) return;
-        this.$el.querySelectorAll('textarea').forEach((t) => window.vjhAutosize(t));
-      });
+      if (!VJH_FIELD_SIZING) {
+        this.$nextTick(() => {
+          if (!window.vjhAutosize) return;
+          this.$el.querySelectorAll('textarea').forEach((t) => window.vjhAutosize(t));
+        });
+      }
       window.addEventListener('ref-picked', (e) => this.addRef(e.detail || {}));
       window.addEventListener('use-polish', (e) => this.usePolish(e.detail || {}));
 
@@ -240,6 +252,17 @@ window.generateForm = function (initial) {
           if (path.startsWith('/generate/')) this.finalPrompt = '';
         });
       }
+    },
+
+    // Grow one text area after a *programmatic* change (a chip, a polish card) -- typing
+    // is covered by @input on the element itself. A no-op where the browser sizes text
+    // areas itself, and after $nextTick so Alpine has written the new value first.
+    _grow(name) {
+      if (VJH_FIELD_SIZING || !window.vjhAutosize) return;
+      this.$nextTick(() => {
+        const el = this.$el.querySelector('textarea[name="' + name + '"]');
+        if (el) window.vjhAutosize(el);
+      });
     },
 
     _loadDraft() {
