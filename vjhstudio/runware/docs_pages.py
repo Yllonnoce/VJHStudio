@@ -14,6 +14,12 @@ USER_AGENT = "Mozilla/5.0 (compatible; VJHStudio/0.3; +https://github.com/yllonn
 _PARAM = re.compile(
     r'<dl class="component-APIParameter[^"]*" id="request-([^"]+)"[^>]*>(.*?)</dl>', re.S
 )
+# Real docs pages slugify nested parameter ids to lowercase, hyphen-joined anchors
+# (id="request-inputs-frameimages"), which loses the camelCase the RunWare API actually
+# uses. Where present, the breadcrumb right after <dt> (<code>inputs</code> » <code>
+# frameImages</code>) still carries the correctly-cased path, so it takes priority over
+# the id; the id (dots or hyphens) is only the fallback for un-nested params.
+_BREADCRUMB = re.compile(r'<dt[^>]*>\s*<span[^>]*>(.*?)</span>\s*<div class="header"', re.S)
 _ATTR = re.compile(r'<span data-name="([^"]+)"[^>]*>([^<]*)</span>')
 _ALLOWED = re.compile(r"Allowed values.*?<ul>(.*?)</ul>", re.S)
 _CODE = re.compile(r"<code[^>]*>([^<]*)</code>")
@@ -58,10 +64,20 @@ def _attrs(body: str) -> dict:
     return out
 
 
+def _dotted_name(raw_id: str, body: str) -> str:
+    m = _BREADCRUMB.search(body)
+    if m:
+        segments = [htmllib.unescape(c).strip() for c in _CODE.findall(m.group(1))]
+        if segments:
+            return ".".join(segments)
+    return raw_id.replace("-", ".")
+
+
 def parse_docs(html: str) -> dict:
     params: dict = {}
     inputs: dict = {}
-    for name, body in _PARAM.findall(html):
+    for raw_id, body in _PARAM.findall(html):
+        name = _dotted_name(raw_id, body)
         attrs = _attrs(body)
         if name.startswith("inputs."):
             inputs[name.split(".", 1)[1]] = {

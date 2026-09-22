@@ -56,6 +56,26 @@ def test_aleph_inputs():
     assert "width" not in d["params"]
 
 
+def test_dotted_and_hyphenated_ids_parse_the_same():
+    dotted = (
+        '<dl class="component-APIParameter level-1" id="request-inputs.video">'
+        '<dt><div class="header"><h3><a href="#request-inputs.video">video</a></h3>'
+        '<div class="attributes"><span data-name="type">string</span>'
+        '<span data-name="required">required</span></div></div></dt>'
+        '<dd><p class="description">Input video.</p></dd></dl>'
+    )
+    hyphenated = (
+        '<dl class="component-APIParameter level-0" id="request-inputs-video">'
+        "<dt><span><code>inputs</code> » <code>video</code></span>"
+        '<div class="header"><h3><a href="#request-inputs-video">video</a></h3>'
+        '<div class="attributes"><span data-name="type">string</span>'
+        '<span data-name="required">required</span></div></div></dt>'
+        '<dd><p class="description">Input video.</p></dd></dl>'
+    )
+    assert D.parse_docs(dotted) == D.parse_docs(hyphenated)
+    assert D.parse_docs(hyphenated)["inputs"]["video"] == {"required": True}
+
+
 def test_parse_garbage_is_empty_not_error():
     assert D.parse_docs("<html><body>nothing</body></html>") == {
         "params": {},
