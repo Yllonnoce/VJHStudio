@@ -133,7 +133,12 @@ def ffmpeg_exe() -> str | None:
 
 def _grab_frame(exe: str, src: Path, dest: Path, max_px: int, at_s: float) -> bool:
     """One ffmpeg run. True only when a non-empty JPEG actually landed: seeking past the
-    end of a very short clip exits 0 and writes nothing at all."""
+    end of a very short clip exits 0 and writes nothing at all -- which is also why the
+    destination is cleared first, so a leftover JPEG from an earlier run (a poster for a
+    video since replaced, or the previous seek attempt) can never be mistaken for the
+    frame this call asked for."""
+    with suppress(OSError):
+        dest.unlink(missing_ok=True)
     # The commas inside min() belong to the expression, not to the filter graph.
     scale = f"scale=min({max_px}\\,iw):min({max_px}\\,ih):force_original_aspect_ratio=decrease"
     cmd = [
@@ -151,7 +156,11 @@ def _grab_frame(exe: str, src: Path, dest: Path, max_px: int, at_s: float) -> bo
     extra = {"creationflags": _CREATE_NO_WINDOW} if sys.platform == "win32" else {}
     try:
         proc = subprocess.run(  # noqa: S603 - argv list, no shell, path from our own config
-            cmd, timeout=POSTER_TIMEOUT_S, capture_output=True, **extra
+            cmd,
+            timeout=POSTER_TIMEOUT_S,
+            capture_output=True,
+            stdin=subprocess.DEVNULL,  # belt and braces with -nostdin: never inherit a tty
+            **extra,
         )
     except (OSError, subprocess.SubprocessError) as e:
         log.info("ffmpeg could not run on %s: %s", src.name, e)

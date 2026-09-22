@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -206,29 +207,40 @@ def record_outputs(
 
 
 def backfill_posters(
-    session_factory: sessionmaker[Session], paths: Paths, limit: int | None = None
+    session_factory: sessionmaker[Session],
+    paths: Paths,
+    limit: int | None = None,
+    *,
+    should_stop: Callable[[], bool] | None = None,
 ) -> int:
     """Give every video output that still has no poster a frame out of its own file.
 
     Best effort by design: a row whose file is gone, or that ffmpeg cannot read, is
     skipped and the next one is tried. The frame grab happens outside any session and
-    each row is committed on its own, so a crash (or a shutdown cancelling the boot-time
-    run) keeps whatever was already done and the next start picks up the rest.
+    each row is committed on its own, so a crash keeps whatever was already done and the
+    next start picks up the rest.
+
+    ``should_stop`` is checked before every row. This runs in a worker thread that an
+    ``asyncio`` cancellation cannot interrupt, so shutdown sets the flag and the loop
+    returns between rows -- crucially *before* opening another session, which after
+    ``engine.dispose()`` would be a use of a torn-down engine.
     Returns the number of posters actually written.
     """
+    query = (
+        select(Output.id, Output.rel_path)
+        .where(Output.kind == "video", Output.poster_rel_path.is_(None))
+        .order_by(Output.created_at.desc(), Output.id.desc())
+    )
+    if limit is not None:
+        query = query.limit(max(0, int(limit)))
     with db_mod.session_scope(session_factory) as s:
         root = projects.root_for(s, paths)
-        todo = list(
-            s.execute(
-                select(Output.id, Output.rel_path)
-                .where(Output.kind == "video", Output.poster_rel_path.is_(None))
-                .order_by(Output.created_at.desc(), Output.id.desc())
-            ).all()
-        )
-    if limit is not None:
-        todo = todo[: max(0, int(limit))]
+        todo = list(s.execute(query).all())
     made = 0
     for output_id, rel_path in todo:
+        if should_stop is not None and should_stop():
+            log.info("video poster backfill stopping early after %d", made)
+            break
         src = contained(root, rel_path)
         if src is None or not src.is_file():
             continue
@@ -319,12 +331,16 @@ def delete(session: Session, paths: Paths, output_id: int) -> bool:
     if o is None:
         return False
     root = projects.root_for(session, paths)
+    # The poster is usually the very same file as the thumbnail, so the same path can
+    # appear twice here; ``unlink(missing_ok=True)`` makes the second pass a no-op.
+    rels = (o.rel_path, o.sidecar_rel_path, o.thumb_rel_path, o.poster_rel_path)
     targets = (
         contained(root, o.rel_path),
         contained(root, o.sidecar_rel_path),
         contained(paths.data, o.thumb_rel_path),
+        contained(paths.data, o.poster_rel_path),
     )
-    for rel, path in zip((o.rel_path, o.sidecar_rel_path, o.thumb_rel_path), targets, strict=True):
+    for rel, path in zip(rels, targets, strict=True):
         if rel and path is None:
             # a row pointing outside the data root is never followed onto the filesystem
             log.warning("refusing to delete %r: outside the outputs root", rel)

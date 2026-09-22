@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import threading
 from collections.abc import Mapping
 from contextlib import asynccontextmanager, suppress
 
@@ -82,10 +83,17 @@ def create_app(
 
         async def _backfill_posters():
             """Videos saved before this app could grab a frame still show the generic
-            icon; fill them in once, in a worker thread, after the app is already up."""
+            icon; fill them in once, in a worker thread, after the app is already up.
+
+            Cancelling the task cannot interrupt the thread, so shutdown sets
+            ``app.state.stop_posters`` and the worker returns between rows -- before it
+            would open the session that a disposed engine could no longer serve."""
             try:
                 made = await asyncio.to_thread(
-                    outputs_svc.backfill_posters, app.state.boot.session_factory, paths
+                    outputs_svc.backfill_posters,
+                    app.state.boot.session_factory,
+                    paths,
+                    should_stop=app.state.stop_posters.is_set,
                 )
                 if made:
                     log.info("video posters made: %d", made)
@@ -124,6 +132,9 @@ def create_app(
         )
         app.state.update_task = asyncio.create_task(_update_watch()) if watch_updates else None
         yield
+        # Ask the poster worker to stop *before* anything is awaited or disposed: the
+        # thread it runs in only notices between rows.
+        app.state.stop_posters.set()
         for background in (
             task,
             app.state.update_task,
@@ -151,6 +162,7 @@ def create_app(
     app.state.runner = None
     app.state.update_task = None
     app.state.poster_task = None
+    app.state.stop_posters = threading.Event()  # shutdown's only handle on that worker
     app.state.harvest_task = None  # set by services.constraints.start_harvest
     app.state.api_key = lambda: secrets.effective_api_key(paths, env)
     app.state.key_source = lambda: secrets.key_source(paths, env)

@@ -111,3 +111,27 @@ def test_make_poster_returns_none_without_ffmpeg(tmp_path, monkeypatch):
     (tmp_path / "clip.mp4").write_bytes(b"\0" * 64)
     monkeypatch.setattr(download, "ffmpeg_exe", lambda: None)
     assert download.make_poster(tmp_path / "clip.mp4", tmp_path / "t.jpg") is None
+
+
+def test_make_poster_never_accepts_a_stale_jpeg(tmp_path):
+    """A JPEG left at the destination by an earlier run must not be returned as this
+    clip's frame: each attempt clears the file first, so a failed grab is a failed grab."""
+    stale = tmp_path / "poster.jpg"
+    Image.new("RGB", (10, 10), (255, 0, 0)).save(stale, "JPEG")
+    (tmp_path / "clip.mp4").write_text("not a video", encoding="utf-8")
+    assert download.make_poster(tmp_path / "clip.mp4", stale) is None
+    assert not stale.exists()
+
+
+def test_make_poster_does_not_inherit_stdin(tmp_path, make_mp4, monkeypatch):
+    clip = make_mp4(tmp_path / "clip.mp4")
+    seen = {}
+    real = download.subprocess.run
+
+    def spy(cmd, **kw):
+        seen.update(kw)
+        return real(cmd, **kw)
+
+    monkeypatch.setattr(download.subprocess, "run", spy)
+    assert download.make_poster(clip, tmp_path / "p.jpg") is not None
+    assert seen["stdin"] is download.subprocess.DEVNULL

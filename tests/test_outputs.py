@@ -280,3 +280,34 @@ def test_backfill_posters_honours_a_limit(env, make_mp4):
         _video_row(paths, f, pid, f"20260920-17000{i}-aaaaab.mp4", make_mp4=make_mp4)
     assert outputs.backfill_posters(f, paths, limit=1) == 1
     assert outputs.backfill_posters(f, paths) == 1
+
+
+def test_backfill_posters_stops_when_asked_to(env, make_mp4):
+    """Shutdown cannot interrupt the worker thread, so the loop has to check between
+    rows -- and stop before it would open another session on a disposed engine."""
+    paths, f, pid = env
+    for i in range(3):
+        _video_row(paths, f, pid, f"20260920-19000{i}-aaaaac.mp4", make_mp4=make_mp4)
+    calls = {"n": 0}
+
+    def should_stop() -> bool:
+        calls["n"] += 1
+        return calls["n"] > 1  # let exactly the first row through
+
+    assert outputs.backfill_posters(f, paths, should_stop=should_stop) == 1
+    with db.session_scope(f) as s:
+        filled = [o for o in s.query(models.Output).all() if o.poster_rel_path]
+        assert len(filled) == 1
+    # nothing was consumed: the two it skipped are still waiting for the next run
+    assert outputs.backfill_posters(f, paths) == 2
+
+
+def test_delete_removes_a_videos_poster_file(env, make_mp4):
+    paths, f, pid = env
+    oid = _video_row(paths, f, pid, "20260920-200000-aaaaad.mp4", make_mp4=make_mp4)
+    assert outputs.backfill_posters(f, paths) == 1
+    poster = paths.thumbs / "20260920-200000-aaaaad.jpg"
+    assert poster.is_file()
+    with db.session_scope(f) as s:
+        assert outputs.delete(s, paths, oid) is True
+    assert not poster.exists()
