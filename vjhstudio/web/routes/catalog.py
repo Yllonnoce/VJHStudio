@@ -200,4 +200,6 @@ async def harvest_models(request: Request):
 
 @router.get("/hx/models/harvest-status")
 def harvest_status(request: Request):
+    """Local only as well as the POST: a stopped run prints the account balance."""
+    _local_only(request)
     return deps.render(request, "catalog/_harvest_status.html", _harvest_ctx())

@@ -8,6 +8,7 @@ httpx.MockTransport keyed on the slug, and every RunWare call goes to FakeRunwar
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
@@ -99,13 +100,12 @@ def _row(state, air: str) -> dict:
 
 async def _harvest(app, **kw):
     """One harvest over the two seeded models only, with its own state object."""
+    kw.setdefault("client_factory", app.state.client_factory)
+    kw.setdefault("state", constraints.HarvestState())
     return await constraints.harvest(
         app.state.boot.session_factory,
-        client_factory=app.state.client_factory,
         airs=[KLING, IMAGE],
         docs_transport=docs_transport({"kling-4k": "kling-4k.html"}),
-        state=constraints.HarvestState(),
-        api_concurrency=1,
         **kw,
     )
 
@@ -145,7 +145,7 @@ async def test_harvest_stores_docs_and_api_constraints(client, app, fake):
     }
     assert _row(state, IMAGE)["docs"] == "missing"
     assert not state.running and state.finished_at is not None
-    assert not state.message.startswith("STOPPED")
+    assert state.message == "Harvested 2 of 2 models (2 with sizes known)."
 
 
 # --- (b) no API key --------------------------------------------------------
@@ -170,7 +170,9 @@ async def test_harvest_with_no_api_flag_sends_nothing(client, app, fake):
     _two_models(app)
     state = await _harvest(app, api_key=KEY, api=False)
     assert fake.calls == []
-    assert state.done == 2 and not state.message.startswith("STOPPED")
+    # only Kling has a docs page; the other model learned nothing, so it is not "ok"
+    assert state.done == 2 and state.ok == 1
+    assert state.message == "Harvested 1 of 2 models (1 with sizes known)."
 
 
 # --- (c) a probe that was accepted -----------------------------------------
@@ -238,8 +240,62 @@ async def test_a_per_model_error_does_not_stop_the_others(client, app, fake):
 
     assert _row(state, KLING)["api"].startswith("error:")
     assert _row(state, IMAGE)["api"] == "ok"
-    assert state.done == 2 and state.ok == 1
-    assert not state.message.startswith("STOPPED")
+    # Kling still learned its sizes from the docs page, so it counts as harvested
+    assert state.done == 2 and state.ok == 2
+    assert state.message == "Harvested 2 of 2 models (2 with sizes known). 1 had errors."
+
+
+async def test_a_crash_in_one_row_cancels_the_queued_probes(client, app, fake):
+    """Nothing may be sent after the closing balance read — including by a probe that
+    was still queued when the run fell over."""
+    _two_models(app)
+    fake.script["account_management"] = [[{"balance": 10.0}], [{"balance": 10.0}]]
+    fake.script["run"] = [
+        _err(PARAMS_MSG),
+        _err(KLING_DIMS_MSG),
+        _err(PARAMS_MSG),
+        _err(RULE_DIMS_MSG),
+    ]
+    state = constraints.HarvestState()
+    state.add_row = lambda row: (_ for _ in ()).throw(RuntimeError("row exploded"))
+
+    out = await _harvest(app, api_key=KEY, state=state)
+
+    assert out.message == "Harvest failed: row exploded"
+    # Kling's two probes and nothing else: the image model's probe never started
+    assert len([c for c in fake.calls if c[0] == "run"]) == 2
+    # and the balance was still read on the way out
+    assert len([c for c in fake.calls if c[0] == "account_management"]) == 2
+    assert not out.running
+
+
+async def test_a_client_that_will_not_open_keeps_the_docs_results(client, app, fake):
+    @asynccontextmanager
+    async def broken_factory(api_key: str, transport: str = "rest"):
+        raise RuntimeError("no connection")
+        yield  # pragma: no cover - never reached
+
+    _two_models(app)
+    state = await _harvest(app, api_key=KEY, client_factory=broken_factory)
+
+    assert state.message.startswith("STOPPED: could not reach RunWare")
+    assert fake.calls == []
+    assert _row(state, KLING) == {
+        "air": KLING,
+        "name": "Kling Probe 4K",
+        "docs": "ok",
+        "api": "skipped",
+        "dims_mode": "list",
+    }
+    assert _stored(app, KLING)["sources"]["docs"]  # the free half was kept
+
+
+async def test_harvest_refuses_to_join_a_running_state(client, app):
+    state = constraints.HarvestState()
+    assert state.begin() is True
+    with pytest.raises(RuntimeError, match="already running"):
+        await _harvest(app, api_key="", state=state)
+    assert state.running and state.rows == []  # untouched
 
 
 # --- (e) the Models page ---------------------------------------------------
@@ -300,7 +356,9 @@ async def test_harvest_is_local_only(app, monkeypatch):
         transport = httpx.ASGITransport(app=app, client=("10.0.0.9", 1234))
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as outside:
             r = await outside.post("/models/harvest")
-    assert r.status_code == 403
+            # the poll prints the account balance when a run was stopped
+            poll = await outside.get("/hx/models/harvest-status")
+    assert r.status_code == 403 and poll.status_code == 403
     assert not constraints.STATE.running
 
 

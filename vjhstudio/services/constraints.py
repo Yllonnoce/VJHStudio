@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -210,10 +211,12 @@ class HarvestState:
             self.finished_at = utcnow()
 
     def add_row(self, row: dict) -> None:
+        """Record one finished model. ``ok`` counts the rows that actually *learned*
+        something — a model with no docs page and no probes is done, not harvested."""
         with self._lock:
             self.rows.append(row)
             self.done += 1
-            if not (str(row["docs"]).startswith("error") or str(row["api"]).startswith("error")):
+            if row["docs"] == "ok" or row["api"] == "ok":
                 self.ok += 1
 
     def snapshot(self) -> dict:
@@ -312,6 +315,26 @@ def _money(amount: float) -> str:
     return f"${whole}.{frac.ljust(2, '0')}"
 
 
+async def _probe_one(state: HarvestState, session_factory, row: dict, docs_result, client) -> None:
+    """Probe one model and record it. Lets ``ProbeBilledError`` through — that one stops
+    the whole harvest — while every other RunWare failure stays in this row's ``api``
+    column so the next model still gets its turn."""
+    try:
+        res = await probe.probe_model(client, row["air"], row["kind"])
+    except probe.ProbeBilledError:
+        raise
+    except Exception as e:  # noqa: BLE001 - one model's failure is per-row
+        log.warning("probe failed for %s: %s", row["air"], e)
+        _record(state, session_factory, row, docs_result, f"error: {e}", None)
+        return
+    if res.params:
+        api: dict | None = {"params": res.params, "dims": res.dims, "missing": res.missing}
+        status = "ok"
+    else:
+        api, status = None, "error: " + ("; ".join(res.errors) or "no parameter list returned")
+    _record(state, session_factory, row, docs_result, status, api)
+
+
 async def _probe_all(
     state: HarvestState,
     session_factory,
@@ -321,35 +344,41 @@ async def _probe_all(
     client,
     concurrency: int,
 ) -> None:
-    """The API half: one bounded pool, stopped for good by an accepted probe."""
+    """The API half: one bounded pool, stopped for good the moment a probe comes back
+    accepted or a row falls over. Two independent brakes, because a request that goes
+    out after the closing balance read is a request nobody is watching:
+
+    * a ``stopped`` flag, checked by every task *before* it sends anything, which is
+      what actually keeps the queued probes in;
+    * cancelling the pending tasks on the way out, for a task parked anywhere else.
+    """
     sem = asyncio.Semaphore(concurrency)
-    billed: list[str] = []
+    stopped: list[str] = []
 
     async def one(row: dict) -> None:
         async with sem:
-            if billed:  # a probe was accepted: send nothing more, record nothing more
+            if stopped:  # the run is over; send nothing, record nothing
                 return
             try:
-                res = await probe.probe_model(client, row["air"], row["kind"])
+                await _probe_one(state, session_factory, row, docs_by_air.get(row["air"]), client)
             except probe.ProbeBilledError as e:
-                billed.append(str(e))
-                return
-            except Exception as e:  # noqa: BLE001 - one model's failure is per-row
-                log.warning("probe failed for %s: %s", row["air"], e)
-                _record(
-                    state, session_factory, row, docs_by_air.get(row["air"]), f"error: {e}", None
-                )
-                return
-        if res.params:
-            api = {"params": res.params, "dims": res.dims, "missing": res.missing}
-            status = "ok"
-        else:
-            api, status = None, "error: " + ("; ".join(res.errors) or "no parameter list returned")
-        _record(state, session_factory, row, docs_by_air.get(row["air"]), status, api)
+                stopped.append(f"STOPPED: {e}. Nothing more was sent. Please report this.")
+            except BaseException:
+                # Not this row's problem but the run's: hold the rest of the pool
+                # before the failure travels up.
+                stopped.append("")
+                raise
 
-    await asyncio.gather(*(one(r) for r in rows))
-    if billed:
-        state.message = f"STOPPED: {billed[0]}. Nothing more was sent. Please report this."
+    tasks = [asyncio.create_task(one(r)) for r in rows]
+    try:
+        await asyncio.gather(*tasks)
+    finally:
+        for task in tasks:
+            task.cancel()
+        with suppress(asyncio.CancelledError):
+            await asyncio.gather(*tasks, return_exceptions=True)
+    if stopped and stopped[0]:
+        state.message = stopped[0]
 
 
 async def _harvest(
@@ -373,28 +402,37 @@ async def _harvest(
     if not api:
         docs_only()
         return
-    async with client_factory(api_key, transport) as client:
-        try:
-            before = await _balance(client)
-        except Exception as e:  # noqa: BLE001
-            docs_only(
-                f"STOPPED: the account balance could not be read before the harvest ({e}). "
-                "No probes were sent."
-            )
-            return
-        try:
-            await _probe_all(
-                state,
-                session_factory,
-                rows,
-                docs_by_air,
-                client=client,
-                concurrency=api_concurrency,
-            )
-        finally:
-            # Safety rule 4, and it runs even if the pool itself blew up: the balance
-            # must be checked whenever a probe has been sent at all.
-            await _check_balance(state, client, before)
+    opened = False
+    try:
+        async with client_factory(api_key, transport) as client:
+            opened = True
+            try:
+                before = await _balance(client)
+            except Exception as e:  # noqa: BLE001
+                docs_only(
+                    f"STOPPED: the account balance could not be read before the harvest ({e}). "
+                    "No probes were sent."
+                )
+                return
+            try:
+                await _probe_all(
+                    state,
+                    session_factory,
+                    rows,
+                    docs_by_air,
+                    client=client,
+                    concurrency=api_concurrency,
+                )
+            finally:
+                # Safety rule 4, and it runs even if the pool itself blew up: the
+                # balance must be checked whenever a probe has been sent at all.
+                await _check_balance(state, client, before)
+    except Exception as e:  # noqa: BLE001
+        if opened:  # the client was fine; this is the run itself failing
+            raise
+        # No client, no probes — but the docs half already ran and is free to keep.
+        log.warning("opening the RunWare client failed: %s", e)
+        docs_only(f"STOPPED: could not reach RunWare ({e}). No probes were sent.")
 
 
 async def _check_balance(state: HarvestState, client, before: float) -> None:
@@ -419,6 +457,17 @@ async def _check_balance(state: HarvestState, client, before: float) -> None:
         state.message = stopped
 
 
+def _summary(state: HarvestState) -> str:
+    """The line the Models page shows when a run ends without being stopped."""
+    rows = state.snapshot()["rows"]
+    sizes = sum(1 for r in rows if r["dims_mode"] in ("list", "rule"))
+    errors = sum(
+        1 for r in rows if str(r["docs"]).startswith("error") or str(r["api"]).startswith("error")
+    )
+    text = f"Harvested {state.ok} of {state.total} models ({sizes} with sizes known)."
+    return text + (f" {errors} had errors." if errors else "")
+
+
 async def harvest(
     session_factory,
     *,
@@ -431,14 +480,21 @@ async def harvest(
     transport: str = "rest",
     docs_transport=None,
     state: HarvestState | None = None,
+    claimed: bool = False,
     docs_concurrency: int = 5,
-    api_concurrency: int = 1,  # sequential: an accepted probe must stop the run before any other request is in flight
+    # Sequential: an accepted probe must stop the run before another request is in flight.
+    api_concurrency: int = 1,
 ) -> HarvestState:
-    """Learn what every catalog model accepts, for free. Never raises: a crash is
-    reported through ``state.message`` so the poll on the Models page always ends."""
+    """Learn what every catalog model accepts, for free.
+
+    A crash inside the run is reported through ``state.message`` rather than raised,
+    so the poll on the Models page always ends. The one exception is a state that is
+    already in flight: joining it would let two runs write the same rows and close
+    each other's log, so that raises instead. ``claimed`` is for ``start_harvest``,
+    which has already taken the claim with the same ``begin()``."""
     state = STATE if state is None else state
-    if not state.running:
-        state.begin()
+    if not claimed and not state.begin():
+        raise RuntimeError("harvest already running")
     try:
         rows = _catalog_rows(session_factory, kinds, airs)
         state.total = len(rows)
@@ -457,10 +513,7 @@ async def harvest(
             api_concurrency=api_concurrency,
         )
         if not state.message:
-            errors = state.done - state.ok
-            state.message = f"Harvested {state.ok} of {state.total} models" + (
-                f", {errors} with errors." if errors else "."
-            )
+            state.message = _summary(state)
     except Exception as e:  # noqa: BLE001 - the state must always close
         log.exception("harvest crashed")
         state.message = f"Harvest failed: {e}"
@@ -480,7 +533,7 @@ def start_harvest(app_state, **kwargs) -> bool:
     kwargs.setdefault("client_factory", app_state.client_factory)
     try:
         app_state.harvest_task = asyncio.create_task(
-            harvest(session_factory, state=state, **kwargs), name="vjh-harvest"
+            harvest(session_factory, state=state, claimed=True, **kwargs), name="vjh-harvest"
         )
     except BaseException:
         state.finish()  # the claim must not outlive a task that never started

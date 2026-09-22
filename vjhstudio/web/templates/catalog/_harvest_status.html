@@ -5,7 +5,7 @@
   {% if harvest.running %}
   <div hx-get="/hx/models/harvest-status" hx-trigger="every 2s" hx-target="#harvest-form" hx-swap="outerHTML">Harvesting… {{ harvest.done }}/{{ harvest.total }}</div>
   {% else %}
-    {% if harvest.message %}<p class="{{ 'error' if harvest.message.startswith('STOPPED') else 'ok' }}">{{ harvest.message }}</p>{% endif %}
+    {% if harvest.message %}<p class="{{ 'error' if harvest.message.startswith(('STOPPED', 'Harvest failed')) else 'ok' }}">{{ harvest.message }}</p>{% endif %}
     {% if harvest.rows %}
     <details>
       <summary>{{ harvest.rows|length }} model{{ '' if harvest.rows|length == 1 else 's' }}</summary>
