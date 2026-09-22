@@ -384,7 +384,7 @@ tr.hidden-model{opacity:.55}
 .gallery-thumb{display:block;position:relative;width:100%;padding:0;margin:0;border:none;background:var(--sp-surface-2);cursor:pointer}
 .gallery-thumb img{display:block;width:100%;height:180px;object-fit:cover}
 .gallery-fav{position:absolute;top:.4rem;right:.4rem;color:var(--sp-warning);font-size:1.1rem;text-shadow:0 1px 2px rgba(0,0,0,.5)}
-.gallery-card-meta{display:flex;justify-content:space-between;gap:.5rem;padding:.4rem .6rem;font-size:.8rem;border-top:1px solid var(--sp-border)}
+.gallery-card-meta{margin:0;display:flex;justify-content:space-between;gap:.5rem;padding:.4rem .6rem;font-size:.8rem;border-top:1px solid var(--sp-border)}
 .gallery-load-more{grid-column:1 / -1;justify-self:center}
 
 /* ── Lightbox ─────────────────────────────────────────────────────────── */
