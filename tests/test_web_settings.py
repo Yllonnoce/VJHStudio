@@ -154,3 +154,11 @@ async def test_every_page_renders_the_cached_balance_in_the_header(client, app):
         r = await client.get(path)
         chip = r.text.split('id="balance-chip"', 1)[1].split("</li>", 1)[0]
         assert "$27.90" in chip and "Balance unknown" not in chip, path
+
+
+async def test_the_polled_balance_chip_does_not_rearm_its_load_trigger(client):
+    page = await client.get("/gallery")
+    assert 'hx-trigger="load delay:300ms, every 60s, job-finished from:body"' in page.text
+    poll = await client.get("/hx/header/balance")
+    assert "load delay" not in poll.text
+    assert 'hx-trigger="every 60s, job-finished from:body"' in poll.text

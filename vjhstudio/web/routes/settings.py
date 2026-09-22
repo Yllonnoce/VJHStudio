@@ -198,4 +198,11 @@ async def header_balance(request: Request):
             )
         except account.BalanceError:
             stale = bal is not None
-    return deps.render(request, "partials/_balance_chip.html", {"balance": bal, "stale": stale})
+    # ``polled`` drops the `load` trigger from the swapped-in chip: the response replaces
+    # the element, and a `load` trigger on the replacement would fire again at once,
+    # forever (~3 requests a second).
+    return deps.render(
+        request,
+        "partials/_balance_chip.html",
+        {"balance": bal, "stale": stale, "polled": True},
+    )
