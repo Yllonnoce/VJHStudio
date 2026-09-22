@@ -146,7 +146,8 @@ def merge_sources(existing: dict | None, *, docs: dict | None, api: dict | None,
         # The docs are the weakest source: a docs-only pass (no key, a client that fell
         # over, an unreadable balance, one model's probe erroring) still runs for every
         # row, and it must not undo dims an API probe or a real job established.
-        owned = bool(sources.get("observed")) or bool(sources.get("api") and not api)
+        api_has_dims = bool(api and (api.get("dims") or {}).get("mode") not in (None, "unknown"))
+        owned = bool(sources.get("observed")) or bool(sources.get("api") and not api_has_dims)
         if dd and not owned:
             out["dims"] = _carry_labels(dd, _dims(out))
     if api:

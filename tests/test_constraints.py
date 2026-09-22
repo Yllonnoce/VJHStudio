@@ -193,3 +193,20 @@ def test_observe_dims_keeps_the_labels_of_the_sizes_that_survive():
     out = C.observe_dims(existing, {"mode": "list", "list": [[1280, 720]]}, now="t")
     assert out["dims"]["labels"] == {"1280x720": "720p"}
     assert out["dims"]["list"] == [[1280, 720]] and out["sources"]["observed"] == "t"
+
+
+def test_docs_dims_do_not_replace_older_api_dims_when_this_probe_learned_nothing():
+    existing = {
+        "dims": {"mode": "list", "list": [[3840, 2160]], "labels": {}},
+        "sources": {"docs": None, "api": "t1", "observed": None},
+    }
+    docs = {
+        "params": {"width": {"min": 128, "max": 2048, "step": 64}},
+        "dims": [],
+        "dim_labels": {},
+        "inputs": {},
+    }
+    api = {"params": ["width", "height"], "dims": {"mode": "unknown"}, "missing": []}
+    out = C.merge_sources(existing, docs=docs, api=api, now="t2")
+    assert out["dims"]["mode"] == "list" and out["dims"]["list"] == [[3840, 2160]]
+    assert out["sources"]["api"] == "t2" and out["sources"]["docs"] == "t2"
