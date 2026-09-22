@@ -17,8 +17,9 @@ def context(session: Session, runner) -> dict:
     finished starting up, in which case nothing is reported as active.
     """
     recent, outputs_total = outputs.gallery(session, per_page=12)
+    by_project = costs.totals_by_project(session)  # one grouped query, not one per project
     project_rows = [
-        {"id": p.id, "name": p.name, **projects.totals(session, p.id)}
+        {"id": p.id, "name": p.name, **by_project.get(p.id, {"outputs": 0, "cost": 0.0})}
         for p in projects.list_active(session)
     ]
     return {

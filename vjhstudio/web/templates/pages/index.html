@@ -37,7 +37,7 @@
   </article>
   <article class="stat">
     <div class="muted">Spent today</div>
-    <div class="value">${{ '%.4f'|format(spend_today) }}</div>
+    <div class="value">${{ '%.2f'|format(spend_today) }}</div>
   </article>
   <article class="stat">
     <div class="muted">Outputs</div>
@@ -51,7 +51,7 @@
     <thead><tr><th>Name</th><th>Outputs</th><th>Cost</th></tr></thead>
     <tbody>
       {% for p in projects %}
-      <tr><td>{{ p.name }}</td><td>{{ p.outputs }}</td><td>${{ '%.4f'|format(p.cost) }}</td></tr>
+      <tr><td>{{ p.name }}</td><td>{{ p.outputs }}</td><td>${{ '%.2f'|format(p.cost) }}</td></tr>
       {% else %}
       <tr><td colspan="3">No projects yet.</td></tr>
       {% endfor %}
