@@ -3,10 +3,20 @@
    every stock Pico component (buttons, forms, cards, nav) follows whichever
    named theme is active on <html data-theme="…">. Pico's own
    [data-theme=light|dark] selectors don't match our ids, so base.html also
-   sets data-scheme=light|dark and we set color-scheme from that below. */
-:root {
+   sets data-scheme=light|dark and we set color-scheme from that below.
+
+   The selector carries `[data-theme]` on purpose. Pico's light palette lives
+   under `:root:not([data-theme=dark]),[data-theme=light]` (specificity 0,2,0),
+   which matches EVERY one of our named themes except the one literally called
+   "dark" — so a bare `:root` bridge (0,1,0) lost, and midnight rendered Pico's
+   near-black headings and white inputs on its dark ground. `:root[data-theme]`
+   ties at 0,2,0 and app.css loads after Pico, so the tie breaks our way. Every
+   variable Pico recolours in that light block and that a theme owns is remapped
+   below; leaving one out is what makes a single widget stay light. */
+:root, :root[data-theme] {
   --pico-background-color: var(--sp-bg);
   --pico-color: var(--sp-text);
+  --pico-text-selection-color: var(--sp-accent-glow);
   --pico-h1-color: var(--sp-heading);
   --pico-h2-color: var(--sp-heading);
   --pico-h3-color: var(--sp-heading);
@@ -14,29 +24,88 @@
   --pico-h5-color: var(--sp-heading);
   --pico-h6-color: var(--sp-heading);
   --pico-muted-color: var(--sp-muted);
+  --pico-muted-border-color: var(--sp-border);
   --pico-primary: var(--sp-accent);
   --pico-primary-background: var(--sp-accent);
   --pico-primary-border: var(--sp-accent);
+  --pico-primary-underline: var(--sp-accent-glow);
   --pico-primary-inverse: var(--sp-on-accent);
   --pico-primary-hover: var(--sp-hover-bg);
   --pico-primary-hover-background: var(--sp-hover-bg);
+  --pico-primary-hover-border: var(--sp-hover-bg);
+  --pico-primary-hover-underline: var(--sp-hover-bg);
   --pico-primary-focus: var(--sp-accent-glow);
   --pico-secondary: var(--sp-text);
   --pico-secondary-hover: var(--sp-accent);
   --pico-secondary-focus: var(--sp-accent-glow);
-  --pico-secondary-inverse: var(--sp-on-accent);
+  /* A `.secondary` button fills with --sp-btn-tint (a surface, not the accent),
+     so its ink is the page ink; --sp-on-accent would be near-black on a dark tint. */
+  --pico-secondary-inverse: var(--sp-text);
   --pico-secondary-underline: var(--sp-accent);
   --pico-secondary-background: var(--sp-btn-tint);
   --pico-secondary-border: var(--sp-btn-tint-border);
   --pico-secondary-hover-background: var(--sp-btn-tint-hover);
+  --pico-secondary-hover-border: var(--sp-accent);
+  --pico-secondary-hover-underline: var(--sp-accent);
+  --pico-contrast: var(--sp-text);
+  --pico-contrast-background: var(--sp-text);
+  --pico-contrast-border: var(--sp-text);
+  --pico-contrast-underline: var(--sp-accent-glow);
+  --pico-contrast-inverse: var(--sp-bg);
+  --pico-contrast-hover: var(--sp-accent);
+  --pico-contrast-hover-background: var(--sp-accent);
+  --pico-contrast-hover-border: var(--sp-accent);
+  --pico-contrast-hover-underline: var(--sp-accent);
+  --pico-contrast-focus: var(--sp-accent-glow);
   --pico-card-background-color: var(--sp-surface);
   --pico-card-sectioning-background-color: var(--sp-surface-2);
   --pico-card-border-color: var(--sp-border);
+  --pico-card-box-shadow: var(--sp-shadow-1);
   --pico-border-radius: var(--sp-radius-sm);
   --pico-form-element-background-color: var(--sp-input-bg);
+  --pico-form-element-selected-background-color: var(--sp-surface-2);
+  --pico-form-element-active-background-color: var(--sp-input-bg);
   --pico-form-element-border-color: var(--sp-border);
+  --pico-form-element-color: var(--sp-text);
+  --pico-form-element-placeholder-color: var(--sp-muted);
   --pico-form-element-focus-color: var(--sp-accent);
   --pico-form-element-active-border-color: var(--sp-accent);
+  --pico-form-element-invalid-border-color: var(--sp-danger);
+  --pico-form-element-invalid-active-border-color: var(--sp-danger);
+  --pico-form-element-invalid-focus-color: var(--sp-danger);
+  --pico-form-element-valid-border-color: var(--sp-success);
+  --pico-form-element-valid-active-border-color: var(--sp-success);
+  --pico-form-element-valid-focus-color: var(--sp-success);
+  --pico-switch-background-color: var(--sp-surface-2);
+  --pico-switch-checked-background-color: var(--sp-accent);
+  --pico-switch-color: var(--sp-on-accent);
+  --pico-range-border-color: var(--sp-surface-2);
+  --pico-range-active-border-color: var(--sp-border);
+  --pico-range-thumb-border-color: var(--sp-surface);
+  --pico-range-thumb-color: var(--sp-accent);
+  --pico-range-thumb-active-color: var(--sp-hover-bg);
+  --pico-table-border-color: var(--sp-border);
+  --pico-table-row-stripped-background-color: var(--sp-surface-2);
+  --pico-code-background-color: var(--sp-surface-2);
+  --pico-code-color: var(--sp-text);
+  --pico-code-kbd-background-color: var(--sp-text);
+  --pico-code-kbd-color: var(--sp-bg);
+  --pico-accordion-border-color: var(--sp-border);
+  --pico-accordion-active-summary-color: var(--sp-accent);
+  --pico-accordion-close-summary-color: var(--sp-text);
+  --pico-accordion-open-summary-color: var(--sp-muted);
+  --pico-dropdown-background-color: var(--sp-surface);
+  --pico-dropdown-border-color: var(--sp-border);
+  --pico-dropdown-color: var(--sp-text);
+  --pico-dropdown-hover-background-color: var(--sp-surface-2);
+  --pico-mark-background-color: var(--sp-accent-glow);
+  --pico-mark-color: var(--sp-text);
+  --pico-blockquote-border-color: var(--sp-border);
+  --pico-blockquote-footer-color: var(--sp-muted);
+  --pico-progress-background-color: var(--sp-surface-2);
+  --pico-progress-color: var(--sp-accent);
+  --pico-tooltip-background-color: var(--sp-surface-2);
+  --pico-tooltip-color: var(--sp-text);
   --pico-ins-color: var(--sp-success);
   --pico-del-color: var(--sp-danger);
   --pico-box-shadow: var(--sp-shadow-1);
