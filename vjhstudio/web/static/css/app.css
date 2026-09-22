@@ -92,6 +92,7 @@ input:focus, select:focus, textarea:focus {
 .chip{padding:.15rem .6rem;border-radius:1rem;background:var(--sp-surface-2);border:1px solid var(--sp-border);font-size:.85rem}
 .chip.warn{background:color-mix(in srgb, var(--sp-warning) 25%, var(--sp-surface))}
 .ok{color:var(--sp-success)} .error{color:var(--sp-danger)}
+p.warn{color:var(--sp-warning);font-weight:600;margin:0 0 .5rem}
 article.warn{border-left:4px solid var(--sp-warning)}
 #toasts{position:fixed;right:1rem;bottom:1rem;display:flex;flex-direction:column;gap:.5rem;z-index:50}
 .toast{padding:.6rem 1rem;border-radius:.5rem;background:var(--sp-surface);border:1px solid var(--sp-border);box-shadow:var(--sp-shadow-2)}

@@ -22,6 +22,10 @@ class VideoRequest(BaseModel):
     final_prompt: str | None = None
     duration: float = 5
     resolution: str = "720p"
+    # Set only when the model's constraints name the sizes it accepts (the panel then
+    # posts pixels instead of a preset name); otherwise ``resolution`` still decides.
+    width: int | None = Field(None, ge=64)
+    height: int | None = Field(None, ge=64)
     fps: int | None = Field(None, ge=1, le=120)
     seed: int | None = None
     output_format: Literal["MP4", "WEBM"] = "MP4"

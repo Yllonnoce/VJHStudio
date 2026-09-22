@@ -15,17 +15,18 @@
             onchange="var p=this.value.split('x');if(p.length==2){var f=this.form;f.width.value=p[0];f.height.value=p[1];f.width.dispatchEvent(new Event('change',{bubbles:true}));}">
       {% set cur = (values.width|default(defaults.width, true))|string + 'x' + (values.height|default(defaults.height, true))|string %}
       {% set known = [] %}{% for w, h, name in size_presets %}{% set _ = known.append(w|string + 'x' + h|string) %}{% endfor %}
-      {% for w, h, name in size_presets %}<option value="{{ w }}x{{ h }}" {% if cur == w|string + 'x' + h|string %}selected{% endif %}>{{ name }} — {{ w }}×{{ h }}</option>{% endfor %}
-      <option value="custom" {% if cur not in known %}selected{% endif %}>Custom ({{ cur }})</option>
+      {% for w, h, name in size_presets %}<option value="{{ w }}x{{ h }}" {% if cur == w|string + 'x' + h|string %}selected{% endif %}>{{ name }}</option>{% endfor %}
+      {% if size_mode != 'list' or cur not in known %}<option value="custom" {% if cur not in known %}selected{% endif %}>Custom ({{ cur }})</option>{% endif %}
     </select>
   </label>
   <div class="grid">
+    {# list mode: the model named its sizes, so the boxes only mirror the select #}
     <label>Width
-      <input type="number" name="width" step="64" min="128" max="2048" value="{{ values.width|default(defaults.width, true) }}" aria-invalid="{{ 'true' if errors.get('width') else 'false' }}">
+      <input type="number" name="width" step="{{ size_rule.step }}" min="{{ size_rule.min }}" max="{{ size_rule.max }}" {% if size_mode == 'list' %}readonly {% endif %}value="{{ values.width|default(defaults.width, true) }}" aria-invalid="{{ 'true' if errors.get('width') else 'false' }}">
       {% if errors.get('width') %}<small class="error">{{ errors['width'] }}</small>{% endif %}
     </label>
     <label>Height
-      <input type="number" name="height" step="64" min="128" max="2048" value="{{ values.height|default(defaults.height, true) }}" aria-invalid="{{ 'true' if errors.get('height') else 'false' }}">
+      <input type="number" name="height" step="{{ size_rule.step }}" min="{{ size_rule.min }}" max="{{ size_rule.max }}" {% if size_mode == 'list' %}readonly {% endif %}value="{{ values.height|default(defaults.height, true) }}" aria-invalid="{{ 'true' if errors.get('height') else 'false' }}">
       {% if errors.get('height') %}<small class="error">{{ errors['height'] }}</small>{% endif %}
     </label>
   </div>

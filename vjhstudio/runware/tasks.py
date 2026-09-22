@@ -5,6 +5,7 @@ from __future__ import annotations
 from ..schemas.image import ImageRequest
 from ..schemas.video import VideoRequest
 from ..services import prompts
+from .sizes import nearest_size_in
 
 PROTECTED = ("taskType", "taskUUID", "model")
 PROMPT_ENHANCE_MAX_CHARS = 300
@@ -173,7 +174,16 @@ def build_video_task(
     durations and frame rates the provider will actually accept."""
     video = dict(((model_row or {}).get("tiers") or {}).get("video") or {})
     duration = nearest(req.duration, video.get("durations") or [])
-    width, height = resolution_wh(req.resolution, video)
+    # Pixels posted by a constraint-aware size select win: the model told us which exact
+    # sizes it accepts, so a preset name would only round them back off the list. They
+    # are still snapped to whatever the constraints say, because the form is not the only
+    # way a request can be built (a remix, a hand-edited post) -- the runner's one-shot
+    # size correction stays the backstop, this just spends no round trip on the obvious.
+    if req.width and req.height:
+        dims = ((model_row or {}).get("constraints") or {}).get("dims") or {}
+        width, height = nearest_size_in(dims, int(req.width), int(req.height))
+    else:
+        width, height = resolution_wh(req.resolution, video)
     task: dict = {
         "taskType": "videoInference",
         "taskUUID": task_uuid,

@@ -8,10 +8,10 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from .. import db
 from ..config import Paths
-from ..models import Job, JobStatus, Project
+from ..models import CatalogModel, Job, JobStatus, Project
 from ..schemas.image import ImageRequest
 from ..schemas.video import VideoRequest
-from . import catalog, costs, projects, prompts
+from . import catalog, constraints, costs, projects, prompts
 
 TITLE_MAX = 80
 
@@ -20,11 +20,25 @@ def title_for(req: ImageRequest | VideoRequest) -> str:
     return (req.title or prompts.compose(req.form))[:TITLE_MAX].strip() or "Untitled"
 
 
-def _require_kind(session: Session, air: str, kind: str) -> None:
+def _require_kind(session: Session, air: str, kind: str) -> CatalogModel:
     m = catalog.get_by_air(session, air)
     if m is None or m.kind != kind:
         article = "an" if kind[0] in "aeiou" else "a"
         raise ValueError(f"{air} is not {article} {kind} model")
+    return m
+
+
+def _preflight_video(m: CatalogModel, req: VideoRequest) -> None:
+    """The two inputs the form cannot invent. Both raise ``ValueError``, which the
+    Generate route turns into a 422 re-render with the sentence shown inline -- the
+    whole point is that the job is never queued and never billed."""
+    if constraints.requires_input_video(m.constraints_json):
+        raise ValueError("This model edits an existing video. VJHStudio cannot supply one yet.")
+    if (
+        constraints.needs_first_frame(m.capabilities_json or [], m.constraints_json)
+        and req.first_frame_asset_id is None
+    ):
+        raise ValueError("This model needs a first-frame image. Add one under References.")
 
 
 def _require_project(session: Session, project_id: int) -> Project:
@@ -86,7 +100,7 @@ def enqueue_video(
     and the prompt row records an empty negative for the same reason, which is what its
     content hash is built from."""
     with db.session_scope(session_factory) as s:
-        _require_kind(s, req.model, "video")
+        _preflight_video(_require_kind(s, req.model, "video"), req)
         project = _require_project(s, req.project_id)
         _, _, negative = prompts.saved_texts("video", req.form, req.final_prompt or "")
         prompt = prompts.for_request(

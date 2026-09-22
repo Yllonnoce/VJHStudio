@@ -18,7 +18,7 @@ from ..models import CatalogModel, utcnow
 from ..runware.catalog_api import ContentAPI, ContentAPIError
 from ..runware.errors import UserFacingError, classify
 from ..runware.pricing import normalize_price
-from . import meta
+from . import constraints, meta
 
 log = logging.getLogger(__name__)
 CURATED_PATH = Path(__file__).resolve().parent.parent / "data" / "curated_models.json"
@@ -71,7 +71,11 @@ def family(model: CatalogModel) -> str:
     return "instruction" if any(k in hay for k in _INSTRUCTION) else "diffusion"
 
 
-def label(model: CatalogModel) -> str:
+NEEDS_FIRST_FRAME = "needs a first frame"
+VIDEO_ONLY = "video-to-video only — not supported yet"
+
+
+def _priced_label(model: CatalogModel) -> str:
     star = "★ " if model.is_favourite else ""
     p = model.price_primary
     if p is None:
@@ -83,6 +87,28 @@ def label(model: CatalogModel) -> str:
     if model.price_in is None or model.price_out is None:
         return f"{star}{model.name} — price unknown"
     return f"{star}{model.name} — ${model.price_in:.2f} in / ${model.price_out:.2f} out per 1M"
+
+
+def label(model: CatalogModel) -> str:
+    """The dropdown text. An image-to-video-only row carries its badge here too: the
+    select is the only place the choice is made, so the warning has to travel with it."""
+    text = _priced_label(model)
+    if model.kind == "video" and constraints.needs_first_frame(
+        model.capabilities_json or [], model.constraints_json
+    ):
+        return f"{text} · {NEEDS_FIRST_FRAME}"
+    return text
+
+
+def badge(model: CatalogModel) -> str:
+    """The one short warning a catalog row deserves, or "" when it needs none."""
+    caps = model.capabilities_json or []
+    c = model.constraints_json
+    if not constraints.is_generate_capable(model.kind, caps, c):
+        return VIDEO_ONLY
+    if model.kind == "video" and constraints.needs_first_frame(caps, c):
+        return NEEDS_FIRST_FRAME
+    return ""
 
 
 def view(m: CatalogModel) -> dict:
@@ -277,6 +303,19 @@ def list_models(session: Session, kind: str, include_hidden: bool = False) -> li
         CatalogModel.name.asc(),
     )
     return list(session.execute(q).scalars())
+
+
+def list_generate_models(
+    session: Session, kind: str, include_hidden: bool = False
+) -> list[CatalogModel]:
+    """``list_models`` minus the rows the Generate page cannot actually drive: video
+    editors that need an input video, and anything else with a required input we have
+    no way to supply. They stay on the Models page with a badge."""
+    return [
+        m
+        for m in list_models(session, kind, include_hidden)
+        if constraints.is_generate_capable(kind, m.capabilities_json or [], m.constraints_json)
+    ]
 
 
 def set_flag(
