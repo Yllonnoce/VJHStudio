@@ -88,6 +88,19 @@ UNSAFE_PREFIXES = ("google:gemini", "luma:", "sourceful:")
 # send (a polling timeout above all) means the task was accepted and will be billed.
 PRE_SUBMIT_CODES = ("auth", "quota", "rateLimit", "connection", "validation")
 SKIPPED_UNSAFE = "skipped: this provider accepts unknown parameters, so a probe could be billed"
+# A rejection can arrive with a raw code the SDK does not know (derived "unknown"), e.g.
+# MiniMax's "Parameter 'frameImages' is required for this model architecture." Its text
+# still reads as validation, and a validation rejection is never billed.
+_VALIDATION_HINTS = re.compile(
+    r"required|unsupported|invalid value|not supported|must be|missing", re.I
+)
+
+
+def is_rejection(err: RunwareError) -> bool:
+    """True when the error is RunWare refusing the request before running it."""
+    if err.code == "validation":
+        return True
+    return err.code == "unknown" and bool(_VALIDATION_HINTS.search(err.message or ""))
 
 
 def is_probe_safe(air: str) -> bool:
@@ -101,7 +114,7 @@ async def _send(client, task: dict) -> RunwareError:
     try:
         await client.run(task, RunOptions(timeout=30_000, validate=False))
     except RunwareError as e:
-        if e.code in PRE_SUBMIT_CODES:
+        if e.code in PRE_SUBMIT_CODES or is_rejection(e):
             return e
         raise ProbeBilledError(
             f"probe for {task.get('model')} was accepted or its outcome is unknown "
@@ -117,7 +130,7 @@ async def probe_model(client, air: str, kind: str) -> ProbeResult:
     if not is_probe_safe(air):
         return ProbeResult(errors=[SKIPPED_UNSAFE])
     e1 = await _send(client, {**_base(air, kind), PROBE_KEY: 1})
-    if e1.code != "validation":
+    if not is_rejection(e1):
         return ProbeResult(errors=[f"{e1.code}: {e1.message}"])
     params = parse_allowed_params(e1.message or "")
     if not params:
@@ -125,7 +138,7 @@ async def probe_model(client, air: str, kind: str) -> ProbeResult:
     if "width" not in params or "height" not in params:
         return ProbeResult(params=params, dims=None, errors=errors)  # safety rule 3
     e2 = await _send(client, {**_base(air, kind), "width": 1, "height": 1})
-    if e2.code != "validation":
+    if not is_rejection(e2):
         return ProbeResult(params=params, dims=None, errors=errors + [f"{e2.code}: {e2.message}"])
     missing = [m] if (m := parse_missing_required(e2.message or "")) else []
     return ProbeResult(

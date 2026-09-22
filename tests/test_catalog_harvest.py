@@ -487,3 +487,21 @@ async def test_unsafe_providers_get_docs_only(client, app, fake):
     assert _row(state, "luma:ray@3.2")["api"].startswith("skipped: this provider accepts unknown")
     assert [c for c in fake.calls if c[0] == "run"] == []
     assert _stored(app, "luma:ray@3.2")["dims"]["mode"] == "list"  # the docs page still counted
+
+
+async def test_a_probed_model_is_skipped_unless_forced(client, app, fake):
+    _two_models(app)
+    with db.session_scope(app.state.boot.session_factory) as s:
+        m = s.execute(select(CatalogModel).where(CatalogModel.air == KLING)).scalar_one()
+        m.constraints_json = {"dims": {"mode": "list", "list": [[1, 2]]}, "sources": {"api": "t"}}
+    fake.script["account_management"] = [[{"balance": 10.0}]] * 12
+    fake.script["run"] = [_err(PARAMS_MSG), _err(KLING_DIMS_MSG)]  # only the image model
+    state = await _harvest(app, api_key=KEY)
+    assert _row(state, KLING)["api"] == constraints.SKIPPED_PROBED
+    assert {p["model"] for n, p in fake.calls if n == "run"} == {IMAGE}
+
+    fake.calls.clear()
+    fake.script["account_management"] = [[{"balance": 10.0}]] * 12
+    fake.script["run"] = [_err(PARAMS_MSG), _err(KLING_DIMS_MSG)] * 2
+    state = await _harvest(app, api_key=KEY, force=True)
+    assert _row(state, KLING)["api"] == "ok"

@@ -334,6 +334,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
                 docs=args.docs,
                 api=args.api,
                 transport=transport,
+                force=args.force,
                 state=constraints.HarvestState(),
             )
         )
@@ -427,7 +428,8 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--air", action="append", default=[], help="one model only; repeatable")
     pr.add_argument("--no-docs", dest="docs", action="store_false", help="skip the docs pages")
     pr.add_argument("--no-api", dest="api", action="store_false", help="skip the API probes")
-    pr.set_defaults(docs=True, api=True, func=cmd_probe)
+    pr.add_argument("--force", action="store_true", help="probe models that were already probed")
+    pr.set_defaults(docs=True, api=True, force=False, func=cmd_probe)
     sub.add_parser("version", help="print version").set_defaults(func=cmd_version)
     sub.add_parser("doctor", help="print environment diagnostics").set_defaults(func=cmd_doctor)
     return p

@@ -260,7 +260,9 @@ def _catalog_rows(session_factory, kinds, airs) -> list[dict]:
         for kind in kinds:
             for m in catalog.list_models(s, kind):
                 if wanted is None or m.air in wanted:
-                    blocked = bool(((m.constraints_json or {}).get("probe") or {}).get("blocked"))
+                    c = m.constraints_json or {}
+                    blocked = bool((c.get("probe") or {}).get("blocked"))
+                    probed = bool((c.get("sources") or {}).get("api"))
                     rows.append(
                         {
                             "id": m.id,
@@ -269,6 +271,7 @@ def _catalog_rows(session_factory, kinds, airs) -> list[dict]:
                             "kind": m.kind,
                             "slug": m.slug,
                             "blocked": blocked,
+                            "probed": probed,
                         }
                     )
     return rows
@@ -337,6 +340,7 @@ def _money(amount: float) -> str:
 
 
 SKIPPED_BLOCKED = "skipped: a probe of this model was billed once; docs page only"
+SKIPPED_PROBED = "skipped: already probed (use --force to probe again)"
 
 
 def _mark_blocked(session_factory, row: dict, reason: str) -> None:
@@ -350,7 +354,9 @@ def _mark_blocked(session_factory, row: dict, reason: str) -> None:
         store(s, m, c)
 
 
-async def _probe_one(state: HarvestState, session_factory, row: dict, docs_result, client) -> None:
+async def _probe_one(
+    state: HarvestState, session_factory, row: dict, docs_result, client, force: bool = False
+) -> None:
     """Probe one model and record it. Lets ``ProbeBilledError`` through — that one stops
     the whole harvest — while every other RunWare failure stays in this row's ``api``
     column so the next model still gets its turn. The balance is read before and after
@@ -358,6 +364,11 @@ async def _probe_one(state: HarvestState, session_factory, row: dict, docs_resul
     charge, not at the end of the run."""
     if row.get("blocked"):
         _record(state, session_factory, row, docs_result, SKIPPED_BLOCKED, None)
+        return
+    if row.get("probed") and not force:
+        # Every run re-reads the free docs pages; the API probes only ever run once
+        # per model unless asked, so a re-run touches only models it has not seen.
+        _record(state, session_factory, row, docs_result, SKIPPED_PROBED, None)
         return
     before = await _balance(client)
     try:
@@ -396,6 +407,7 @@ async def _probe_all(
     *,
     client,
     concurrency: int,
+    force: bool = False,
 ) -> None:
     """The API half: one bounded pool, stopped for good the moment a probe comes back
     accepted or a row falls over. Two independent brakes, because a request that goes
@@ -413,7 +425,9 @@ async def _probe_all(
             if stopped:  # the run is over; send nothing, record nothing
                 return
             try:
-                await _probe_one(state, session_factory, row, docs_by_air.get(row["air"]), client)
+                await _probe_one(
+                    state, session_factory, row, docs_by_air.get(row["air"]), client, force
+                )
             except probe.ProbeBilledError as e:
                 stopped.append(f"STOPPED: {e}. Nothing more was sent. Please report this.")
             except BaseException:
@@ -446,6 +460,7 @@ async def _harvest(
     api: bool,
     docs_by_air: dict,
     api_concurrency: int,
+    force: bool = False,
 ) -> None:
     def docs_only(note: str = "") -> None:
         for row in rows:
@@ -476,7 +491,7 @@ async def _harvest(
                     docs_by_air,
                     client=client,
                     concurrency=api_concurrency,
-                )
+                , force=force)
             finally:
                 # Safety rule 4, and it runs even if the pool itself blew up: the
                 # balance must be checked whenever a probe has been sent at all.
@@ -539,6 +554,8 @@ async def harvest(
     docs_concurrency: int = 5,
     # Sequential: an accepted probe must stop the run before another request is in flight.
     api_concurrency: int = 1,
+    # API probes run once per model; ``force`` probes models that already have results.
+    force: bool = False,
 ) -> HarvestState:
     """Learn what every catalog model accepts, for free.
 
@@ -566,6 +583,7 @@ async def harvest(
             api=api,
             docs_by_air=docs_by_air,
             api_concurrency=api_concurrency,
+            force=force,
         )
         if not state.message:
             state.message = _summary(state)

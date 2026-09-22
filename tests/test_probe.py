@@ -153,3 +153,17 @@ async def test_unsafe_providers_are_never_probed():
         assert res.errors == [P.SKIPPED_UNSAFE] and res.params == [] and res.dims is None
     assert fake.calls == []
     assert P.is_probe_safe("klingai:kling-video@3-4k")
+
+
+@pytest.mark.asyncio
+async def test_a_rejection_with_an_unfamiliar_code_is_still_a_rejection():
+    """MiniMax refuses with a raw code the SDK maps to "unknown"; the text is plainly a
+    validation message, and a refused request is never billed."""
+    e = RunwareError(
+        "weirdCode", "Parameter 'frameImages' is required for this model architecture."
+    )
+    assert P.is_rejection(e)
+    fake = FakeRunware({"run": [e]})
+    res = await P.probe_model(fake, "minimax:2@3", "video")
+    assert res.params == [] and res.errors and "required" in res.errors[0]
+    assert not P.is_rejection(RunwareError("weirdCode", "something exploded upstream"))
