@@ -7,7 +7,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -375,8 +374,9 @@ async def _probe_all(
     finally:
         for task in tasks:
             task.cancel()
-        with suppress(asyncio.CancelledError):
-            await asyncio.gather(*tasks, return_exceptions=True)
+        # return_exceptions already absorbs the children's CancelledError; no suppress
+        # here, so a shutdown cancel that lands on this await still stops the harvest.
+        await asyncio.gather(*tasks, return_exceptions=True)
     if stopped and stopped[0]:
         state.message = stopped[0]
 
