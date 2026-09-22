@@ -4,20 +4,18 @@
     <strong>{{ p.title }}</strong>
     <span class="chip">{{ p.kind }}</span>
     {% if project_name %}<span class="muted">{{ project_name }}</span>{% endif %}
-    <button type="button" class="secondary outline" hx-post="/prompts/{{ p.id }}/favourite"
-            hx-target="closest article" hx-swap="outerHTML">
-      {{ '★ Favourited' if p.is_favourite else '☆ Favourite' }}
-    </button>
+    <small class="muted">used {{ p.use_count }} times</small>
+    <button type="button" class="secondary outline btn-sm prompt-fav" hx-post="/prompts/{{ p.id }}/favourite"
+            hx-target="closest article" hx-swap="outerHTML">{{ '★ Favourited' if p.is_favourite else '☆ Favourite' }}</button>
   </header>
-  <form class="asset-tag-editor" hx-post="/prompts/{{ p.id }}/tags" hx-target="closest article" hx-swap="outerHTML">
+  <form class="tag-row" hx-post="/prompts/{{ p.id }}/tags" hx-target="closest article" hx-swap="outerHTML">
     <div class="asset-tag-chips">
       {% for t in p.tags.split(',') if t %}<span class="chip">{{ t }}</span>{% endfor %}
     </div>
     <input type="text" name="tags" value="{{ p.tags.strip(',') }}" placeholder="tag1, tag2"
            aria-label="Tags for {{ p.title }}">
-    <button type="submit" class="secondary outline">Save tags</button>
+    <button type="submit" class="secondary outline btn-sm">Save tags</button>
   </form>
-  <small class="muted">used {{ p.use_count }} times</small>
   <details>
     <summary>Details</summary>
     <table class="params-table">
@@ -37,11 +35,11 @@
     </div>
     {% endif %}
   </details>
-  <div class="prompt-actions">
-    <a href="/generate?prompt={{ p.id }}" role="button" class="secondary outline">Load into form</a>
-    <button type="button" class="secondary outline" hx-post="/prompts/{{ p.id }}/duplicate"
+  <div class="actions">
+    <a href="/generate?prompt={{ p.id }}" role="button" class="secondary outline btn-sm">Load into form</a>
+    <button type="button" class="secondary outline btn-sm" hx-post="/prompts/{{ p.id }}/duplicate"
             hx-target="#prompt-list" hx-swap="afterbegin">Duplicate</button>
-    <button type="button" class="secondary outline" hx-delete="/prompts/{{ p.id }}"
+    <button type="button" class="secondary outline btn-sm" hx-delete="/prompts/{{ p.id }}"
             hx-target="closest article" hx-swap="outerHTML" hx-confirm="Delete this prompt?">Delete</button>
   </div>
 </article>

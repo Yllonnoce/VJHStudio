@@ -46,6 +46,9 @@ def render(request: Request, name: str, ctx: dict | None = None, status_code: in
         "app_version": app.state.boot.version,
         "commit_short": app.state.boot.commit.short if app.state.boot.commit else "",
         "dark_themes": DARK_THEMES,
+        # The header marks the current page from this; every page render goes
+        # through here, so no route has to remember to pass it.
+        "current_path": request.url.path,
         "has_api_key": app.state.api_key() is not None,
         "key_source": app.state.key_source(),
         **_globals(request),

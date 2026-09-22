@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Assets · VJHStudio{% endblock %}
 {% block content %}
-<h1>Assets</h1>
+<header class="page-head">
+  <h1>Assets</h1>
+  <p class="lead">Images and clips you uploaded to use as references.</p>
+</header>
 
 <form id="asset-upload-form" class="asset-dropzone" hx-post="/assets/upload" hx-encoding="multipart/form-data"
       hx-target="#asset-grid" hx-swap="outerHTML">

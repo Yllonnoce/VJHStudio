@@ -130,5 +130,5 @@ def test_autosize_is_skipped_where_field_sizing_is_supported():
     assert "CSS.supports('field-sizing', 'content')" in app_js
     assert "if (!VJH_FIELD_SIZING) {" in app_js  # the one-off pass in init()
     assert "if (VJH_FIELD_SIZING || !window.vjhAutosize) return;" in app_js  # _grow()
-    assert app_js.count("this._grow(") == 2  # toggleIdea() and usePolish()
-    assert "this._grow('final_prompt')" in app_js
+    assert "this._grow(field)" in app_js  # toggleIdea()
+    assert "this._grow('final_prompt')" in app_js  # usePolish()

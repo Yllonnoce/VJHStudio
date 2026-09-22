@@ -1,8 +1,10 @@
 {% extends "base.html" %}
 {% block title %}VJHStudio{% endblock %}
 {% block content %}
-<h1>VJHStudio</h1>
-<p class="muted">v{{ app_version }}</p>
+<header class="page-head">
+  <h1>VJHStudio</h1>
+  <p class="lead">Create something new, or pick up where you left off.</p>
+</header>
 {% if not has_api_key %}{% include "generate/_no_key.html" %}{% endif %}
 
 <div class="hero-grid">
@@ -25,7 +27,7 @@
 
 {% if active_count %}
 <section class="dash-section" id="dash-progress">
-  <h2>In progress</h2>
+  <header class="card-head"><h2>In progress</h2></header>
   {% include "generate/_queue_panel.html" %}
 </section>
 {% endif %}
@@ -46,7 +48,8 @@
 </div>
 
 <section class="dash-section">
-  <h2>Projects</h2>
+  <header class="card-head"><h2>Projects</h2><a href="/projects">Manage projects</a></header>
+  <div class="table-scroll">
   <table>
     <thead><tr><th>Name</th><th>Outputs</th><th>Cost</th></tr></thead>
     <tbody>
@@ -57,6 +60,6 @@
       {% endfor %}
     </tbody>
   </table>
-  <p><a href="/projects">Manage projects</a></p>
+  </div>
 </section>
 {% endblock %}

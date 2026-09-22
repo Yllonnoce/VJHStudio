@@ -1,15 +1,22 @@
+{# `current_path` comes from deps.render (request.url.path). A link is current when
+   it is the exact path (Home) or when the path sits under it (/generate/video is
+   still "Generate"); the logo is deliberately not a nav link, so "/" marks Home
+   once and only once. #}
+{% macro navlink(href, label) -%}
+<li><a href="{{ href }}"{% if (href == '/' and current_path == '/') or (href != '/' and current_path.startswith(href)) %} aria-current="page"{% endif %}>{{ label }}</a></li>
+{%- endmacro %}
 <header class="container">
   <nav>
     <ul><li><strong><a href="/">VJHStudio</a></strong></li></ul>
     <ul>
-      <li><a href="/">Home</a></li>
-      <li><a href="/generate">Generate</a></li>
-      <li><a href="/gallery">Gallery</a></li>
-      <li><a href="/prompts">Prompts</a></li>
-      <li><a href="/assets">Assets</a></li>
-      <li><a href="/projects">Projects</a></li>
-      <li><a href="/models">Models</a></li>
-      <li><a href="/settings">Settings</a></li>
+      {{ navlink('/', 'Home') }}
+      {{ navlink('/generate', 'Generate') }}
+      {{ navlink('/gallery', 'Gallery') }}
+      {{ navlink('/prompts', 'Prompts') }}
+      {{ navlink('/assets', 'Assets') }}
+      {{ navlink('/projects', 'Projects') }}
+      {{ navlink('/models', 'Models') }}
+      {{ navlink('/settings', 'Settings') }}
       {% include "partials/_update_badge.html" %}
       {% with oob=False %}{% include "partials/_jobs_badge.html" %}{% endwith %}
       {% include "partials/_balance_chip.html" %}

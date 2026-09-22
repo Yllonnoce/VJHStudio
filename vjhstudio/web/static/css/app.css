@@ -121,6 +121,36 @@ body {
 }
 ::selection { background: var(--sp-accent); color: var(--sp-on-accent); }
 
+/* ── Layout, type scale and buttons ───────────────────────────────────── */
+main.container,header.container,footer.container{max-width:1400px}
+h1{font-size:1.9rem}
+h2{font-size:1.35rem}
+h3{font-size:1.1rem}
+input,select,textarea{font-size:.95rem}
+/* Pico makes `button[type=submit]` and `input[type=submit]` full-width (0,1,1);
+   a bare `button` selector cannot undo that, so the override repeats the
+   attribute and wins on source order. Full width is now opt-in. */
+button, button[type="submit"], [role="button"], input[type="submit"]{width:auto}
+.gen-submit, .hero-card [role="button"], .block{width:100%}
+.btn-sm{width:auto;margin:0;padding:.1rem .55rem;font-size:.75rem}
+.actions{display:flex;gap:.75rem;flex-wrap:wrap;align-items:flex-start}
+.actions > form{margin:0}
+/* A 1400 px-wide text input is unreadable; the forms that are pure
+   settings keep their fields to a comfortable measure. */
+#api-key-form label,#api-key-form > small,#general-form label{max-width:48rem}
+
+/* One page head per page: the <h1> and one line of lead copy. */
+.page-head{margin:0 0 1.25rem}
+.page-head h1{margin:0 0 .25rem;font-size:1.9rem}
+.page-head .lead{margin:0;color:var(--sp-muted)}
+
+/* One `.card-head` contract for every card: the title on the left and an
+   optional action or link on the right; a `.hint` takes a whole flex line of
+   its own, so it sits under the title instead of beside it. */
+.card-head{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:.25rem .75rem;margin-bottom:.75rem}
+.card-head h2,.card-head h3{margin:0}
+.card-head .hint{flex-basis:100%;margin:.15rem 0 0;color:var(--sp-muted);font-size:.85rem}
+
 /* ── Header nav ───────────────────────────────────────────────────────── */
 header nav {
   background: var(--sp-surface);
@@ -138,6 +168,20 @@ header nav a:hover,
 header nav a:focus {
   color: var(--sp-accent);
   background: var(--sp-surface-2);
+}
+header nav a[aria-current="page"] {
+  color: var(--sp-accent);
+  box-shadow: inset 0 -2px 0 var(--sp-accent);
+}
+/* Twelve links, two badges and the theme button do not fit on a phone. Both the
+   nav and each of its lists wrap, so the row simply becomes two or three rows
+   rather than a horizontal scrollbar; below 900 px the padding tightens too. */
+header nav, header nav > ul{flex-wrap:wrap}
+@media (max-width: 900px) {
+  header nav > ul{gap:0 .1rem;justify-content:flex-start}
+  header nav li{padding:.15rem .3rem}
+  header nav a{padding:.2rem .4rem;font-size:.9rem}
+  header nav .chip{font-size:.75rem}
 }
 
 /* ── Cards ────────────────────────────────────────────────────────────── */
@@ -168,9 +212,27 @@ article.warn{border-left:4px solid var(--sp-warning)}
 .htmx-indicator{opacity:0}.htmx-request .htmx-indicator,.htmx-request.htmx-indicator{opacity:1}
 .key-help{margin-bottom:.75rem} .key-help ol{margin-top:.5rem}
 
+/* A table with more columns than a phone has room for scrolls inside its own
+   box, so the page itself never gets a horizontal scrollbar at 390 px. */
+.table-scroll{max-width:100%;overflow-x:auto}
+/* An empty state is a sentence, not a card: it spans the whole grid instead of
+   being squeezed into one 150 px column. */
+.gallery-grid > p,.asset-grid > p,.recent-strip > p{grid-column:1 / -1;margin:0}
+
 /* ── Model catalog table ──────────────────────────────────────────────── */
 table.models td{vertical-align:top}
 tr.hidden-model{opacity:.55}
+/* "Refresh prices" and "Harvest constraints" sit side by side; each form stacks
+   its own button over its own status line, so the two never interleave. */
+.model-actions{margin-bottom:1.25rem}
+.model-actions > form{flex:1 1 18rem;max-width:28rem;display:flex;flex-direction:column;align-items:flex-start;gap:.35rem;margin:0}
+.model-actions > form > *{margin:0}
+.model-actions small{color:var(--sp-muted)}
+.model-actions details{width:100%}
+.model-search{display:flex;flex-wrap:wrap;align-items:center;gap:.75rem}
+.model-search input[type="search"]{flex:2 1 18rem;margin:0}
+.model-search select{flex:0 1 9rem;margin:0}
+.model-search button{margin:0}
 
 /* ── Theme picker ─────────────────────────────────────────────────────── */
 .vjh-theme-wrap{position:relative}
@@ -196,9 +258,6 @@ tr.hidden-model{opacity:.55}
    (a form child) sits above `.gen-layout` (a nested grid, also a form child) in normal
    flow, and `.gen-layout` holds exactly two items: the builder and the rail. */
 #generate-form{display:contents}
-.page-head{margin:0 0 1.25rem}
-.page-head h1{margin:0 0 .25rem;font-size:1.9rem}
-.page-head .lead{margin:0;color:var(--sp-muted)}
 .gen-layout{display:grid;gap:1.25rem;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);align-items:start}
 .gen-col{min-width:0}
 .gen-card,.gen-prompt{border:1px solid var(--sp-border);border-radius:var(--sp-radius);padding:1rem;background:var(--sp-surface)}
@@ -218,9 +277,6 @@ tr.hidden-model{opacity:.55}
 .gen-prompt textarea{field-sizing:content;resize:vertical;min-height:calc(2lh + 1.6rem)}
 .gen-prompt textarea[rows="3"]{min-height:calc(3lh + 1.6rem)}
 .gen-prompt textarea[rows="4"]{min-height:calc(4lh + 1.6rem)}
-.card-head{margin-bottom:.75rem}
-.card-head h3{margin:0}
-.card-head .hint{margin:.15rem 0 0;color:var(--sp-muted);font-size:.85rem}
 /* One tidy gap per field: the label owns it, the control owns none, and a chip row
    sits right under the input it fills in. */
 .gen-prompt > label{display:block;margin-bottom:.9rem}
@@ -238,7 +294,6 @@ tr.hidden-model{opacity:.55}
 .ideas .idea:hover{border-color:var(--sp-accent)}
 .ideas .idea.active{background:var(--sp-accent);color:var(--sp-on-accent);border-color:var(--sp-accent)}
 .preview-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin:0 0 .35rem}
-.btn-sm{width:auto;margin:0;padding:.1rem .55rem;font-size:.75rem}
 @media (max-width: 767px){
   .ideas .idea, .btn-sm{min-height:0}   /* the chips are not primary touch targets */
 }
@@ -313,7 +368,7 @@ tr.hidden-model{opacity:.55}
 /* ── Projects ─────────────────────────────────────────────────────────── */
 #projects-table td{vertical-align:middle}
 .project-rename{display:flex;gap:.4rem;align-items:center;margin:0}
-.project-rename input{margin:0}
+.project-rename input{margin:0;flex:1 1 8rem;min-width:8rem}
 tr.archived{opacity:.6}
 
 /* ── Assets ───────────────────────────────────────────────────────────── */
@@ -367,10 +422,16 @@ video.lightbox-image{width:100%;max-height:70vh;background:#000}
 /* ── Prompts ──────────────────────────────────────────────────────────── */
 .prompt-list{display:flex;flex-direction:column;gap:.75rem}
 .prompt-row{padding:.75rem 1rem;display:flex;flex-direction:column;gap:.5rem}
-.prompt-row-head{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem}
+/* One compact header line: title, kind chip, project, use count, favourite. The
+   favourite button is pushed to the right edge; everything else stays inline. */
+.prompt-row-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:.5rem;margin:0}
 .prompt-row-head strong{margin-right:.25rem}
+.prompt-row-head .prompt-fav{margin-left:auto}
 .prompt-polish-versions ul{margin:.25rem 0 0;padding-left:1.25rem}
-.prompt-actions{display:flex;gap:.4rem;flex-wrap:wrap}
+/* The tag input and its "Save tags" button share one line instead of the button
+   taking a full-width bar of its own. */
+.tag-row{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin:0}
+.tag-row input{flex:1 1 10rem;margin:0;padding:.25rem .55rem;height:auto}
 
 /* ── Generate: polish with AI ─────────────────────────────────────────── */
 .gen-polish{margin:1rem 0;padding-top:.85rem;border-top:1px solid var(--sp-border)}
@@ -407,8 +468,6 @@ video.lightbox-image{width:100%;max-height:70vh;background:#000}
 .hero-card{padding:1.25rem}
 .hero-card [role=button]{width:100%;margin-top:.5rem}
 .dash-section{margin:1.75rem 0}
-.card-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.75rem}
-.card-head h2{margin:0}
 .recent-strip{display:grid;gap:.75rem;grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
 .recent-card{display:block;border:1px solid var(--sp-border);border-radius:var(--sp-radius-sm);background:var(--sp-surface);text-decoration:none;color:inherit}
 .recent-card:hover{border-color:var(--sp-accent)}

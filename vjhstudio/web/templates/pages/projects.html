@@ -1,7 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Projects · VJHStudio{% endblock %}
 {% block content %}
-<h1>Projects</h1>
+<header class="page-head">
+  <h1>Projects</h1>
+  <p class="lead">Folders for your work: every output and prompt belongs to one.</p>
+</header>
+<div class="table-scroll">
 <table id="projects-table">
   <thead><tr><th>Name</th><th>Slug</th><th>Outputs</th><th>Cost</th><th>Folder</th><th></th></tr></thead>
   <tbody id="projects-body">
@@ -14,6 +18,7 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 <p><a href="/projects?show_archived={{ 0 if show_archived else 1 }}">{{ 'Hide archived projects' if show_archived else 'Show archived projects' }}</a></p>
 
 <section class="gen-card">

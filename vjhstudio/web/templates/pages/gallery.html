@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Gallery · VJHStudio{% endblock %}
 {% block content %}
-<h1>Gallery</h1>
+<header class="page-head">
+  <h1>Gallery</h1>
+  <p class="lead">Everything you have made, newest first.</p>
+</header>
 <form id="gallery-filters" class="gallery-filters-grid" hx-get="/gallery" hx-select="#gallery-grid"
       hx-target="#gallery-grid" hx-swap="outerHTML"
       hx-trigger="change, submit, keyup changed delay:400ms from:[name=q]" hx-push-url="true">

@@ -1,14 +1,20 @@
 {% extends "base.html" %}
 {% block title %}Models · VJHStudio{% endblock %}
 {% block content %}
-<h1>Models</h1>
-<p>Sorted by price, most expensive first. Prices come from RunWare's public catalog.</p>
-<section id="refresh">{% include "catalog/_refresh_status.html" %}</section>
-<section id="harvest">{% include "catalog/_harvest_status.html" %}</section>
+<header class="page-head">
+  <h1>Models</h1>
+  <p class="lead">Sorted by price, most expensive first. Prices come from RunWare's public catalog.</p>
+</header>
+{# Both actions share one row; each form stacks its own status line beneath its
+   button, and htmx still swaps each form in place by its own id. #}
+<div class="actions model-actions">
+  {% include "catalog/_refresh_status.html" %}
+  {% include "catalog/_harvest_status.html" %}
+</div>
 <section id="search">
   <h2>Find more models</h2>
   <form hx-post="/hx/models/search" hx-target="#search-results" hx-swap="innerHTML">
-    <div class="grid">
+    <div class="model-search">
       <input type="search" name="q" placeholder="Search RunWare models (e.g. realistic, anime)" aria-label="Search">
       <select name="kind" aria-label="Kind"><option value="image">image</option><option value="video">video</option><option value="text">text</option></select>
       <button type="submit">Search</button>

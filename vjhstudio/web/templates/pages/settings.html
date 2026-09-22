@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Settings · VJHStudio{% endblock %}
 {% block content %}
-<h1>Settings</h1>
+<header class="page-head">
+  <h1>Settings</h1>
+  <p class="lead">Your API key, appearance, updates and backups.</p>
+</header>
 <section id="api"><h2>RunWare API</h2>{% include "settings/_api_key_form.html" %}</section>
 <section id="general"><h2>General</h2>{% include "settings/_general_form.html" %}</section>
 <section id="updates"><h2>Updates</h2>{% include "settings/_updates.html" %}</section>

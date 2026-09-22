@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Prompts · VJHStudio{% endblock %}
 {% block content %}
-<h1>Prompts</h1>
+<header class="page-head">
+  <h1>Prompts</h1>
+  <p class="lead">Every prompt you saved, ready to load back into the form.</p>
+</header>
 <form id="prompt-filters" class="gallery-filters-grid" hx-get="/prompts" hx-select="#prompt-list"
       hx-target="#prompt-list" hx-swap="outerHTML"
       hx-trigger="change, submit, keyup changed delay:400ms from:[name=q]" hx-push-url="true">
