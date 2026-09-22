@@ -2,25 +2,54 @@
    composition runs server-side in services/prompts.py when the job is built. #}
 {# x-data lives on <form id="generate-form"> (pages/generate.html) so the mode tabs, the
    parameter column and the reference chips all share one component. #}
+{# The idea chips under each short field are rendered here by Jinja, so they are present
+   (and unpressed) without JavaScript; Alpine then binds `active`/`aria-pressed` over the
+   top. `idea_row` is the one place that markup is written. #}
+{# The field name and the phrase ride on data-* rather than being inlined into the
+   Alpine expressions, so Jinja's own escaping covers any character a phrase contains. #}
+{% macro idea_row(field, label, phrases) -%}
+<div class="ideas" role="group" aria-label="{{ label }} ideas">
+  {%- for p in phrases %}
+  <button type="button" class="idea" data-field="{{ field }}" data-phrase="{{ p }}"
+          aria-pressed="false"
+          :class="{active: hasIdea($el.dataset.field, $el.dataset.phrase)}"
+          :aria-pressed="hasIdea($el.dataset.field, $el.dataset.phrase) ? 'true' : 'false'"
+          @click="toggleIdea($el.dataset.field, $el.dataset.phrase)">{{ p }}</button>
+  {%- endfor %}
+</div>
+{%- endmacro %}
+{% macro idea_field(name, label, placeholder, form, ideas) -%}
+<label>{{ label }}<input type="text" name="{{ name }}" x-model="fields.{{ name }}" value="{{ form.get(name, '') }}" placeholder="{{ placeholder }}"></label>
+{{ idea_row(name, label, ideas.get(name, [])) }}
+{%- endmacro %}
 <section class="gen-col gen-prompt">
-  <h3>Prompt</h3>
-  <label>Subject<input type="text" name="subject" x-model="fields.subject" value="{{ form.get('subject', '') }}" placeholder="a red fox in a snowy forest"></label>
-  <div class="grid">
-    <label>Style<input type="text" name="style" x-model="fields.style" value="{{ form.get('style', '') }}" placeholder="oil painting"></label>
-    <label>Mood<input type="text" name="mood" x-model="fields.mood" value="{{ form.get('mood', '') }}" placeholder="serene"></label>
-  </div>
-  <div class="grid">
-    <label>Lighting<input type="text" name="lighting" x-model="fields.lighting" value="{{ form.get('lighting', '') }}" placeholder="golden hour"></label>
-    <label>Camera<input type="text" name="camera" x-model="fields.camera" value="{{ form.get('camera', '') }}" placeholder="85mm, shallow depth of field"></label>
-  </div>
-  <div class="grid">
-    <label>Composition<input type="text" name="composition" x-model="fields.composition" value="{{ form.get('composition', '') }}" placeholder="rule of thirds"></label>
-    <label>Colour<input type="text" name="colour" x-model="fields.colour" value="{{ form.get('colour', '') }}" placeholder="muted earth tones"></label>
-  </div>
-  <label>Extras<input type="text" name="extras" x-model="fields.extras" value="{{ form.get('extras', '') }}" placeholder="fine detail, sharp focus"></label>
+  <header class="card-head">
+    <h3>Describe</h3>
+    <p class="hint">Fill in what you can; the app writes the prompt.</p>
+  </header>
+  {# Subject gets no chips -- it is the user's own idea -- but a roomy box and a
+     fuller example placeholder. #}
+  <label>Subject
+    <textarea name="subject" rows="3" x-model="fields.subject" @input="vjhAutosize($el)"
+              placeholder="a red fox in a snowy forest, looking back over its shoulder">{{ form.get('subject', '') }}</textarea>
+  </label>
+  {{ idea_field('style', 'Style', 'oil painting', form, ideas) }}
+  {{ idea_field('mood', 'Mood', 'serene', form, ideas) }}
+  {{ idea_field('lighting', 'Lighting', 'golden hour', form, ideas) }}
+  {{ idea_field('camera', 'Camera', '85mm, shallow depth of field', form, ideas) }}
+  {{ idea_field('composition', 'Composition', 'rule of thirds', form, ideas) }}
+  {{ idea_field('colour', 'Colour', 'muted earth tones', form, ideas) }}
+  <label>Extras
+    <textarea name="extras" rows="2" x-model="fields.extras" @input="vjhAutosize($el)"
+              placeholder="fine detail, sharp focus">{{ form.get('extras', '') }}</textarea>
+  </label>
+  {{ idea_row('extras', 'Extras', ideas.get('extras', [])) }}
   {# video models take no negative prompt: the field stays in the DOM for the shared
      partial but is hidden (and ignored server-side) while the Video tab is active #}
-  <label x-show="mode === 'image'">Negative<input type="text" name="negative" x-model="fields.negative" value="{{ form.get('negative', '') }}" placeholder="extra limbs, blurry"></label>
+  <label x-show="mode === 'image'">Negative
+    <textarea name="negative" rows="2" x-model="fields.negative" @input="vjhAutosize($el)"
+              placeholder="extra limbs, blurry">{{ form.get('negative', '') }}</textarea>
+  </label>
 
   <fieldset>
     {# the hidden field carries the "off" a cleared checkbox never posts; the last value wins #}
@@ -31,7 +60,9 @@
   </fieldset>
 
   <div class="prompt-preview">
-    <p><strong>Composed prompt</strong></p>
+    <p class="preview-head"><strong>Composed prompt</strong>
+      <button type="button" class="secondary outline btn-sm" @click="copyComposed()">Copy</button>
+    </p>
     <output x-text="composed"></output>
     <template x-if="mode === 'image'">
       <div><p><strong>Negative</strong></p>
@@ -40,7 +71,7 @@
   </div>
 
   <label>Final prompt
-    <textarea name="final_prompt" rows="3" x-model="finalPrompt"
+    <textarea name="final_prompt" rows="4" x-model="finalPrompt" @input="vjhAutosize($el)"
               placeholder="Leave empty to use the composed prompt">{{ final_prompt|default('', true) }}</textarea>
   </label>
 
@@ -51,4 +82,6 @@
     <button type="button" class="secondary outline" id="save-prompt-open"
             @click="openSaveDialog()">Save prompt</button>
   </div>
+  {# Alpine reads back the same mapping the chips above were rendered from. #}
+  <script id="prompt-ideas" type="application/json">{{ ideas|tojson }}</script>
 </section>

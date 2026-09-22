@@ -131,6 +131,39 @@ tr.hidden-model{opacity:.55}
 .prompt-preview{border:1px dashed var(--sp-border);border-radius:var(--sp-radius-sm);padding:.6rem .8rem;margin:.75rem 0}
 .prompt-preview output{display:block;min-height:1.2em;word-break:break-word}
 .estimate{display:inline-block;margin:.5rem 0}
+
+/* ── Prompt builder (Phase 8) ───────────────────────────────── */
+/* Text areas grow with their content where the browser supports it; static/js/compose.js
+   (vjhAutosize) does the same by hand everywhere else. `field-sizing` ignores the `rows`
+   attribute, so the starting height is restated here as N lines plus Pico's vertical
+   padding; browsers without `field-sizing`/`lh` simply keep `rows`. */
+.gen-prompt textarea{field-sizing:content;resize:vertical;min-height:calc(2lh + 1.6rem)}
+.gen-prompt textarea[rows="3"]{min-height:calc(3lh + 1.6rem)}
+.gen-prompt textarea[rows="4"]{min-height:calc(4lh + 1.6rem)}
+.card-head{margin-bottom:.75rem}
+.card-head h3{margin:0}
+.card-head .hint{margin:.15rem 0 0;color:var(--sp-muted);font-size:.85rem}
+/* One tidy gap per field: the label owns it, the control owns none, and a chip row
+   sits right under the input it fills in. */
+.gen-prompt > label{display:block;margin-bottom:.9rem}
+.gen-prompt > label:has(+ .ideas){margin-bottom:.3rem}
+.gen-prompt > label > input, .gen-prompt > label > textarea{margin-bottom:0}
+.ideas{display:flex;flex-wrap:wrap;gap:.35rem;margin:0 0 .9rem}
+/* Pico styles `[role=group]` as a segmented button bar (`> * {flex:1 1 auto}`, square
+   inner corners, overlapping borders); these two class selectors out-rank that so the
+   chips stay content-sized pills while keeping the group's accessible label. */
+.ideas .idea{
+  flex:0 0 auto;width:auto;margin:0;padding:.15rem .6rem;font-size:.8rem;line-height:1.5;
+  border-radius:1rem;background:var(--sp-surface-2);border:1px solid var(--sp-border);
+  color:var(--sp-text);cursor:pointer;
+}
+.ideas .idea:hover{border-color:var(--sp-accent)}
+.ideas .idea.active{background:var(--sp-accent);color:var(--sp-on-accent);border-color:var(--sp-accent)}
+.preview-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin:0 0 .35rem}
+.btn-sm{width:auto;margin:0;padding:.1rem .55rem;font-size:.75rem}
+@media (max-width: 767px){
+  .ideas .idea, .btn-sm{min-height:0}   /* the chips are not primary touch targets */
+}
 .new-project{display:flex;gap:.5rem;align-items:center;margin-bottom:.75rem}
 .new-project input{margin-bottom:0}
 .muted{color:var(--sp-muted)}

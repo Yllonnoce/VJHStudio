@@ -26,7 +26,7 @@ from ...runware.tasks import PORTRAIT_SUFFIX, nearest, resolution_wh, split_orie
 from ...schemas.image import ImageRequest, PromptForm
 from ...schemas.video import VideoRequest
 from ...services import assets as assets_svc
-from ...services import catalog, constraints, costs, generate, projects, prompts
+from ...services import catalog, constraints, costs, generate, ideas, projects, prompts
 from ...services import outputs as outputs_svc
 from ...services import polish as polish_svc
 from ...services import settings as settings_svc
@@ -749,6 +749,7 @@ def _page(request: Request, remix: str, mode: str, ref: str = "", role: str = ""
             "projects": projects.list_active(s),
             "selected_project": initial.get("project_id"),
             "form": dict(initial.get("form") or {}),
+            "ideas": ideas.load_ideas(),
             "final_prompt": initial.get("final_prompt") or "",
             "initial_json": safe_json(initial),
             "params_template": template,
@@ -777,6 +778,17 @@ def generate_page(
     role: str = "",
 ):
     return _page(request, remix, _mode(mode), ref, role, prompt)
+
+
+@router.get("/generate/image")
+def generate_image_page(
+    request: Request, remix: str = "", prompt: str = "", ref: str = "", role: str = ""
+):
+    """Bookmarkable alias for ``/generate?mode=image`` (the twin of the video one).
+
+    ``POST /generate/image`` submits the form; this only renders the page.
+    """
+    return _page(request, remix, "image", ref, role, prompt)
 
 
 @router.get("/generate/video")

@@ -51,6 +51,14 @@ window.generateForm = function (initial) {
     polishJson: '',
     polishMode: 'promptEnhance',
 
+    // The shipped idea phrases, keyed by builder field (services/ideas.py). The chip
+    // buttons themselves are rendered server-side so they work without JS; this copy is
+    // what a future client-side row would bind to, and what keeps the two in step.
+    ideas: (function () {
+      try { return JSON.parse(document.getElementById('prompt-ideas').textContent); }
+      catch (e) { return {}; }
+    })(),
+
     get composed() {
       return window.composePrompt ? window.composePrompt(this.fields) : '';
     },
@@ -61,6 +69,26 @@ window.generateForm = function (initial) {
         this.fields.negative, this.defaultNegative, this.useDefaultNegative,
         this.noText, this.noTextTokens,
       );
+    },
+
+    // ── idea chips ──────────────────────────────────────────────────────────
+    // Both are thin wrappers over the pure helpers in compose.js (tested under node);
+    // a chip only ever rewrites the field's own text, so the posted value and the
+    // composed preview follow along exactly as if the phrase had been typed.
+    toggleIdea(field, phrase) {
+      if (!(field in this.fields) || !window.vjhToggleIdea) return;
+      this.fields[field] = window.vjhToggleIdea(this.fields[field], phrase);
+    },
+
+    hasIdea(field, phrase) {
+      if (!window.vjhHasIdea) return false;
+      return window.vjhHasIdea(this.fields[field], phrase);
+    },
+
+    // Clipboard writes reject on an insecure origin or without permission; the preview
+    // text is on screen either way, so a failure is silent by design.
+    copyComposed() {
+      try { navigator.clipboard.writeText(this.composed); } catch (e) { /* no clipboard */ }
     },
 
     // ── mode ────────────────────────────────────────────────────────────────
@@ -149,6 +177,12 @@ window.generateForm = function (initial) {
       this.defaultNegative = this.$el.dataset.defaultNegative || '';
       this.noTextTokens = this.$el.dataset.noTextTokens || '';
       this.polishMode = this.$el.dataset.polishMode || 'promptEnhance';
+      // Restored drafts and remixes arrive after the browser sized the boxes, so grow
+      // every text area once on load; @input keeps them in step from then on.
+      this.$nextTick(() => {
+        if (!window.vjhAutosize) return;
+        this.$el.querySelectorAll('textarea').forEach((t) => window.vjhAutosize(t));
+      });
       window.addEventListener('ref-picked', (e) => this.addRef(e.detail || {}));
       window.addEventListener('use-polish', (e) => this.usePolish(e.detail || {}));
 

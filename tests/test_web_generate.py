@@ -305,7 +305,9 @@ async def test_prompt_query_prefills_the_form_and_posts_the_id(client, app):
     assert '"subject": "a red fox"' in r.text and '"style": "oil painting"' in r.text
     # the saved final carries the no-text suffix the submit path would have added
     assert '"final_prompt": "a red fox, oil painting Pure artwork only' in r.text
-    assert 'value="a red fox"' in r.text and ">a red fox, oil painting Pure artwork only" in r.text
+    # Subject is a text area now, so its prefill is the element's text, not @value
+    assert ">a red fox</textarea>" in r.text
+    assert ">a red fox, oil painting Pure artwork only" in r.text
     assert _has_attr_pair(r.text, "prompt_id", str(pid))
     with db.session_scope(app.state.boot.session_factory) as s:
         # opening a prompt is not using it: only a submit bumps use_count

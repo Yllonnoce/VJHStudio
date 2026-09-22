@@ -102,6 +102,50 @@
     };
   }
 
+  // ── Idea chips ─────────────────────────────────────────────────────────────
+  // A chip toggles one phrase inside a plain comma-separated builder field, leaving
+  // everything the user typed alone. Pure string work (no DOM), so it is testable under
+  // node like composePrompt; app.js's generateForm.toggleIdea() is a one-line wrapper.
+  // Deliberately *not* mirrored from prompts.py: this is UI convenience, the server
+  // still receives (and composes) exactly the text the field ends up holding.
+  function _splitPhrases(text) {
+    return String(text || '')
+      .split(',')
+      .map(function (s) {
+        return s.trim();
+      })
+      .filter(Boolean);
+  }
+
+  function vjhHasIdea(text, phrase) {
+    var p = String(phrase || '').trim().toLowerCase();
+    if (!p) return false;
+    return _splitPhrases(text).some(function (t) {
+      return t.toLowerCase() === p;
+    });
+  }
+
+  function vjhToggleIdea(text, phrase) {
+    var p = String(phrase || '').trim();
+    if (!p) return String(text || '');
+    var parts = _splitPhrases(text);
+    var kept = parts.filter(function (t) {
+      return t.toLowerCase() !== p.toLowerCase();
+    });
+    if (kept.length !== parts.length) return kept.join(', ');
+    return parts.concat([p]).join(', ');
+  }
+
+  // Grow a textarea to fit its content, capped at 12 rows. `field-sizing: content` does
+  // this in CSS where it is supported; this is the fallback for everywhere else, and it
+  // is a no-op off a textarea (and under node, where there is no DOM at all).
+  function vjhAutosize(el) {
+    if (!el || el.tagName !== 'TEXTAREA') return;
+    el.style.height = 'auto';
+    var lh = parseFloat(getComputedStyle(el).lineHeight || '20') || 20;
+    el.style.height = Math.min(el.scrollHeight, 12 * lh) + 'px';
+  }
+
   var api = {
     ORDER: ORDER,
     clean: clean,
@@ -109,6 +153,9 @@
     buildNegative: buildNegative,
     vjhUnwrapTrigger: vjhUnwrapTrigger,
     vjhChoosePolish: vjhChoosePolish,
+    vjhHasIdea: vjhHasIdea,
+    vjhToggleIdea: vjhToggleIdea,
+    vjhAutosize: vjhAutosize,
   };
 
   if (typeof module !== 'undefined' && module.exports) {
@@ -121,5 +168,8 @@
     global.buildNegative = buildNegative;
     global.vjhUnwrapTrigger = vjhUnwrapTrigger;
     global.vjhChoosePolish = vjhChoosePolish;
+    global.vjhHasIdea = vjhHasIdea;
+    global.vjhToggleIdea = vjhToggleIdea;
+    global.vjhAutosize = vjhAutosize;
   }
 })(typeof window !== 'undefined' ? window : globalThis);
