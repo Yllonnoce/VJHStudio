@@ -140,13 +140,14 @@ async def test_queue_page_shows_the_panel_and_a_history_table(client, fake, app)
     assert nav.count('aria-current="page"') == 1
 
 
-async def test_badge_poll_keeps_the_queue_page_current(client):
-    r = await client.get("/hx/jobs/badge?at=/queue")
-    assert r.status_code == 200 and 'aria-current="page"' in r.text
-    r = await client.get("/hx/jobs/badge?at=//evil")
-    assert 'aria-current="page"' not in r.text
+async def test_a_badge_poll_marks_nothing_current(client):
+    """The poll cannot know which page it was fired from -- htmx froze its URL when it
+    processed the chip -- so it stops guessing: the response is rendered for
+    /hx/jobs/badge, which is not under /queue, and app.js marks the chip instead.
+    A leftover `?at=` from an older cached page is ignored rather than trusted."""
     r = await client.get("/hx/jobs/badge")
-    assert 'aria-current="page"' not in r.text
+    assert r.status_code == 200 and 'aria-current="page"' not in r.text
+    assert 'aria-current="page"' not in (await client.get("/hx/jobs/badge?at=/queue")).text
 
 
 async def test_clear_finished_hides_done_jobs_until_a_newer_one_finishes(client, fake, app):

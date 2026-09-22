@@ -144,19 +144,16 @@ def panel_ctx(request: Request, oob_badge: bool = False) -> dict:
         }
 
 
-def _at(request: Request) -> str:
-    """The page a poll was issued from (`?at=/queue`), so the header chip can keep its
-    aria-current after the badge or the panel re-renders. Only a plain path counts."""
-    at = str(request.query_params.get("at") or "")
-    if at.startswith("/") and not at.startswith("//") and "\\" not in at:
-        return at
-    return request.url.path
+# The header chip used to be told which page a poll came from (`?at=/queue`) so it could
+# re-render its own aria-current. htmx makes that impossible: it reads hx-get once, when
+# it processes the element, and every later poll reuses that captured string -- so after
+# a boosted swap the parameter was always a page ago. The chip's highlight is owned by
+# vjhMarkCurrentNav() in app.js now, and `current_path` here is just deps.render's
+# request path, which for /hx/... is never under /queue and so marks nothing.
 
 
 def _panel(request: Request, headers: dict | None = None, oob_badge: bool = True):
-    ctx = panel_ctx(request, oob_badge)
-    ctx["current_path"] = _at(request)
-    r = deps.render(request, "generate/_queue_panel.html", ctx)
+    r = deps.render(request, "generate/_queue_panel.html", panel_ctx(request, oob_badge))
     for k, v in (headers or {}).items():
         r.headers[k] = v
     return r
@@ -231,7 +228,6 @@ def hx_badge(request: Request):
     events = _claim_finished(request)
     # the claim already cleared seen_at, so show what this very response claimed
     ctx = {"oob": False, "unseen_jobs": len(events)} if events else {"oob": False}
-    ctx["current_path"] = _at(request)
     r = deps.render(request, "partials/_jobs_badge.html", ctx)
     for k, v in _finished_trigger(events).items():
         r.headers[k] = v

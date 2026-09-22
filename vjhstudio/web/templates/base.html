@@ -28,7 +28,9 @@
 </head>
 <body hx-boost="false">
   {% include "_header.html" %}
-  <main class="container">{% block content %}{% endblock %}</main>
+  {# `main_attrs` lets one page add attributes to its own <main>; the Generate page
+     uses it to opt out of htmx's history snapshot (see pages/generate.html). #}
+  <main class="container"{% block main_attrs %}{% endblock %}>{% block content %}{% endblock %}</main>
   <div id="toasts" role="status" aria-live="polite"></div>
   <footer class="container"><small>VJHStudio v{{ app_version }}{% if commit_short %} · {{ commit_short }}{% endif %}</small></footer>
 </body>

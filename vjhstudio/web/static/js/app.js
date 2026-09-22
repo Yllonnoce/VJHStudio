@@ -463,13 +463,17 @@ function vjhOpenLightbox() {
 
 // One place to undo that, on the dialog's own event: Esc, the close button, a click
 // on the dim area and the `close-lightbox` that a delete fires all end up here.
-document.addEventListener('DOMContentLoaded', () => {
-  const dlg = document.getElementById('lightbox');
-  if (!dlg) return;
-  dlg.addEventListener('close', () => {
+//
+// Delegated, and in the capture phase: boosted navigation swaps <main>, so the
+// <dialog> the gallery renders is a *different node* on every visit -- a listener
+// bound to the one that existed at load would stop firing, and the page would stay
+// scroll-locked for ever. `close` does not bubble, so a listener on `document` only
+// sees it going down the capture path, never coming back up.
+document.addEventListener('close', (e) => {
+  if (e.target && e.target.id === 'lightbox') {
     document.documentElement.classList.remove('vjh-lightbox-open');
-  });
-});
+  }
+}, true);
 
 document.body.addEventListener('close-lightbox', () => {
   const dlg = document.getElementById('lightbox');
@@ -532,19 +536,28 @@ document.body.addEventListener('htmx:afterSwap', (e) => {
 });
 
 // ── Assets: dropzone drag/drop + upload progress ────────────────────────────────
+// Delegated from `document` and resolved per event: boosted navigation swaps <main>,
+// so the upload form does not exist yet on a cold load of any other page, and it is a
+// new node every time you come back to /assets. Binding at load time would leave the
+// dropzone dead on exactly the visits that matter.
 (function () {
-  const form = document.getElementById('asset-upload-form');
-  if (!form) return;
-  const input = document.getElementById('asset-files-input');
+  function dropzone(e) {
+    const form = document.getElementById('asset-upload-form');
+    return form && form.contains(e.target) ? form : null;
+  }
 
   ['dragenter', 'dragover'].forEach((evt) => {
-    form.addEventListener(evt, (e) => {
+    document.addEventListener(evt, (e) => {
+      const form = dropzone(e);
+      if (!form) return;   // outside the form the browser's "no drop" default stands
       e.preventDefault();
       form.classList.add('is-dragover');
     });
   });
   ['dragleave', 'drop'].forEach((evt) => {
-    form.addEventListener(evt, (e) => {
+    document.addEventListener(evt, (e) => {
+      const form = dropzone(e);
+      if (!form) return;
       e.preventDefault();
       form.classList.remove('is-dragover');
     });
@@ -552,7 +565,10 @@ document.body.addEventListener('htmx:afterSwap', (e) => {
   // Dropping files assigns them straight to the hidden <input type=file> and submits
   // the form immediately; picking via the "choose files" label still requires the
   // explicit Upload click.
-  form.addEventListener('drop', (e) => {
+  document.addEventListener('drop', (e) => {
+    const form = dropzone(e);
+    if (!form) return;
+    const input = document.getElementById('asset-files-input');
     const files = e.dataTransfer && e.dataTransfer.files;
     if (!files || !files.length || !input) return;
     input.files = files;
@@ -676,14 +692,89 @@ window.restartWatcher = function (bootId, returnTo) {
 };
 
 // ── Sticky top bar: publish its height so sticky rails and anchors sit below it ──
+// Exported, because boosted navigation (below) has to re-measure: the nav wraps onto a
+// second line as soon as the Update badge or a busy Queue chip appears, and the page
+// that was just swapped in needs the new height for its sticky rails and anchors.
+window.vjhMeasureHeader = function () {
+  var h = document.querySelector('body > header');
+  if (!h) return;
+  document.documentElement.style.setProperty('--vjh-header-h', h.offsetHeight + 'px');
+};
+
 (function () {
-  function measure() {
-    var h = document.querySelector('body > header');
-    if (!h) return;
-    document.documentElement.style.setProperty('--vjh-header-h', h.offsetHeight + 'px');
-  }
+  var measure = window.vjhMeasureHeader;
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', measure);
   else measure();
   window.addEventListener('resize', measure);
   window.addEventListener('load', measure);
+})();
+
+// ── Boosted navigation: the top bar stays put, only <main> is swapped ────────────
+// The header's links carry hx-boost (templates/partials/_boost.html), so a menu click
+// fetches the page and htmx puts just its <main> in place. The header is therefore not
+// re-rendered, and the two things the server used to settle for us have to be redone
+// here: which link is the current one, and how tall the bar ended up.
+//
+// The "current" rule is _header.html's macro, to the letter: "/" matches only the exact
+// path, every other link matches when the path sits under it (/generate/video is still
+// Generate). Only links the macro itself would mark carry `data-navlink`, so the logo
+// and the "Update available" / "No API key" chips (both /settings...) are left alone,
+// exactly as they are server-side.
+//
+// The Queue chip is one of those `data-navlink`s, and this is the *only* thing that
+// keeps it right: it re-renders itself every 10 seconds from /hx/jobs/badge, and the
+// server cannot know which page that poll belongs to. (It was once told, via a `?at=`
+// on the poll URL. htmx reads hx-get once, when it processes the element, and closes
+// over that string for good -- so the parameter was frozen at the cold-load path and
+// rewriting the attribute afterwards changed nothing.) Because the markup that comes
+// back is server-rendered, the settle below has to run after *every* swap.
+window.vjhMarkCurrentNav = function () {
+  var path = window.location.pathname;
+  var links = document.querySelectorAll('body > header nav a[data-navlink]');
+  Array.prototype.forEach.call(links, function (a) {
+    var href = a.getAttribute('href') || '';
+    var current = href === '/' ? path === '/' : (href !== '' && path.indexOf(href) === 0);
+    if (current) a.setAttribute('aria-current', 'page');
+    else a.removeAttribute('aria-current');
+  });
+};
+
+(function () {
+  if (!window.htmx) return;   // restarting.html loads app.js on its own, without htmx
+
+  // Back/forward: htmx snapshots the page body into localStorage as you leave a page
+  // and replays it on popstate. The Generate page opts out (hx-history="false" on its
+  // <main>), because replaying an Alpine-rendered snapshot would double its x-for
+  // chips; with this flag the resulting cache miss becomes a plain reload of the
+  // restored URL instead of a second fetch stitched into the old body.
+  window.htmx.config.refreshOnHistoryMiss = true;
+
+  function settle() {
+    window.vjhMarkCurrentNav();
+    window.vjhMeasureHeader();
+  }
+
+  // pushedIntoHistory/replacedInHistory fire after history.pushState but before the
+  // swap, so location is already the new one; the extra frame lets the new <main>
+  // land before the bar is measured.
+  function settleSoon() {
+    settle();
+    setTimeout(settle, 0);
+  }
+
+  document.addEventListener('htmx:pushedIntoHistory', settleSoon);
+  document.addEventListener('htmx:replacedInHistory', settleSoon);
+  document.addEventListener('htmx:historyRestore', settleSoon);
+  window.addEventListener('popstate', settleSoon);
+  // EVERY swap, not just a navigation: the Queue chip's own 10-second poll replaces it
+  // with markup the server rendered for /hx/jobs/badge, and the queue panel re-renders
+  // it out of band as well. Both arrive unmarked, and this is what marks them. (It also
+  // covers the nav rewrapping when the Update chip appears.)
+  document.addEventListener('htmx:afterSettle', settle);
+
+  // The cold-load markup is already right, but the JS has to agree with it from the
+  // start -- otherwise the first poll would be the first time the chip was ever marked
+  // by this code, on a page whose header it had never looked at.
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', settle);
+  else settle();
 })();
