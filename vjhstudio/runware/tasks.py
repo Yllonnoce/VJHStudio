@@ -173,7 +173,12 @@ def build_video_task(
     durations and frame rates the provider will actually accept."""
     video = dict(((model_row or {}).get("tiers") or {}).get("video") or {})
     duration = nearest(req.duration, video.get("durations") or [])
-    width, height = resolution_wh(req.resolution, video)
+    # Pixels posted by a constraint-aware size select win: the model told us which exact
+    # sizes it accepts, so a preset name would only round them back off the list.
+    if req.width and req.height:
+        width, height = int(req.width), int(req.height)
+    else:
+        width, height = resolution_wh(req.resolution, video)
     task: dict = {
         "taskType": "videoInference",
         "taskUUID": task_uuid,

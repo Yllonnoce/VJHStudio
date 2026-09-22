@@ -22,11 +22,11 @@ from runware import RunwareError
 from ... import db
 from ...models import CatalogModel
 from ...runware.errors import classify
-from ...runware.tasks import nearest
+from ...runware.tasks import nearest, resolution_wh
 from ...schemas.image import ImageRequest, PromptForm
 from ...schemas.video import VideoRequest
 from ...services import assets as assets_svc
-from ...services import catalog, costs, generate, projects, prompts
+from ...services import catalog, constraints, costs, generate, projects, prompts
 from ...services import outputs as outputs_svc
 from ...services import polish as polish_svc
 from ...services import settings as settings_svc
@@ -70,6 +70,10 @@ VIDEO_SCALAR_FIELDS = (
     "final_prompt",
     "duration",
     "resolution",
+    # posted (hidden) only by a constraint-aware size select; blank otherwise, and a
+    # blank never reaches pydantic (``parse_video_request`` skips empty values)
+    "width",
+    "height",
     "fps",
     "seed",
     "output_format",
@@ -83,6 +87,8 @@ SIZE_PRESETS = (
     (768, 1344, "Tall 9:16"),
 )
 SCHEDULERS = ("", "Default", "DPM++ 2M", "DPM++ 2M Karras", "Euler", "Euler a", "DDIM", "UniPC")
+# what the width/height number inputs have always carried; a ``rule`` model overrides them
+SIZE_INPUT_DEFAULTS = {"min": 128, "max": 2048, "step": 64}
 TRUTHY = ("on", "1", "true", "yes")
 REF_PX = 1024 * 1024
 
@@ -223,9 +229,48 @@ def _mode(raw: str) -> str:
     return "video" if str(raw or "").strip().lower() == "video" else "image"
 
 
+def _dims_block(m: CatalogModel | None) -> dict:
+    return ((m.constraints_json if m is not None else None) or {}).get("dims") or {}
+
+
+def _size_mode(dims: dict) -> str:
+    mode = str(dims.get("mode") or "unknown")
+    return mode if mode in ("list", "rule") else "unknown"
+
+
+def _size_rule(dims: dict, mode: str) -> dict:
+    """The width/height input attributes. Outside ``rule`` mode these are the generic
+    values the panel has always carried, so an unconstrained model renders unchanged."""
+    if mode != "rule":
+        return dict(SIZE_INPUT_DEFAULTS)
+    return {
+        "min": int(dims.get("min") or SIZE_INPUT_DEFAULTS["min"]),
+        "max": int(dims.get("max") or SIZE_INPUT_DEFAULTS["max"]),
+        "step": int(dims.get("step") or SIZE_INPUT_DEFAULTS["step"]),
+    }
+
+
+def _first_listed(options: list[dict], w: int, h: int) -> tuple[int, int]:
+    """In list mode the model's own default size may not be on the list it just told us
+    about; fall back to the first offered size so the panel can never open on a size the
+    model would reject."""
+    if not options or any(o["w"] == w and o["h"] == h for o in options):
+        return w, h
+    return options[0]["w"], options[0]["h"]
+
+
 def params_ctx(session, air: str, values: dict | None = None, errors: dict | None = None) -> dict:
     m = _model_row(session, air)
     values = dict(values or {})
+    c = m.constraints_json if m is not None else None
+    dims = _dims_block(m)
+    size_mode = _size_mode(dims)
+    options = constraints.size_options(c, "image", list(SIZE_PRESETS))
+    width, height = _first_listed(
+        options,
+        (m.default_width if m else None) or 1024,
+        (m.default_height if m else None) or 1024,
+    )
     return {
         "model": m,
         "air": air,
@@ -233,12 +278,14 @@ def params_ctx(session, air: str, values: dict | None = None, errors: dict | Non
         "family": catalog.family(m) if m is not None else "diffusion",
         "capabilities": list((m.capabilities_json if m else None) or []),
         "defaults": {
-            "width": (m.default_width if m else None) or 1024,
-            "height": (m.default_height if m else None) or 1024,
+            "width": width,
+            "height": height,
             "steps": (m.default_steps if m else None) or 28,
             "cfg": (m.default_cfg if m else None) or 3.5,
         },
-        "size_presets": SIZE_PRESETS,
+        "size_presets": [(o["w"], o["h"], o["label"]) for o in options],
+        "size_mode": size_mode,
+        "size_rule": _size_rule(dims, size_mode),
         "schedulers": SCHEDULERS,
         "values": values,
         "errors": errors or {},
@@ -258,29 +305,80 @@ def provider_schema(session, air: str) -> list[dict]:
     return list((m.provider_settings_schema if m else None) or [])
 
 
+def _video_presets(tiers: dict, resolutions: list[str]) -> list[tuple[int, int, str]]:
+    """The curated resolution presets as pixels -- ``tiers.video.dims`` when the row
+    carries one (LTX's 720p is 1280x704), the generic table otherwise. These are what a
+    ``rule`` model's grid snaps, and what an ``unknown`` model keeps offering by name."""
+    return [(*resolution_wh(name, tiers), name) for name in resolutions]
+
+
+def _duration_default(spec: dict, choices: list) -> float | int:
+    """The duration the panel opens on: the model's own default, else the closest
+    offered value to 5 s, pulled inside the model's range. Whole seconds render as
+    ``5``, not ``5.0``, so the number input shows what the select would have."""
+    if spec.get("default") is not None:
+        value = float(spec["default"])
+    else:
+        value = float(nearest(DEFAULT_DURATION, choices) or DEFAULT_DURATION)
+        if spec.get("min") is not None:
+            value = max(float(spec["min"]), value)
+        if spec.get("max") is not None:
+            value = min(float(spec["max"]), value)
+    return int(value) if value.is_integer() else value
+
+
 def video_params_ctx(
     session, air: str, values: dict | None = None, errors: dict | None = None
 ) -> dict:
     m = _model_row(session, air)
     tiers = _video_tiers(m)
+    c = m.constraints_json if m is not None else None
+    caps = list((m.capabilities_json if m else None) or [])
     durations = [d for d in (tiers.get("durations") or []) if isinstance(d, (int, float))]
     resolutions = [str(r) for r in (tiers.get("resolutions") or [])] or list(FALLBACK_RESOLUTIONS)
     fps_options = [f for f in (tiers.get("fps") or []) if isinstance(f, (int, float))]
+    dims = _dims_block(m)
+    size_mode = _size_mode(dims)
+    presets = _video_presets(tiers, resolutions)
+    sizes = constraints.size_options(c, "video", presets)
+    spec = constraints.duration_spec(c)
+    values = dict(values or {})
+    width, height = _first_listed(
+        sizes,
+        _int_or(values.get("width"), sizes[0]["w"] if sizes else 1280),
+        _int_or(values.get("height"), sizes[0]["h"] if sizes else 720),
+    )
+    spec_values = [d for d in (spec.get("values") or []) if isinstance(d, (int, float))]
+    # rule mode keeps the familiar resolution names but posts the snapped pixels with
+    # them, so "720p" on a multiple-of-64 model is sent as 1280x704, not 1280x720
+    res_sizes = [
+        {"name": name, "w": sw, "h": sh}
+        for w, h, name in presets
+        for sw, sh in [constraints.nearest_size(c, w, h)]
+    ]
     return {
         "model": m,
         "air": air,
         "mode": "video",
-        "capabilities": list((m.capabilities_json if m else None) or []),
+        "capabilities": caps,
         "durations": durations,
+        "duration_spec": spec,
+        "duration_values": spec_values,
         "resolutions": resolutions,
+        "resolution_sizes": res_sizes,
+        "sizes": sizes,
+        "size_mode": size_mode,
+        "needs_first_frame": constraints.needs_first_frame(caps, c),
         "fps_options": fps_options,
         "provider_settings": list((m.provider_settings_schema if m else None) or []),
         "formats": VIDEO_FORMATS,
         "defaults": {
-            "duration": nearest(DEFAULT_DURATION, durations) or DEFAULT_DURATION,
+            "duration": _duration_default(spec, spec_values or durations),
             "resolution": resolutions[0] if resolutions else FALLBACK_RESOLUTIONS[0],
+            "width": width,
+            "height": height,
         },
-        "values": dict(values or {}),
+        "values": values,
         "errors": errors or {},
     }
 
@@ -527,8 +625,10 @@ def _page(request: Request, remix: str, mode: str, ref: str = "", role: str = ""
         mode = _mode(initial.get("mode") or mode)
         initial["mode"] = mode
         initial.setdefault("refs", [])
-        models = catalog.list_models(s, "image")
-        video_models = catalog.list_models(s, "video")
+        # the dropdowns only ever offer models this form can actually drive; the rest
+        # stay on the Models page with their badge
+        models = catalog.list_generate_models(s, "image")
+        video_models = catalog.list_generate_models(s, "video")
         text_models = catalog.list_models(s, "text")
         chosen = str(initial.get("model") or "")
         image_air = (chosen if mode == "image" and chosen else "") or settings_svc.get(
