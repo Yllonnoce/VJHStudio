@@ -448,29 +448,87 @@ function vjhTestNotification() {
 }
 
 // ── Lightbox (Gallery) ───────────────────────────────────────────────────────────
+// `show()`, not `showModal()`: a modal dialog goes into the browser's top layer,
+// which paints over the sticky top bar and makes it unclickable. Non-modal keeps
+// the bar usable while the details are open; the dialog is sized to sit below it
+// (app.css). What a modal would have given for free -- Esc, and a click outside
+// the panel -- is re-added below.
 function vjhOpenLightbox() {
   const dlg = document.getElementById('lightbox');
-  if (dlg && typeof dlg.showModal === 'function' && !dlg.open) dlg.showModal();
+  if (!dlg || typeof dlg.show !== 'function' || dlg.open) return;
+  dlg.show();
+  // A modal dialog stops the page behind it from scrolling; this one has to say so.
+  document.documentElement.classList.add('vjh-lightbox-open');
 }
+
+// One place to undo that, on the dialog's own event: Esc, the close button, a click
+// on the dim area and the `close-lightbox` that a delete fires all end up here.
+document.addEventListener('DOMContentLoaded', () => {
+  const dlg = document.getElementById('lightbox');
+  if (!dlg) return;
+  dlg.addEventListener('close', () => {
+    document.documentElement.classList.remove('vjh-lightbox-open');
+  });
+});
 
 document.body.addEventListener('close-lightbox', () => {
   const dlg = document.getElementById('lightbox');
   if (dlg && dlg.open) dlg.close();
 });
 
+// A click that lands on the dialog itself is a click on the dim area around the
+// panel (the article), so it closes -- the same as clicking a modal's backdrop.
+// Both ends of the click have to be the dim area, or selecting text in the panel
+// and releasing the button outside it would close the details.
+let vjhLightboxDownTarget = null;
+document.addEventListener('mousedown', (e) => {
+  vjhLightboxDownTarget = e.target;
+});
+document.addEventListener('click', (e) => {
+  const dlg = document.getElementById('lightbox');
+  if (dlg && dlg.open && e.target === dlg && vjhLightboxDownTarget === dlg) dlg.close();
+});
+
 // ArrowLeft/ArrowRight step through neighbouring images when the detail partial
-// provides `.lb-prev`/`.lb-next` controls; Esc closing the dialog is native <dialog>
-// behaviour and needs no JS.
+// provides `.lb-prev`/`.lb-next` controls. Esc is free for a modal dialog only,
+// so it is handled here.
 document.addEventListener('keydown', (e) => {
   const dlg = document.getElementById('lightbox');
   if (!dlg || !dlg.open) return;
-  if (e.key === 'ArrowLeft') {
+  if (e.key === 'Escape') {
+    // Only swallow the key when it was aimed at the dialog: elsewhere on the page
+    // Esc still belongs to whatever has focus (a select, a search field).
+    if (dlg.contains(e.target)) e.preventDefault();
+    dlg.close();
+  } else if (e.key === 'ArrowLeft') {
     const btn = dlg.querySelector('.lb-prev');
     if (btn) btn.click();
   } else if (e.key === 'ArrowRight') {
     const btn = dlg.querySelector('.lb-next');
     if (btn) btn.click();
   }
+});
+
+// Deleting an output closes the dialog and re-fetches the grid, which throws away
+// the card the focus was on -- browsers drop focus to <body> there, and a keyboard
+// is then back at the top of the document. Put it on the first card instead.
+document.body.addEventListener('htmx:afterSwap', (e) => {
+  // The grid swaps itself with `outerHTML`, and htmx fires the event on the PARENT of
+  // a swapped-away element, so the new grid is looked for under the target too.
+  const t = e.target;
+  if (!t) return;
+  if (t.id !== 'gallery-grid' && !(t.querySelector && t.querySelector('#gallery-grid'))) return;
+  // Focus is "lost" when it is on <body>, on a node the swap threw away, or -- what
+  // actually happens after a delete -- still on the close button of the dialog that
+  // has just been hidden. (checkVisibility() was measured returning true there, so
+  // the closed dialog is asked directly.)
+  const a = document.activeElement;
+  const dlg = document.getElementById('lightbox');
+  const lost =
+    !a || a === document.body || !a.isConnected || (dlg && !dlg.open && dlg.contains(a));
+  if (!lost) return;
+  const card = document.querySelector('button.gallery-thumb, button.gallery-details');
+  if (card) card.focus();
 });
 
 // ── Assets: dropzone drag/drop + upload progress ────────────────────────────────

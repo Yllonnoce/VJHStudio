@@ -313,14 +313,23 @@ async def test_named_themes_reach_the_document(client, theme, path):
 def test_the_phone_touch_target_escape_hatch_is_scoped_to_the_chips():
     """`min-height:42px` at phone width is the touch-target floor. The chips opt out
     (they are content-sized pills, not primary targets); `.btn-sm` — Delete, Favourite,
-    the star/hide buttons on Models — must not, or every one of them shrinks to ~20 px."""
+    the star/hide buttons on Models — must not, or every one of them shrinks to ~20 px.
+
+    Only rules that *target* a control count: `min-height:0` on a flex container (the
+    dialog sheets need it so a scrolling child may shrink) is not an escape hatch."""
     css = _strip_comments(APP_CSS)
     blocks = re.findall(r"@media \(max-width: 767px\)\{(.*?)\n\}", css, re.S)
-    hatch = [b for b in blocks if "min-height:0" in b]
-    assert hatch, "no phone-width escape hatch at all"
-    for b in hatch:
-        assert ".ideas .idea" in b
-        assert ".btn-sm" not in b
+    rules = [
+        (selector, body)
+        for b in blocks
+        for selector, body in re.findall(r"([^{}]+)\{([^{}]*)\}", b)
+        if re.search(r"min-height:\s*0\b", body)
+    ]
+    controls = [(s, b) for s, b in rules if re.search(r"button|\.idea|\.btn-", s)]
+    assert controls, "no phone-width escape hatch at all"
+    for selector, _ in controls:
+        assert ".ideas .idea" in selector
+        assert ".btn-sm" not in selector
     assert re.search(r"@media \(max-width: 767px\)[^}]*\{[^}]*min-height:\s*42px", css)
 
 

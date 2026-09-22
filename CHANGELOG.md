@@ -20,6 +20,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A Queue page (`/queue`): the live queue plus a history table of the last 50 finished jobs; the header chip links there instead of the Generate form.
 - Upload a first frame (or seed/reference image) straight from the Generate page; models that need a first frame say so in the References section.
 - Video outputs get a real thumbnail (a frame from the clip) in the gallery, the lightbox, job cards and the home page; existing videos are filled in on the next start (`vjhstudio thumbs` does it on demand).
+- Dialogs (gallery lightbox, asset picker, save prompt) open as full-screen sheets on phones; a web app manifest and icons so the app can be added to a phone's home screen.
 
 ### Changed
 
@@ -30,6 +31,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- The output details no longer cover the top bar: the lightbox opens below the navigation and
+  leaves it usable (Esc, the close button and a click on the dimmed area all still close it),
+  and the gallery behind it stays put instead of scrolling away under the panel.
+- Opening a second output's details showed the first one again; each click now reloads the panel.
 - Tablet and laptop widths (576–1400 px) had no side gutter: content sat flush against the viewport edge. Every page keeps a 16 px gutter now.
 - The video Resolution dropdown gets two thirds of its row so the full size label ("720p portrait (9:16) — 704×1280") is readable.
 - "Mark seen" on the queue panel did nothing visible; it is now "Clear finished" and hides the finished jobs from the panel (the Queue page keeps the full history).

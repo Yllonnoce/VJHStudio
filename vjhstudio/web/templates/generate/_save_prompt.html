@@ -12,16 +12,20 @@
       </form>
       <strong>Save prompt</strong>
     </header>
-    <label>Title
-      <input type="text" name="title" id="save-prompt-title"
-             value="{{ prompt_title|default('', true) }}" placeholder="Fox portrait">
-    </label>
-    <label>Tags
-      <input type="text" name="tags" id="save-prompt-tags" placeholder="tag1, tag2">
-    </label>
-    <button type="button" id="save-prompt-submit"
-            hx-post="/prompts" hx-include="#generate-form, #save-prompt"
-            hx-target="#save-prompt-result" hx-swap="innerHTML">Save to library</button>
-    <div id="save-prompt-result" aria-live="polite"></div>
+    {# One wrapper around the fields: on a phone the dialog is a full-screen
+       sheet and this is the part that scrolls under the sticky header. #}
+    <div class="sheet-body">
+      <label>Title
+        <input type="text" name="title" id="save-prompt-title"
+               value="{{ prompt_title|default('', true) }}" placeholder="Fox portrait">
+      </label>
+      <label>Tags
+        <input type="text" name="tags" id="save-prompt-tags" placeholder="tag1, tag2">
+      </label>
+      <button type="button" id="save-prompt-submit"
+              hx-post="/prompts" hx-include="#generate-form, #save-prompt"
+              hx-target="#save-prompt-result" hx-swap="innerHTML">Save to library</button>
+      <div id="save-prompt-result" aria-live="polite"></div>
+    </div>
   </article>
 </dialog>

@@ -391,10 +391,33 @@ tr.hidden-model{opacity:.55}
 .gallery-card-meta{margin:0;display:flex;justify-content:space-between;gap:.5rem;padding:.4rem .6rem;font-size:.8rem;border-top:1px solid var(--sp-border)}
 .gallery-load-more{grid-column:1 / -1;justify-self:center}
 
-/* ── Lightbox ─────────────────────────────────────────────────────────── */
-#lightbox{max-width:min(90vw, 900px);width:100%;border:1px solid var(--sp-border);border-radius:var(--sp-radius);background:var(--sp-surface);padding:1rem;color:var(--sp-text)}
-#lightbox::backdrop{background:rgba(0,0,0,.6)}
-.lightbox-close{float:right;padding:.15rem .6rem;line-height:1}
+/* ── Lightbox ─────────────────────────────────────────────────────────────
+   The details dialog is opened non-modally (app.js) so the sticky top bar stays
+   visible and clickable -- a modal dialog is raised into the browser's top layer
+   and would paint over it. Nothing positions a non-modal dialog for us, so it is
+   placed by hand: the dialog is the dimmed area from just under the top bar to
+   the bottom of the viewport, and the article inside it is the panel. Pico's
+   `dialog{min-width:100%;min-height:100%}` would fight that inset box, so both
+   minimums are reset here. */
+#lightbox{
+  position:fixed;inset:var(--vjh-header-h, 4.5rem) 0 0 0;
+  width:auto;min-width:0;max-width:none;height:auto;min-height:0;max-height:none;
+  margin:0;padding:1rem;border:0;border-radius:0;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(0,0,0,.6);color:var(--sp-text);
+}
+#lightbox > article{
+  width:100%;max-width:min(90vw, 900px);max-height:100%;margin:0;padding:1rem;
+  display:flex;flex-direction:column;min-height:0;overflow:hidden;
+  background:var(--sp-surface);border:1px solid var(--sp-border);border-radius:var(--sp-radius);
+}
+#lightbox-body{flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;display:flex}
+/* A non-modal dialog does not block the page under it, so the gallery would scroll
+   behind the open details. app.js hangs this class on <html> while it is open and
+   takes it off again on the dialog's own `close` event. */
+html.vjh-lightbox-open{overflow:hidden}
+#lightbox .lightbox-detail{flex:1 1 auto;min-width:0}
+.lightbox-close{align-self:flex-end;flex:0 0 auto;float:none;margin:0 0 .4rem;padding:.15rem .6rem;line-height:1}
 .lightbox-image{display:block;max-width:100%;max-height:60vh;margin:0 auto 1rem;border-radius:var(--sp-radius-sm)}
 .params-table{width:100%;margin:.75rem 0}
 .params-table th{text-align:left;width:6rem;color:var(--sp-muted)}
@@ -548,3 +571,79 @@ body > header.container > nav{border-radius:0 0 var(--sp-radius) var(--sp-radius
 /* ── Video parameters: Resolution needs the room, Duration does not ── */
 .grid-res{grid-template-columns:minmax(0,1fr) minmax(0,2fr)}
 @media (max-width:767px){.grid-res{grid-template-columns:1fr}}
+
+/* ── Phones: every dialog is a full-screen sheet ──────────────────────────
+   A centred panel wastes the little room a phone has, and Pico caps the inner
+   article at `calc(100vh - 2 * spacing)` with `overflow:auto` for the whole
+   panel -- so on a narrow screen the media, the table and the action row all
+   compete for one scrollbar and the buttons end up below the fold. Below
+   768 px each dialog therefore fills the viewport and lays itself out as a
+   sheet: header (with the close button) at the top, exactly ONE scrolling
+   region in the middle, and the action row pinned to the bottom edge and
+   allowed to wrap. Nothing here runs above 767 px, so desktop is untouched.
+   `dvh` keeps the sheet inside the visible area when a mobile browser's
+   address bar is showing. */
+@media (max-width: 767px){
+  dialog[open]{
+    width:100vw;max-width:none;height:100vh;height:100dvh;max-height:none;
+    margin:0;border-radius:0;
+  }
+  dialog[open] > article{
+    width:100%;max-width:none;height:100%;max-height:none;
+    margin:0;padding:0;border-radius:0;box-shadow:none;
+    display:flex;flex-direction:column;min-height:0;overflow:hidden;
+  }
+  /* Pico bleeds header/footer into the article's padding with negative side
+     margins; the article has no padding here, so those are dropped again. */
+  dialog[open] > article > header,
+  dialog[open] > article > footer{
+    flex:0 0 auto;margin:0;border-radius:0;padding:.6rem 1rem;
+  }
+  dialog[open] > article > header{position:sticky;top:0;z-index:2}
+  dialog[open] > article > footer{
+    position:sticky;bottom:0;z-index:2;
+    display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;text-align:left;
+  }
+  dialog[open] > article > footer > *{margin:0}
+  /* The desktop widths are set per dialog (`#ref-picker article` etc.), so an ID has
+     to out-rank an ID here or the sheet keeps its 92vw panel and its side gaps. */
+  #lightbox[open] > article{max-width:none}
+  #ref-picker[open] > article,
+  #save-prompt[open] > article{width:100%;max-width:none}
+  /* The one scrolling region between them. */
+  dialog[open] > article > .sheet-body{
+    flex:1 1 auto;min-height:0;overflow:auto;padding:1rem;
+  }
+
+  /* Gallery lightbox: the dialog itself is the sheet (it has no article), so
+     it becomes the column -- close button on top, then the detail, which puts
+     the media and the action row outside the scrolling middle. */
+  /* The sheet starts under the top bar, not at the top of the viewport, so the
+     lightbox keeps its own inset box instead of the 100dvh one above. */
+  #lightbox[open]{
+    inset:var(--vjh-header-h, 4.5rem) 0 0 0;width:auto;height:auto;padding:0;
+    align-items:stretch;justify-content:flex-start;
+  }
+  #lightbox[open] > article{border:0}
+  .lightbox-close{margin:.4rem .75rem 0}
+  #lightbox-body{overflow:hidden}
+  .lightbox-detail{display:flex;flex-direction:column;flex:1 1 auto;min-width:0;min-height:0;padding:0 .75rem}
+  .lightbox-image,video.lightbox-image{
+    flex:0 0 auto;width:100%;max-height:60vh;max-height:60dvh;object-fit:contain;margin-bottom:.5rem;
+  }
+  .lightbox-meta{flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain}
+  .lightbox-meta h3{font-size:1.1rem}
+  .lightbox-actions{
+    position:sticky;bottom:0;z-index:2;flex:0 0 auto;
+    padding:.6rem 0;background:var(--sp-surface);border-top:1px solid var(--sp-border);
+  }
+  .lightbox-actions > *{margin:0;width:auto}
+
+  /* Asset picker: three thumbnails per row, and the grid is the scroller. */
+  #ref-picker .asset-picker-grid{grid-template-columns:repeat(3, 1fr)}
+  #ref-picker .asset-picker-item img{height:auto;aspect-ratio:1}
+
+  /* Save prompt: one field per row, full-width save button. */
+  #save-prompt .sheet-body > label{display:block;width:100%}
+  #save-prompt #save-prompt-submit{width:100%;margin-top:.25rem}
+}

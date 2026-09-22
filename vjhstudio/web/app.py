@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import mimetypes
 import os
 import threading
 from collections.abc import Mapping
@@ -204,6 +205,10 @@ def create_app(
     app.state.active_jobs = active_jobs
     app.state.render_globals = render_globals
     app.add_middleware(CrossSiteBlockMiddleware)
+    # StaticFiles types a file with `mimetypes.guess_type`, which does not know
+    # `.webmanifest` on every platform and would serve the manifest as text/plain --
+    # enough for Chrome to ignore "Add to Home Screen".
+    mimetypes.add_type("application/manifest+json", ".webmanifest")
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     app.include_router(system.router)
     app.include_router(pages.router)
