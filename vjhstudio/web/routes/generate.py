@@ -312,6 +312,27 @@ def _video_presets(tiers: dict, resolutions: list[str]) -> list[tuple[int, int, 
     return [(*resolution_wh(name, tiers), name) for name in resolutions]
 
 
+# The tier names ``rate_for`` matches against, longest first so "1080p" never loses to a
+# shorter token inside it. A list-mode model posts one of these so the estimate can still
+# price by tier even though no Resolution select is rendered.
+TIER_TOKENS = ("1080p", "720p", "480p", "4K", "2K")
+TIER_BY_SHORT_SIDE = ((480, "480p"), (720, "720p"), (1080, "1080p"))
+
+
+def _tier_name(w: int, h: int, label: str) -> str:
+    """The tier a listed size belongs to: whatever token the model's own dimension label
+    already spells ("4K (16:9)" -> "4K"), else the closest one by the shorter side."""
+    lowered = (label or "").lower()
+    for token in TIER_TOKENS:
+        if token.lower() in lowered:
+            return token
+    short = min(int(w), int(h))
+    for limit, token in TIER_BY_SHORT_SIDE:
+        if short <= limit:
+            return token
+    return "4K"
+
+
 def _duration_default(spec: dict, choices: list) -> float | int:
     """The duration the panel opens on: the model's own default, else the closest
     offered value to 5 s, pulled inside the model's range. Whole seconds render as
@@ -325,6 +346,18 @@ def _duration_default(spec: dict, choices: list) -> float | int:
         if spec.get("max") is not None:
             value = min(float(spec["max"]), value)
     return int(value) if value.is_integer() else value
+
+
+def _default_resolution(
+    size_mode: str, sizes: list[dict], w: int, h: int, resolutions: list[str]
+) -> str:
+    """In list mode the panel opens on a size, not on a preset name, so the tier the
+    estimate prices by is the chosen size's own."""
+    if size_mode == "list":
+        for o in sizes:
+            if o["w"] == w and o["h"] == h:
+                return o["res"]
+    return resolutions[0] if resolutions else FALLBACK_RESOLUTIONS[0]
 
 
 def video_params_ctx(
@@ -348,6 +381,11 @@ def video_params_ctx(
         _int_or(values.get("width"), sizes[0]["w"] if sizes else 1280),
         _int_or(values.get("height"), sizes[0]["h"] if sizes else 720),
     )
+    labels = dims.get("labels") or {}
+    sizes = [
+        {**o, "res": _tier_name(o["w"], o["h"], labels.get(f"{o['w']}x{o['h']}", ""))}
+        for o in sizes
+    ]
     spec_values = [d for d in (spec.get("values") or []) if isinstance(d, (int, float))]
     # rule mode keeps the familiar resolution names but posts the snapped pixels with
     # them, so "720p" on a multiple-of-64 model is sent as 1280x704, not 1280x720
@@ -374,7 +412,7 @@ def video_params_ctx(
         "formats": VIDEO_FORMATS,
         "defaults": {
             "duration": _duration_default(spec, spec_values or durations),
-            "resolution": resolutions[0] if resolutions else FALLBACK_RESOLUTIONS[0],
+            "resolution": _default_resolution(size_mode, sizes, width, height, resolutions),
             "width": width,
             "height": height,
         },

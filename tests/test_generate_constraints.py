@@ -90,9 +90,11 @@ async def test_video_list_mode_renders_a_size_select_and_hidden_pixels(client, s
     assert "3840×2160" in r.text and "4K (16:9)" in r.text
     assert '<option value="3840x2160"' in r.text
     assert "1280x720" not in r.text and "720p" not in r.text
-    assert 'name="resolution"' not in r.text
+    assert '<select name="resolution"' not in r.text  # the tier rides hidden instead
     assert '<input type="hidden" name="width" value="3840">' in r.text
     assert '<input type="hidden" name="height" value="2160">' in r.text
+    assert '<input type="hidden" name="resolution" value="4K">' in r.text
+    assert 'data-res="4K"' in r.text
 
 
 async def test_video_rule_duration_renders_a_number_input(client, seeded):
@@ -152,8 +154,7 @@ async def test_dropdown_drops_video_only_editors_and_flags_i2v_rows(client, seed
     r = await client.get("/generate/video")
     assert r.status_code == 200
     assert "Aleph 2.0" not in r.text
-    assert "FrameStart" in r.text and "FrameStart — $0.100/s ($0.50/5 s) · needs a first frame"
-    assert "· needs a first frame" in r.text
+    assert "FrameStart — $0.100/s ($0.50/5 s) · needs a first frame" in r.text
     assert "Kling 4K" in r.text
 
 
@@ -255,3 +256,77 @@ async def test_video_rule_mode_keeps_names_but_posts_snapped_pixels(client, app)
     assert 'value="1080p" data-w="1920" data-h="1088"' in r.text
     assert '<input type="hidden" name="width" value="1280">' in r.text
     assert '<input type="hidden" name="height" value="704">' in r.text
+
+
+# ---- the estimate still prices a list-mode size by its tier ----------------
+TIERED = "vjh:tiered@1"
+TIERED_C = {
+    "dims": {
+        "mode": "list",
+        "list": [[1280, 720], [1920, 1080]],
+        "labels": {"1280x720": "HD (720p)", "1920x1080": "Full HD (1080p)"},
+    }
+}
+TIERED_RATES = {
+    "video": {"durations": [5], "resolutions": ["720p", "1080p"]},
+    "rates": [
+        {"label": "720p", "amount": 0.10},
+        {"label": "1080p", "amount": 0.40},
+    ],
+}
+
+
+def _add_tiered(app):
+    with db.session_scope(app.state.boot.session_factory) as s:
+        s.add(
+            models.CatalogModel(
+                air=TIERED,
+                name="Tiered",
+                kind="video",
+                source="curated",
+                capabilities_json=list(T2V),
+                constraints_json=TIERED_C,
+                price_tiers_json=TIERED_RATES,
+                price_primary=0.10,
+                price_unit="per_second",
+            )
+        )
+
+
+async def test_list_mode_sizes_carry_their_tier_name(client, app):
+    _add_tiered(app)
+    r = await client.get(f"/hx/model-options?mode=video&air={TIERED}")
+    assert 'data-res="720p"' in r.text and 'data-res="1080p"' in r.text
+    # the panel opens on the first listed size, so the hidden tier is that one's
+    assert '<input type="hidden" name="resolution" value="720p">' in r.text
+
+
+async def test_estimate_prices_the_chosen_list_size_by_its_tier(client, app):
+    _add_tiered(app)
+    base = f"/hx/generate/estimate?mode=video&air={TIERED}&duration=5"
+    assert "≈$0.50" in (await client.get(f"{base}&resolution=720p")).text
+    assert "≈$2.00" in (await client.get(f"{base}&resolution=1080p")).text
+
+
+def test_tier_name_falls_back_to_the_shorter_side():
+    from vjhstudio.web.routes.generate import _tier_name
+
+    assert _tier_name(3840, 2160, "4K (16:9)") == "4K"
+    assert _tier_name(2160, 3840, "") == "4K"  # portrait: shorter side is 2160
+    assert _tier_name(1920, 1080, "") == "1080p"
+    assert _tier_name(1280, 720, "") == "720p"
+    assert _tier_name(854, 480, "") == "480p"
+    assert _tier_name(1920, 1080, "Full HD (1080p)") == "1080p"
+
+
+def test_build_video_task_snaps_an_off_list_size():
+    """A remix or a hand-edited post can carry a size the model never offered; the
+    constraints snap it before the wire instead of spending a rejected round trip."""
+    row = {"constraints": {"dims": {"mode": "list", "list": [[3840, 2160], [2880, 2880]]}}}
+    req = VideoRequest(project_id=1, model=KLING_4K, width=1280, height=720)
+    task = build_video_task(req, "u", {}, row)
+    assert (task["width"], task["height"]) == (3840, 2160)
+    ruled = {"constraints": {"dims": {"mode": "rule", "min": 128, "max": 2048, "step": 64}}}
+    req = VideoRequest(project_id=1, model=KLING_4K, width=1280, height=720)
+    task = build_video_task(req, "u", {}, ruled)
+    assert (task["width"], task["height"]) == (1280, 704)

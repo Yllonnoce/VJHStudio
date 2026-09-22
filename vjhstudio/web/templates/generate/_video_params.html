@@ -35,12 +35,15 @@
     {# the model named the exact sizes it accepts: one select, pixels posted, no preset name #}
     {% set cur_size = defaults.width|string + 'x' + defaults.height|string %}
     <label>Size
+      {# the tier name rides along hidden: no Resolution select here, but the estimate
+         still has to price 1080p at the 1080p rate #}
       <select name="size" aria-label="Size"
-              onchange="var p=this.value.split('x');if(p.length==2){var f=this.form;f.width.value=p[0];f.height.value=p[1];}">
-        {% for o in sizes %}<option value="{{ o.w }}x{{ o.h }}" {% if cur_size == o.w|string + 'x' + o.h|string %}selected{% endif %}>{{ o.label }}</option>{% endfor %}
+              onchange="var o=this.selectedOptions[0],f=this.form;f.width.value=o.dataset.w;f.height.value=o.dataset.h;f.resolution.value=o.dataset.res;">
+        {% for o in sizes %}<option value="{{ o.w }}x{{ o.h }}" data-w="{{ o.w }}" data-h="{{ o.h }}" data-res="{{ o.res }}" {% if cur_size == o.w|string + 'x' + o.h|string %}selected{% endif %}>{{ o.label }}</option>{% endfor %}
       </select>
       <input type="hidden" name="width" value="{{ defaults.width }}">
       <input type="hidden" name="height" value="{{ defaults.height }}">
+      <input type="hidden" name="resolution" value="{{ defaults.resolution }}">
     </label>
     {% else %}
     <label>Resolution
