@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## 0.3.0 — 2026-09-22
 
+### Fixed
+
+- Harvest money safety after the first live run: a polling timeout now counts as an accepted (billed) probe and stops the run; the balance is checked after every model, not only at the end; providers that ignore unknown parameters (Gemini, Luma, Sourceful) are never probed and get docs-page constraints only; a model whose probe was billed is remembered and skipped forever.
+
 ### Added
 
 - Model constraints harvest: Models → "Harvest constraints" learns what each catalog model

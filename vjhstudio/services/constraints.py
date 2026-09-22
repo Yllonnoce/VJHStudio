@@ -260,8 +260,16 @@ def _catalog_rows(session_factory, kinds, airs) -> list[dict]:
         for kind in kinds:
             for m in catalog.list_models(s, kind):
                 if wanted is None or m.air in wanted:
+                    blocked = bool(((m.constraints_json or {}).get("probe") or {}).get("blocked"))
                     rows.append(
-                        {"id": m.id, "air": m.air, "name": m.name, "kind": m.kind, "slug": m.slug}
+                        {
+                            "id": m.id,
+                            "air": m.air,
+                            "name": m.name,
+                            "kind": m.kind,
+                            "slug": m.slug,
+                            "blocked": blocked,
+                        }
                     )
     return rows
 
@@ -328,18 +336,50 @@ def _money(amount: float) -> str:
     return f"${whole}.{frac.ljust(2, '0')}"
 
 
+SKIPPED_BLOCKED = "skipped: a probe of this model was billed once; docs page only"
+
+
+def _mark_blocked(session_factory, row: dict, reason: str) -> None:
+    """Remember that probing this model cost money, so no harvest ever probes it again."""
+    with db.session_scope(session_factory) as s:
+        m = s.get(CatalogModel, row["id"])
+        if m is None:
+            return
+        c = dict(m.constraints_json or {})
+        c["probe"] = {"blocked": True, "reason": reason, "at": utcnow().isoformat()}
+        store(s, m, c)
+
+
 async def _probe_one(state: HarvestState, session_factory, row: dict, docs_result, client) -> None:
     """Probe one model and record it. Lets ``ProbeBilledError`` through — that one stops
     the whole harvest — while every other RunWare failure stays in this row's ``api``
-    column so the next model still gets its turn."""
+    column so the next model still gets its turn. The balance is read before and after
+    THIS model's probes: a provider that accepts a probe is caught here, after one
+    charge, not at the end of the run."""
+    if row.get("blocked"):
+        _record(state, session_factory, row, docs_result, SKIPPED_BLOCKED, None)
+        return
+    before = await _balance(client)
     try:
         res = await probe.probe_model(client, row["air"], row["kind"])
-    except probe.ProbeBilledError:
+    except probe.ProbeBilledError as e:
+        _mark_blocked(session_factory, row, str(e))
         raise
     except Exception as e:  # noqa: BLE001 - one model's failure is per-row
         log.warning("probe failed for %s: %s", row["air"], e)
         _record(state, session_factory, row, docs_result, f"error: {e}", None)
         return
+    if res.errors and res.errors[0] == probe.SKIPPED_UNSAFE:
+        _record(state, session_factory, row, docs_result, res.errors[0], None)
+        return
+    after = await _balance(client)
+    if abs(after - before) > BALANCE_EPSILON:
+        reason = (
+            f"the balance changed while probing {row['air']} "
+            f"(before {_money(before)}, after {_money(after)})"
+        )
+        _mark_blocked(session_factory, row, reason)
+        raise probe.ProbeBilledError(reason)
     if res.params:
         api: dict | None = {"params": res.params, "dims": res.dims, "missing": res.missing}
         status = "ok"

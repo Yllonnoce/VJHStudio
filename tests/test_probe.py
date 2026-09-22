@@ -127,3 +127,29 @@ async def test_probe_collects_non_validation_errors_instead_of_raising():
     fake = FakeRunware({"run": [RunwareError("connectionFailed", "offline")]})
     res = await P.probe_model(fake, "x:y@1", "image")
     assert res.params == [] and res.dims is None and res.errors == ["connection: offline"]
+
+
+@pytest.mark.asyncio
+async def test_a_polling_timeout_means_the_probe_was_accepted():
+    """Gemini Omni Flash, Luma Ray 3.2 and Riverflow accepted the unknown-key probe on
+    2026-09-22; the SDK surfaced that as a polling timeout and the harvest kept going."""
+    fake = FakeRunware({"run": [RunwareError("timeout", "Polling for task x timed out after 37s")]})
+    with pytest.raises(P.ProbeBilledError):
+        await P.probe_model(fake, "x:y@1", "video")
+
+
+@pytest.mark.asyncio
+async def test_pre_submission_errors_are_still_collected():
+    fake = FakeRunware({"run": [RunwareError("connectionFailed", "offline")]})
+    res = await P.probe_model(fake, "x:y@1", "image")
+    assert res.errors and res.errors[0].startswith("connection")
+
+
+@pytest.mark.asyncio
+async def test_unsafe_providers_are_never_probed():
+    fake = FakeRunware({"run": []})
+    for air in ("google:gemini@omni-flash", "luma:ray@3.2", "sourceful:riverflow-2.0@pro"):
+        res = await P.probe_model(fake, air, "video")
+        assert res.errors == [P.SKIPPED_UNSAFE] and res.params == [] and res.dims is None
+    assert fake.calls == []
+    assert P.is_probe_safe("klingai:kling-video@3-4k")

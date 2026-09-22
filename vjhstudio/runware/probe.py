@@ -79,12 +79,34 @@ def _base(air: str, kind: str) -> dict:
     }
 
 
+# Providers whose models ACCEPTED the unknown-key probe on 2026-09-22 (Gemini Omni Flash,
+# Luma Ray 3.2, Riverflow 2.0/2.5 Pro each generated and billed a real result): their
+# validation happens provider-side and ignores unknown keys, so no probe is safe for
+# them. They get docs-page constraints only.
+UNSAFE_PREFIXES = ("google:gemini", "luma:", "sourceful:")
+# Error codes the SDK can raise before a request is submitted. Anything else after a
+# send (a polling timeout above all) means the task was accepted and will be billed.
+PRE_SUBMIT_CODES = ("auth", "quota", "rateLimit", "connection", "validation")
+SKIPPED_UNSAFE = "skipped: this provider accepts unknown parameters, so a probe could be billed"
+
+
+def is_probe_safe(air: str) -> bool:
+    return not (air or "").startswith(UNSAFE_PREFIXES)
+
+
 async def _send(client, task: dict) -> RunwareError:
-    """Returns the rejection. An accepted request is a safety failure."""
+    """Returns the rejection. An accepted request is a safety failure, and so is any
+    failure that can only happen after submission (a polling timeout, a provider or
+    server error): the task is running or already ran, and RunWare bills for it."""
     try:
         await client.run(task, RunOptions(timeout=30_000, validate=False))
     except RunwareError as e:
-        return e
+        if e.code in PRE_SUBMIT_CODES:
+            return e
+        raise ProbeBilledError(
+            f"probe for {task.get('model')} was accepted or its outcome is unknown "
+            f"({e.code}: {e.message}); stop and check the RunWare balance"
+        ) from e
     raise ProbeBilledError(
         f"probe for {task.get('model')} was accepted; stop and check the RunWare balance"
     )
@@ -92,6 +114,8 @@ async def _send(client, task: dict) -> RunwareError:
 
 async def probe_model(client, air: str, kind: str) -> ProbeResult:
     errors: list[str] = []
+    if not is_probe_safe(air):
+        return ProbeResult(errors=[SKIPPED_UNSAFE])
     e1 = await _send(client, {**_base(air, kind), PROBE_KEY: 1})
     if e1.code != "validation":
         return ProbeResult(errors=[f"{e1.code}: {e1.message}"])

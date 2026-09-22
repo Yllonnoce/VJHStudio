@@ -14,6 +14,7 @@ from pathlib import Path
 import httpx
 import pytest
 from runware import RunwareError
+from sqlalchemy import select
 
 from vjhstudio import db, main
 from vjhstudio.models import CatalogModel
@@ -116,7 +117,7 @@ async def _harvest(app, **kw):
 
 async def test_harvest_stores_docs_and_api_constraints(client, app, fake):
     _two_models(app)
-    fake.script["account_management"] = [[{"balance": 10.0}], [{"balance": 10.0}]]
+    fake.script["account_management"] = [[{"balance": 10.0}]] * 12
     fake.script["run"] = [
         _err(PARAMS_MSG),
         _err(KLING_DIMS_MSG),
@@ -181,7 +182,7 @@ async def test_harvest_with_no_api_flag_sends_nothing(client, app, fake):
 
 async def test_a_billed_probe_stops_the_whole_harvest(client, app, fake):
     _two_models(app)
-    fake.script["account_management"] = [[{"balance": 10.0}], [{"balance": 10.0}]]
+    fake.script["account_management"] = [[{"balance": 10.0}]] * 12
     # Kling answers both probes; the image model's first probe is *accepted* — which
     # means RunWare would bill for it, so nothing else may be sent.
     fake.script["run"] = [
@@ -194,7 +195,8 @@ async def test_a_billed_probe_stops_the_whole_harvest(client, app, fake):
     assert len(state.rows) == 1 and state.rows[0]["air"] == KLING
     assert state.message.startswith("STOPPED")
     assert "was accepted" in state.message
-    assert _stored(app, IMAGE) == {}  # the stopped model was never stored
+    # the stopped model is remembered as billed so no harvest ever probes it again
+    assert _stored(app, IMAGE)["probe"]["blocked"] is True
     # two probes for Kling plus the one that was accepted, and nothing after it
     assert len([c for c in fake.calls if c[0] == "run"]) == 3
 
@@ -204,7 +206,11 @@ async def test_a_billed_probe_stops_the_whole_harvest(client, app, fake):
 
 async def test_a_balance_change_stops_the_harvest(client, app, fake):
     _two_models(app)
-    fake.script["account_management"] = [[{"balance": 10.0}], [{"balance": 9.0}]]
+    fake.script["account_management"] = [
+        [{"balance": 10.0}],
+        [{"balance": 10.0}],
+        [{"balance": 9.0}],
+    ] + [[{"balance": 9.0}]] * 8
     fake.script["run"] = [
         _err(PARAMS_MSG),
         _err(KLING_DIMS_MSG),
@@ -234,7 +240,7 @@ async def test_an_unreadable_balance_stops_before_any_probe(client, app, fake):
 
 async def test_a_per_model_error_does_not_stop_the_others(client, app, fake):
     _two_models(app)
-    fake.script["account_management"] = [[{"balance": 10.0}], [{"balance": 10.0}]]
+    fake.script["account_management"] = [[{"balance": 10.0}]] * 12
     fake.script["run"] = [
         _err("The model is offline", "connectionFailed"),
         _err(PARAMS_MSG),
@@ -253,7 +259,7 @@ async def test_a_crash_in_one_row_cancels_the_queued_probes(client, app, fake):
     """Nothing may be sent after the closing balance read — including by a probe that
     was still queued when the run fell over."""
     _two_models(app)
-    fake.script["account_management"] = [[{"balance": 10.0}], [{"balance": 10.0}]]
+    fake.script["account_management"] = [[{"balance": 10.0}]] * 12
     fake.script["run"] = [
         _err(PARAMS_MSG),
         _err(KLING_DIMS_MSG),
@@ -268,8 +274,8 @@ async def test_a_crash_in_one_row_cancels_the_queued_probes(client, app, fake):
     assert out.message == "Harvest failed: row exploded"
     # Kling's two probes and nothing else: the image model's probe never started
     assert len([c for c in fake.calls if c[0] == "run"]) == 2
-    # and the balance was still read on the way out
-    assert len([c for c in fake.calls if c[0] == "account_management"]) == 2
+    # and the balance was still read on the way out (run before/after + Kling's pair)
+    assert len([c for c in fake.calls if c[0] == "account_management"]) == 4
     assert not out.running
 
 
@@ -429,3 +435,55 @@ def test_probe_command_flags():
     assert args.kind == ["video"] and args.air == ["a:1@1", "b:2@2"]
     assert args.docs is False and args.api is True
     assert main.build_parser().parse_args(["probe"]).kind == []
+
+
+# --- per-model balance guard and blocked rows ------------------------------
+
+
+async def test_a_balance_change_after_one_model_stops_before_the_next(client, app, fake):
+    _two_models(app)
+    # run-before 10, Kling-before 10, Kling-after 9 -> stop right there
+    fake.script["account_management"] = [
+        [{"balance": 10.0}],
+        [{"balance": 10.0}],
+        [{"balance": 9.0}],
+    ] + [[{"balance": 9.0}]] * 8
+    fake.script["run"] = [_err(PARAMS_MSG), _err(KLING_DIMS_MSG), _err(PARAMS_MSG)]
+    state = await _harvest(app, api_key=KEY)
+
+    assert state.message.startswith("STOPPED: the balance changed")
+    assert len([c for c in fake.calls if c[0] == "run"]) == 2  # Kling only; IMAGE never probed
+    assert _stored(app, KLING)["probe"]["blocked"] is True
+    assert _stored(app, IMAGE) == {}
+
+
+async def test_a_blocked_model_is_never_probed_again(client, app, fake):
+    _two_models(app)
+    with db.session_scope(app.state.boot.session_factory) as s:
+        m = s.execute(select(CatalogModel).where(CatalogModel.air == KLING)).scalar_one()
+        m.constraints_json = {"probe": {"blocked": True, "reason": "billed once", "at": "t"}}
+    fake.script["account_management"] = [[{"balance": 10.0}]] * 12
+    fake.script["run"] = [_err(PARAMS_MSG), _err(KLING_DIMS_MSG)]  # the image model's probes
+    state = await _harvest(app, api_key=KEY)
+
+    assert _row(state, KLING)["api"] == constraints.SKIPPED_BLOCKED
+    sent = [p for n, p in fake.calls if n == "run"]
+    assert len(sent) == 2 and {p["model"] for p in sent} == {IMAGE}
+
+
+async def test_unsafe_providers_get_docs_only(client, app, fake):
+    _seed(app, [{"air": "luma:ray@3.2", "slug": "kling-4k", "name": "Ray 3.2", "kind": "video"}])
+    fake.script["account_management"] = [[{"balance": 10.0}]] * 6
+    fake.script["run"] = []
+    state = await constraints.harvest(
+        app.state.boot.session_factory,
+        client_factory=app.state.client_factory,
+        state=constraints.HarvestState(),
+        api_key=KEY,
+        airs=["luma:ray@3.2"],
+        docs_transport=docs_transport({"kling-4k": "kling-4k.html"}),
+    )
+
+    assert _row(state, "luma:ray@3.2")["api"].startswith("skipped: this provider accepts unknown")
+    assert [c for c in fake.calls if c[0] == "run"] == []
+    assert _stored(app, "luma:ray@3.2")["dims"]["mode"] == "list"  # the docs page still counted
