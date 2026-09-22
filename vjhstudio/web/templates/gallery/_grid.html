@@ -1,7 +1,7 @@
 <div id="gallery-grid" class="gallery-grid"
      hx-get="/hx/gallery" hx-include="#gallery-filters" hx-vals='{"page": 1}'
      hx-trigger="close-lightbox from:body" hx-target="this" hx-swap="outerHTML">
-  {% for c in cards %}{% with o=c.o, thumb=c.thumb, url=c.url %}{% include "gallery/_card.html" %}{% endwith %}{% endfor %}
+  {% for c in cards %}{% with o=c.o, thumb=c.thumb, url=c.url, poster=c.poster %}{% include "gallery/_card.html" %}{% endwith %}{% endfor %}
   {% if not cards %}<p class="muted" id="gallery-empty">No outputs match these filters.</p>{% endif %}
   {% include "gallery/_load_more.html" %}
 </div>

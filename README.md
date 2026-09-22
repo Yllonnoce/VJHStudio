@@ -283,7 +283,8 @@ that exact word.
 ## Where your files are
 
 Everything you make is in the `data` folder inside VJHStudio: `data/outputs` for your images and
-videos, `data/backups` for backups. An update only adds to it: a safety backup of your database is
+videos, `data/thumbs` for their small previews (including the frame picked out of each video),
+`data/backups` for backups. An update only adds to it: a safety backup of your database is
 written to `data/backups` before anything else happens.
 
 ## For developers

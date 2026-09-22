@@ -75,6 +75,7 @@ def _card_ctx(output: Output, slug: str) -> dict:
         "o": output,
         "url": output_url(slug, output.filename),
         "thumb": thumb_url(output.thumb_rel_path),
+        "poster": thumb_url(output.poster_rel_path),
     }
 
 
@@ -133,6 +134,7 @@ def hx_output_detail(request: Request, output_id: int):
             "o": o,
             "url": output_url(slug, o.filename),
             "thumb": thumb_url(o.thumb_rel_path),
+            "poster": thumb_url(o.poster_rel_path),
             "model_name": catalog.label(model) if model else o.model_air,
         }
         return deps.render(request, "gallery/_detail.html", ctx)

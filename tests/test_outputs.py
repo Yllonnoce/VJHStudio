@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 from PIL import Image
@@ -186,3 +187,96 @@ def test_mark_missing_clears_the_flag_when_the_file_is_back(env):
         path.write_bytes(content)
         assert outputs.mark_missing(s, paths) == 0
         assert s.get(models.Output, row.id).is_missing is False
+
+
+# ---- video posters -------------------------------------------------------
+def _video_meta(pid):
+    return outputs.OutputMeta(
+        job_id="j1",
+        project_id=pid,
+        project_slug="default",
+        kind="video",
+        model_air="m1",
+        prompt_text="a fox running",
+        negative_prompt="",
+    )
+
+
+def _video_row(paths, f, pid, name, *, on_disk=True, make_mp4=None):
+    path = paths.outputs / "default" / name
+    if on_disk:
+        make_mp4(path)
+    with db.session_scope(f) as s:
+        row = models.Output(
+            job_id="j1",
+            project_id=pid,
+            kind="video",
+            filename=name,
+            rel_path=f"default/{name}",
+            sidecar_rel_path=f"default/{Path(name).stem}.json",
+            model_air="m1",
+            prompt_text="a fox running",
+            params_json={},
+        )
+        s.add(row)
+        s.flush()
+        return row.id
+
+
+def test_prepare_gives_a_video_a_poster_that_doubles_as_its_thumbnail(env, make_mp4):
+    """The frame is stored once and pointed at twice, so every "thumb" consumer that
+    predates posters keeps working without knowing a video is involved."""
+    paths, f, pid = env
+    clip = make_mp4(paths.outputs / "default" / "20260920-140000-cccccc.mp4", size="640x360")
+    meta = _video_meta(pid)
+    prepared = outputs.prepare(
+        paths,
+        meta,
+        [_saved(clip)],
+        {"width": 640, "height": 360, "duration": 5},
+        root=paths.outputs,
+        dims=(640, 360),
+        duration_s=5.0,
+        thumbnail=False,
+        poster=True,
+    )
+    p0 = prepared[0]
+    rel = f"thumbs/{clip.stem}.jpg"
+    assert p0.poster_rel_path == rel and p0.thumb_rel_path == rel
+    with Image.open(paths.data / rel) as im:
+        assert im.format == "JPEG" and max(im.size) <= 384
+    with db.session_scope(f) as s:
+        row = outputs.insert(s, meta, prepared)[0]
+        assert row.poster_rel_path == rel and row.thumb_rel_path == rel
+        assert row.kind == "video" and row.duration_s == 5.0
+
+
+def test_prepare_leaves_an_image_alone(env):
+    """poster=True is never passed for an image, but it must not change one either."""
+    paths, f, pid = env
+    png = _png(paths, "20260920-150000-dddddd.png")
+    p0 = outputs.prepare(paths, _meta(pid), [_saved(png)], {}, root=paths.outputs, poster=True)[0]
+    assert p0.thumb_rel_path == f"thumbs/{png.stem}.jpg" and p0.poster_rel_path is None
+
+
+def test_backfill_posters_fills_a_missing_poster_and_skips_a_gone_file(env, make_mp4):
+    paths, f, pid = env
+    here = _video_row(paths, f, pid, "20260920-160000-eeeeee.mp4", make_mp4=make_mp4)
+    gone = _video_row(paths, f, pid, "20260920-160001-ffffff.mp4", on_disk=False)
+    assert outputs.backfill_posters(f, paths) == 1
+    with db.session_scope(f) as s:
+        filled = s.get(models.Output, here)
+        rel = "thumbs/20260920-160000-eeeeee.jpg"
+        assert filled.poster_rel_path == rel and filled.thumb_rel_path == rel
+        assert (paths.data / rel).is_file()
+        assert s.get(models.Output, gone).poster_rel_path is None
+    # a second pass has nothing left to do: rows with a poster are never revisited
+    assert outputs.backfill_posters(f, paths) == 0
+
+
+def test_backfill_posters_honours_a_limit(env, make_mp4):
+    paths, f, pid = env
+    for i in range(2):
+        _video_row(paths, f, pid, f"20260920-17000{i}-aaaaab.mp4", make_mp4=make_mp4)
+    assert outputs.backfill_posters(f, paths, limit=1) == 1
+    assert outputs.backfill_posters(f, paths) == 1

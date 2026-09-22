@@ -481,3 +481,39 @@ def test_update_command_never_re_execs_after_a_successful_update(tmp_path, monke
     assert main.main(["update"]) == 0
     assert fired == []
     assert "Restart VJHStudio to run the new version." in capsys.readouterr().out
+
+
+def test_thumbs_help_lists_the_command(capsys):
+    with pytest.raises(SystemExit) as e:
+        main.main(["thumbs", "--help"])
+    assert e.value.code == 0
+    assert "--limit" in capsys.readouterr().out
+
+
+def test_thumbs_command_backfills_video_posters(tmp_path, monkeypatch, capsys, make_mp4):
+    from vjhstudio import db, models
+
+    monkeypatch.setenv("VJHSTUDIO_DATA_DIR", str(tmp_path))
+    paths = config.resolve_paths(env={"VJHSTUDIO_DATA_DIR": str(tmp_path)})
+    info = boot_mod.boot(paths)
+    clip = make_mp4(paths.outputs / "default" / "20260920-180000-abcabc.mp4")
+    with db.session_scope(info.session_factory) as s:
+        pid = s.query(models.Project).filter_by(slug="default").one().id
+        s.add(
+            models.Job(
+                id="jv", project_id=pid, kind="video", status="succeeded", model_air="m1",
+                request_json={},
+            )
+        )  # fmt: skip
+    with db.session_scope(info.session_factory) as s:
+        s.add(
+            models.Output(
+                job_id="jv", project_id=pid, kind="video", filename=clip.name,
+                rel_path=f"default/{clip.name}", sidecar_rel_path=f"default/{clip.stem}.json",
+                model_air="m1", prompt_text="a fox", params_json={},
+            )
+        )  # fmt: skip
+    info.engine.dispose()
+    assert main.main(["thumbs"]) == 0
+    assert "1 video thumbnail made" in capsys.readouterr().out
+    assert (paths.thumbs / f"{clip.stem}.jpg").is_file()

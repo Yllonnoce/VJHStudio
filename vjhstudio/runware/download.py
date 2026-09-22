@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import secrets
+import shutil
+import subprocess
+import sys
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -13,6 +18,11 @@ from pathlib import Path
 import httpx
 
 from .results import ResultItem
+
+log = logging.getLogger(__name__)
+
+POSTER_TIMEOUT_S = 30
+_CREATE_NO_WINDOW = 0x08000000  # Windows: never flash a console for a background frame grab
 
 
 class DownloadError(Exception):
@@ -101,3 +111,82 @@ def make_thumbnail(src: Path, dest: Path, max_px: int = 384) -> Path | None:
         return dest
     except Exception:  # noqa: BLE001
         return None
+
+
+def ffmpeg_exe() -> str | None:
+    """The ffmpeg binary to shell out to, or None when there is none.
+
+    ``imageio-ffmpeg`` ships a binary in its wheel for Windows, macOS and Linux, which
+    is the whole point: this app installs on all three and a system ffmpeg cannot be
+    assumed. A real one on PATH is the fallback for the rare platform the wheel skips.
+    """
+    try:
+        import imageio_ffmpeg
+
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+        if exe and Path(exe).exists():
+            return exe
+    except Exception as e:  # noqa: BLE001 - no bundled binary is a fallback, not a failure
+        log.debug("imageio-ffmpeg unavailable: %s", e)
+    return shutil.which("ffmpeg")
+
+
+def _grab_frame(exe: str, src: Path, dest: Path, max_px: int, at_s: float) -> bool:
+    """One ffmpeg run. True only when a non-empty JPEG actually landed: seeking past the
+    end of a very short clip exits 0 and writes nothing at all."""
+    # The commas inside min() belong to the expression, not to the filter graph.
+    scale = f"scale=min({max_px}\\,iw):min({max_px}\\,ih):force_original_aspect_ratio=decrease"
+    cmd = [
+        exe, "-nostdin", "-y",
+        "-ss", f"{at_s:g}",
+        "-i", str(src),
+        "-frames:v", "1",
+        "-vf", scale,
+        "-pix_fmt", "yuvj420p",
+        "-q:v", "3",
+        "-an", "-sn",
+        "-f", "image2",
+        str(dest),
+    ]  # fmt: skip
+    extra = {"creationflags": _CREATE_NO_WINDOW} if sys.platform == "win32" else {}
+    try:
+        proc = subprocess.run(  # noqa: S603 - argv list, no shell, path from our own config
+            cmd, timeout=POSTER_TIMEOUT_S, capture_output=True, **extra
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        log.info("ffmpeg could not run on %s: %s", src.name, e)
+        return False
+    if proc.returncode != 0:
+        log.debug("ffmpeg exited %d on %s", proc.returncode, src.name)
+    try:
+        return dest.is_file() and dest.stat().st_size > 0
+    except OSError:
+        return False
+
+
+def make_poster(src: Path, dest: Path, max_px: int = 384, at_s: float = 0.5) -> Path | None:
+    """A JPEG frame from a video, no larger than ``max_px`` on its longest side.
+
+    Tries ``at_s`` first and falls back to the very first frame, which is what a clip
+    shorter than ``at_s`` has to offer. Returns None (never raises) when there is no
+    ffmpeg or it cannot read the file: a missing poster is a generic icon, not an error.
+    """
+    if not src.is_file():
+        return None
+    exe = ffmpeg_exe()
+    if exe is None:
+        log.info("no ffmpeg available: %s gets the generic video poster", src.name)
+        return None
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        log.info("could not create %s: %s", dest.parent, e)
+        return None
+    seeks = (at_s, 0.0) if at_s > 0 else (0.0,)
+    for seek in seeks:
+        if _grab_frame(exe, src, dest, max_px, seek):
+            return dest
+    with suppress(OSError):
+        dest.unlink(missing_ok=True)  # an empty stub is worse than no poster at all
+    log.info("no frame could be read from %s", src.name)
+    return None
