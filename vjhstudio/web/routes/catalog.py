@@ -31,17 +31,21 @@ def _row_view(m) -> dict:
     return v
 
 
-def _rows(request: Request, kind: str, include_hidden: bool) -> list[dict]:
+def _rows(request: Request, kind: str, include_hidden: bool, sort: str = "price") -> list[dict]:
     with db.session_scope(request.app.state.boot.session_factory) as s:
-        ms = catalog.list_models(s, kind, include_hidden=include_hidden)
+        ms = catalog.list_models(s, kind, include_hidden=include_hidden, sort=sort)
         return [_row_view(m) for m in ms]
 
 
-def _list_ctx(request: Request, kind: str, include_hidden: bool = False) -> dict:
+def _list_ctx(
+    request: Request, kind: str, include_hidden: bool = False, sort: str = "price"
+) -> dict:
+    sort = sort if sort in catalog.SORTS else "price"
     return {
         "kind": kind,
-        "rows": _rows(request, kind, include_hidden),
+        "rows": _rows(request, kind, include_hidden, sort),
         "include_hidden": include_hidden,
+        "sort": sort,
     }
 
 
@@ -62,9 +66,9 @@ def models_page(request: Request):
 
 
 @router.get("/hx/models")
-def hx_models(request: Request, kind: str = "image", hidden: int = 0):
+def hx_models(request: Request, kind: str = "image", hidden: int = 0, sort: str = "price"):
     kind = kind if kind in KINDS else "image"
-    return deps.render(request, "catalog/_list.html", _list_ctx(request, kind, bool(hidden)))
+    return deps.render(request, "catalog/_list.html", _list_ctx(request, kind, bool(hidden), sort))
 
 
 @router.get("/api/models")

@@ -1,5 +1,13 @@
 <div id="list-{{ kind }}" class="table-scroll">
 {% if toast %}{% with text=toast %}{% include "partials/_toast.html" %}{% endwith %}{% endif %}
+{% set _sort = sort|default('price', true) %}{% set _hidden = 1 if include_hidden else 0 %}
+<div class="list-tools"><small class="muted">Sort by</small>
+  {% for key, label in (('price', 'Price'), ('name', 'Name')) %}
+  <button type="button" class="btn-sm {% if _sort == key %}sort-active{% else %}secondary outline{% endif %}"
+          {% if _sort == key %}aria-pressed="true"{% else %}aria-pressed="false"{% endif %}
+          hx-get="/hx/models?kind={{ kind }}&hidden={{ _hidden }}&sort={{ key }}" hx-target="#list-{{ kind }}" hx-swap="outerHTML">{{ label }}</button>
+  {% endfor %}
+</div>
 <table class="models">
   <thead><tr><th>Model</th><th>Price</th><th>Family</th><th>Source</th><th></th></tr></thead>
   <tbody>

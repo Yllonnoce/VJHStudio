@@ -429,7 +429,8 @@ tr.archived{opacity:.6}
 .asset-picker-item img{display:block;width:100%;height:96px;object-fit:cover}
 
 /* ── Generate: mode tabs, reference chips, video cards ────────────────── */
-.gen-modes{display:flex;gap:.4rem;margin-bottom:.75rem}
+.gen-modes{display:flex;gap:.4rem;margin-bottom:.75rem;align-items:center}
+.gen-reset{margin-left:auto}
 .gen-mode-tab{width:auto;padding:.35rem 1.1rem;margin:0}
 .gen-pane{border:0;padding:0;margin:0}
 .gen-submit{width:100%}
@@ -513,3 +514,7 @@ video.lightbox-image{width:100%;max-height:70vh;background:#000}
 .queue-page .queue-panel{position:static;max-height:none}
 .queue-history{margin-top:1.5rem}
 table.history td,table.history th{vertical-align:top}
+
+/* ── Models list tools (sort) ── */
+.list-tools{display:flex;align-items:center;gap:.4rem;margin:.25rem 0 .5rem}
+.list-tools .sort-active{width:auto}

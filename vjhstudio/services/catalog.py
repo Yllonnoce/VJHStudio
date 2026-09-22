@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
-from sqlalchemy import case, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from .. import db
@@ -302,15 +302,25 @@ def needs_refresh(session: Session, max_age_days: int = 7) -> bool:
     return at is None or (utcnow() - at) > timedelta(days=max_age_days)
 
 
-def list_models(session: Session, kind: str, include_hidden: bool = False) -> list[CatalogModel]:
+SORTS = ("price", "name")
+
+
+def list_models(
+    session: Session, kind: str, include_hidden: bool = False, sort: str = "price"
+) -> list[CatalogModel]:
+    """``sort="price"`` is the spec's dearest-first order (unknown prices last);
+    ``sort="name"`` is alphabetical, case-insensitive, for finding a model you know."""
     q = select(CatalogModel).where(CatalogModel.kind == kind)
     if not include_hidden:
         q = q.where(CatalogModel.is_hidden.is_(False))
-    q = q.order_by(
-        case((CatalogModel.price_primary.is_(None), 1), else_=0),
-        CatalogModel.price_primary.desc(),
-        CatalogModel.name.asc(),
-    )
+    if sort == "name":
+        q = q.order_by(func.lower(CatalogModel.name).asc(), CatalogModel.air.asc())
+    else:
+        q = q.order_by(
+            case((CatalogModel.price_primary.is_(None), 1), else_=0),
+            CatalogModel.price_primary.desc(),
+            CatalogModel.name.asc(),
+        )
     return list(session.execute(q).scalars())
 
 

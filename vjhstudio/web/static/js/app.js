@@ -103,6 +103,29 @@ window.generateForm = function (initial) {
     // ── mode ────────────────────────────────────────────────────────────────
     // The tab button carries its own hx-get for #model-params; this only moves the
     // client-side state, and drops any picked reference the new mode cannot use.
+    // "Reset" on the Generate page: back to an empty form in the current mode. Clears
+    // every builder field (and so every chip), the final prompt, polish state, the
+    // reference chips and the saved draft, then re-fetches the parameter panel so
+    // sizes/steps return to the model's defaults. The model and project stay.
+    resetForm() {
+      this.fields = vjhEmptyFields();
+      this.finalPrompt = '';
+      this.polishJson = '';
+      this.promptId = '';
+      this.refs = [];
+      this.noText = this.mode !== 'video';
+      this.useDefaultNegative = true;
+      this._clearDraft();
+      const select = document.getElementById(this.mode === 'video' ? 'video-model-select' : 'model-select');
+      const air = select ? select.value : '';
+      if (window.htmx) {
+        window.htmx.ajax('GET', '/hx/model-options?mode=' + this.mode + '&air=' + encodeURIComponent(air), { target: '#model-params', swap: 'outerHTML' });
+      }
+      const results = document.getElementById('polish-results');
+      if (results) results.innerHTML = '';
+      this.$nextTick(() => { this.$el.querySelectorAll('textarea').forEach((el) => this.autosize(el)); });
+    },
+
     setMode(mode) {
       if (mode !== 'image' && mode !== 'video') return;
       this.mode = mode;

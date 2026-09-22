@@ -42,6 +42,8 @@
             @click="setMode('video')"
             hx-get="/hx/model-options" hx-target="#model-params" hx-swap="outerHTML"
             hx-vals='js:{mode: "video", air: document.getElementById("video-model-select").value}'>Video</button>
+    <button type="button" class="secondary outline gen-reset" id="generate-reset" title="Clear the form"
+            @click="resetForm()">Reset</button>
   </div>
   <div class="gen-layout">
     {% include "generate/_prompt_builder.html" %}
