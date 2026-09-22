@@ -379,3 +379,13 @@ async def test_generate_headings_step_one_level_at_a_time(client):
         assert nxt <= prev + 1, (prev, nxt, levels)
     assert "<h2>Describe</h2>" in text
     assert "<h2>Model &amp; settings</h2>" in text
+
+
+def test_top_bar_is_sticky_and_the_page_rolls_underneath():
+    """The header sticks; the rails and every anchor offset by the measured header height."""
+    assert "body > header.container{position:sticky;top:0" in APP_CSS
+    assert "--vjh-header-h" in APP_CSS
+    assert "[id]{scroll-margin-top:calc(var(--vjh-header-h" in APP_CSS
+    assert ".gen-rail{" in APP_CSS and "top:calc(var(--vjh-header-h" in APP_CSS
+    js = (WEB / "static" / "js" / "app.js").read_text()
+    assert "setProperty('--vjh-header-h'" in js and "addEventListener('resize', measure)" in js

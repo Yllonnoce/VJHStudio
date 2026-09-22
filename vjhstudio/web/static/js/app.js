@@ -562,3 +562,16 @@ window.restartWatcher = function (bootId, returnTo) {
 
   setTimeout(tick, 1000);
 };
+
+// ── Sticky top bar: publish its height so sticky rails and anchors sit below it ──
+(function () {
+  function measure() {
+    var h = document.querySelector('body > header');
+    if (!h) return;
+    document.documentElement.style.setProperty('--vjh-header-h', h.offsetHeight + 'px');
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', measure);
+  else measure();
+  window.addEventListener('resize', measure);
+  window.addEventListener('load', measure);
+})();

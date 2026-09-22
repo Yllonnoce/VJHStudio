@@ -24,7 +24,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Generate is now a two-column page: the prompt builder on the left, a sticky "Model & settings"
   rail on the right, and results below both. Every page has a title and subtitle, and the current
   page is highlighted in the navigation. Action buttons are inline instead of full-width bars, and
-  prompt rows are more compact. Navigation wraps instead of overflowing on narrow screens.
+  prompt rows are more compact. Navigation wraps instead of overflowing on narrow screens, and the top bar stays put while the page scrolls underneath it.
 
 ### Fixed
 

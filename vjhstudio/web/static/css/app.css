@@ -273,7 +273,7 @@ tr.hidden-model{opacity:.55}
 .gen-col{min-width:0}
 .gen-card,.gen-prompt{border:1px solid var(--sp-border);border-radius:var(--sp-radius);padding:1rem;background:var(--sp-surface)}
 .gen-col h2,.gen-col h3{margin-top:0}
-.gen-rail{min-width:0;position:sticky;top:1rem;max-height:calc(100vh - 2rem);overflow-y:auto}
+.gen-rail{min-width:0;position:sticky;top:calc(var(--vjh-header-h, 4.5rem) + 1rem);max-height:calc(100vh - var(--vjh-header-h, 4.5rem) - 2rem);overflow-y:auto}
 .gen-results{margin-top:1.75rem}
 .gen-results h2{margin-bottom:.75rem}
 .prompt-preview{border:1px dashed var(--sp-border);border-radius:var(--sp-radius-sm);padding:.6rem .8rem;margin:.75rem 0}
@@ -322,7 +322,7 @@ tr.hidden-model{opacity:.55}
 .muted{color:var(--sp-muted)}
 
 /* ── Queue panel and job cards ────────────────────────────────────────── */
-.queue-panel{position:sticky;top:1rem;max-height:calc(100vh - 2rem);overflow-y:auto}
+.queue-panel{position:sticky;top:calc(var(--vjh-header-h, 4.5rem) + 1rem);max-height:calc(100vh - var(--vjh-header-h, 4.5rem) - 2rem);overflow-y:auto}
 .queue-head{display:flex;justify-content:space-between;align-items:baseline;gap:.5rem}
 .queue-head h3{margin:0}
 .job-card{padding:.75rem 1rem;margin-bottom:.75rem}
@@ -518,3 +518,11 @@ table.history td,table.history th{vertical-align:top}
 /* ── Models list tools (sort) ── */
 .list-tools{display:flex;align-items:center;gap:.4rem;margin:.25rem 0 .5rem}
 .list-tools .sort-active{width:auto}
+
+/* ── Sticky top bar ──────────────────────────────────────────────────────
+   The header stays put and the page rolls underneath it. --vjh-header-h is
+   measured by app.js (the nav wraps to two rows on phones), and every
+   in-page anchor (/settings#updates) keeps clear of the bar. */
+body > header.container{position:sticky;top:0;z-index:40;background:var(--sp-bg);padding-top:.5rem;padding-bottom:0}
+body > header.container > nav{border-radius:0 0 var(--sp-radius) var(--sp-radius)}
+[id]{scroll-margin-top:calc(var(--vjh-header-h, 4.5rem) + 1rem)}
