@@ -113,6 +113,7 @@ def view(m: CatalogModel) -> dict:
         "default_cfg": m.default_cfg,
         "slug": m.slug,
         "architecture": m.architecture,
+        "constraints": m.constraints_json or {},
     }
 
 

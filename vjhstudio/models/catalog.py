@@ -37,5 +37,7 @@ class CatalogModel(TimestampMixin, Base):
     is_favourite: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_hidden: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     raw_json: Mapped[dict | None] = mapped_column(JSON)
+    constraints_json: Mapped[dict | None] = mapped_column(JSON)
+    constraints_updated_at: Mapped[datetime | None] = mapped_column(DateTime)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime)
     __table_args__ = (Index("ux_catalog_air", "air", unique=True), Index("ix_catalog_kind", "kind"))
