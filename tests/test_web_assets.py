@@ -289,8 +289,9 @@ async def test_upload_with_accept_json_returns_the_stored_asset(client):
     )
     assert r.status_code == 200
     body = r.json()
-    assert isinstance(body, list) and len(body) == 1
-    row = body[0]
+    assert set(body) == {"assets", "errors"} and body["errors"] == []
+    assert len(body["assets"]) == 1
+    row = body["assets"][0]
     assert set(row) == {"id", "name", "thumb_url", "kind"}
     assert isinstance(row["id"], int) and row["name"] == "frame.png" and row["kind"] == "image"
     assert row["thumb_url"].startswith("/files/asset-thumbs/")
@@ -308,7 +309,7 @@ async def test_upload_json_dedupes_to_the_same_asset_id(client):
         "/assets/upload", files=[("files", ("copy.png", _png(), "image/png"))], headers=hdr
     )
     assert again.status_code == 200
-    assert again.json()[0]["id"] == first.json()[0]["id"]
+    assert again.json()["assets"][0]["id"] == first.json()["assets"][0]["id"]
 
 
 async def test_upload_json_error_is_a_json_message_not_the_grid(client):
@@ -318,8 +319,52 @@ async def test_upload_json_error_is_a_json_message_not_the_grid(client):
         headers={"Accept": "application/json"},
     )
     assert r.status_code == 422
-    assert "unsupported content type" in r.json()["error"]
+    body = r.json()
+    assert body["assets"] == []
+    assert "unsupported content type" in body["errors"][0]
     assert "<div" not in r.text
+
+
+async def test_upload_json_oversize_reports_the_limit(client):
+    """The HTML twin of this is test_upload_oversize_413; the size refusal happens
+    before the file is read, so the JSON path must carry the same message."""
+    r = await client.post("/settings", data={"uploads.max_mb": "1"})
+    assert r.status_code == 200
+    big = b"\x89PNG\r\n" + b"\x00" * (2 * 1024 * 1024)
+    r = await client.post(
+        "/assets/upload",
+        files=[("files", ("big.png", big, "image/png"))],
+        headers={"Accept": "application/json"},
+    )
+    assert r.status_code == 422
+    body = r.json()
+    assert body["assets"] == []
+    assert body["errors"] == ["big.png: file exceeds 1 MB limit"]
+
+
+async def test_upload_json_reports_both_halves_of_a_partial_batch(client):
+    """One good file and one refused: 200 (something got through) with the refusal
+    still named, instead of a silent success."""
+    r = await client.post(
+        "/assets/upload",
+        files=[
+            ("files", ("good.png", _png(), "image/png")),
+            ("files", ("note.txt", b"hello", "text/plain")),
+        ],
+        headers={"Accept": "application/json"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert [a["name"] for a in body["assets"]] == ["good.png"]
+    assert len(body["errors"]) == 1 and body["errors"][0].startswith("note.txt: ")
+
+
+async def test_upload_json_with_no_files_is_a_422_with_a_message(client):
+    r = await client.post(
+        "/assets/upload", data={"tags": "x"}, headers={"Accept": "application/json"}
+    )
+    assert r.status_code == 422
+    assert r.json()["errors"] == ["No files were selected."]
 
 
 async def test_upload_without_accept_json_still_returns_the_grid(client):
@@ -327,4 +372,4 @@ async def test_upload_without_accept_json_still_returns_the_grid(client):
     r = await client.post("/assets/upload", files=[("files", ("a.png", _png(), "image/png"))])
     assert r.status_code == 200
     assert 'id="asset-grid"' in r.text or 'id="asset-' in r.text
-    assert not r.text.lstrip().startswith("[")
+    assert not r.text.lstrip().startswith(("[", "{"))

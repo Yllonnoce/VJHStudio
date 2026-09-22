@@ -35,12 +35,15 @@
      lands as a chip through the same addRef() the picker dialog feeds. #}
   {% set ref_roles = [('first', 'first frame'), ('last', 'last frame'), ('seed', 'seed image'), ('reference', 'reference')] %}
   {% set mode_roles = ['first', 'last', 'reference'] if mode == 'video' else ['seed', 'reference'] %}
+  {% set filled_ref_roles = filled_ref_roles|default([], true) %}
   <div class="ref-add">
     {% for role, label in ref_roles %}
     {% set needed = role == 'first' and mode == 'video' and params.needs_first_frame %}
     <span class="ref-slot{{ ' needed' if needed else '' }}" data-role="{{ role }}"{% if role == 'first' %} :class="{ needed: needsFirstFrame }"{% endif %}
-          x-show="openRoles().indexOf('{{ role }}') >= 0"{% if role not in mode_roles %} style="display:none"{% endif %}>
-      <label class="ref-upload" aria-busy="false" :aria-busy="uploading === '{{ role }}' ? 'true' : 'false'">
+          x-show="openRoles().indexOf('{{ role }}') >= 0"{% if role not in mode_roles or role in filled_ref_roles %} style="display:none"{% endif %}>
+      <label class="ref-upload" aria-busy="false" aria-disabled="false"
+             :aria-busy="uploading === '{{ role }}' ? 'true' : 'false'"
+             :aria-disabled="uploading !== '' ? 'true' : 'false'">
         Upload {{ label }}
         <input type="file" accept="image/*" aria-label="Upload {{ label }}"
                aria-required="{{ 'true' if needed else 'false' }}"{% if role == 'first' %} :aria-required="needsFirstFrame ? 'true' : 'false'"{% endif %}

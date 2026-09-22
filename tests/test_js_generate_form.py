@@ -211,12 +211,18 @@ def test_upload_ref_posts_the_file_to_assets_upload_and_asks_for_json():
     assert "method: 'POST'" in window
     assert "Accept: 'application/json'" in window
     assert "new FormData()" in window and "fd.append('files', file)" in window
+    # the reply is {assets: [...], errors: [...]}: both halves are read
+    assert "(body && body.assets) || []" in window
+    assert "(body && body.errors) || []" in window
     # the stored asset becomes a chip through the same addRef() the picker feeds
     assert "this.addRef({ id: asset.id" in window and "thumb: asset.thumb_url" in window
     assert "role }" in window
-    # failures land in the existing toast strip with the server's own message
-    assert "vjhToast((body && body.error)" in window
+    # failures land in the existing toast strip with the server's own message, and a
+    # 200 that still refused a file says so rather than passing silently
+    assert "vjhToast(problems[0] ||" in window
+    assert "problems.forEach((msg) => vjhToast(msg, 'error'));" in window
     assert "input.value = ''" in window  # re-picking the same file must still fire
+    assert "if (this.uploading) return;" in window  # one upload at a time
 
 
 def test_needs_first_frame_is_read_off_the_swapped_params_panel():
@@ -237,3 +243,6 @@ def test_refs_template_loops_every_role_through_upload_ref():
     assert "('first', 'first frame')" in html and "('seed', 'seed image')" in html
     assert 'type="file"' in html and 'accept="image/*"' in html
     assert "x-show=\"mode === 'video' && needsFirstFrame\"" in html
+    # every control is dimmed while one upload is in flight, not just the busy one
+    assert ":aria-disabled=\"uploading !== '' ? 'true' : 'false'\"" in html
+    assert ":aria-busy=\"uploading === '{{ role }}' ? 'true' : 'false'\"" in html

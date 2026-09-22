@@ -168,11 +168,13 @@ window.generateForm = function (initial) {
     // "Upload first frame" (and the seed/last/reference twins): post the picked file
     // straight to the Assets library, then drop the stored asset into this role with
     // the same addRef() the picker dialog feeds. Asking for JSON is what makes
-    // /assets/upload answer with [{id, name, thumb_url, kind}] instead of the grid.
+    // /assets/upload answer with {assets: [{id, name, thumb_url, kind}], errors: [...]}
+    // instead of the grid; `uploading` dims every upload control until this one is done.
     async uploadRef(role, input) {
       const file = input && input.files && input.files[0];
       if (!file) return;
       input.value = '';   // so picking the same file again still fires `change`
+      if (this.uploading) return;  // one at a time: the others are dimmed meanwhile
       this.uploading = role;
       try {
         const res = await fetch('/assets/upload', {
@@ -182,12 +184,18 @@ window.generateForm = function (initial) {
         });
         let body = null;
         try { body = await res.json(); } catch (e) { body = null; }
+        const problems = (body && body.errors) || [];
         if (!res.ok) {
-          vjhToast((body && body.error) || ('Upload failed (' + res.status + ')'), 'error');
+          vjhToast(problems[0] || ('Upload failed (' + res.status + ')'), 'error');
           return;
         }
-        const asset = (body || [])[0];
-        if (!asset || !asset.id) { vjhToast('Upload failed: nothing was stored.', 'error'); return; }
+        const asset = ((body && body.assets) || [])[0];
+        if (!asset || !asset.id) {
+          vjhToast(problems[0] || 'Upload failed: nothing was stored.', 'error');
+          return;
+        }
+        // a 200 can still carry refusals (a multi-file post); none of them is fatal here
+        problems.forEach((msg) => vjhToast(msg, 'error'));
         this.addRef({ id: asset.id, name: asset.name, thumb: asset.thumb_url || '', role });
       } catch (e) {
         vjhToast('Upload failed: ' + e, 'error');

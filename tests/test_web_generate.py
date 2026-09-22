@@ -519,6 +519,37 @@ async def test_image_mode_hides_the_video_only_reference_slots(client):
     assert 'style="display:none"' not in _slot_tag(refs, "seed")
 
 
+async def test_a_seeded_single_slot_role_hides_its_upload_row_server_side(client, app):
+    """?ref=asset:N&role=first arrives as a chip, so that slot's upload row is already
+    hidden in the HTML -- Alpine has nothing to un-flash on boot."""
+    with db.session_scope(app.state.boot.session_factory) as s:
+        asset = models.Asset(
+            filename="a.png",
+            original_name="a.png",
+            kind="image",
+            mime="image/png",
+            size_bytes=10,
+            sha256="f" * 64,
+            tags=",",
+        )
+        s.add(asset)
+        s.flush()
+        asset_id = asset.id
+
+    html = (await client.get(f"/generate/video?ref=asset:{asset_id}&role=first")).text
+    refs = html[html.index('<section class="gen-refs"') : html.index('<dialog id="ref-picker"')]
+    assert 'style="display:none"' in _slot_tag(refs, "first")
+    assert 'style="display:none"' not in _slot_tag(refs, "last")  # the free slot stays
+
+
+async def test_every_upload_control_dims_while_one_is_in_flight(client):
+    html = (await client.get("/generate/video")).text
+    refs = html[html.index('<section class="gen-refs"') : html.index('<dialog id="ref-picker"')]
+    dim = ":aria-disabled=\"uploading !== '' ? 'true' : 'false'\""
+    assert refs.count(dim) == 4
+    assert refs.count('aria-disabled="false"') == 4  # the static value before Alpine runs
+
+
 async def test_image_params_panel_carries_the_first_frame_flag_as_false(client):
     r = await client.get("/hx/model-options?mode=image")
     assert 'data-needs-first-frame="false"' in r.text

@@ -91,10 +91,12 @@ async def upload_assets(request: Request):
     only the status code says whether anything actually got through (200) or every
     file was rejected (422).
 
-    ``Accept: application/json`` swaps that grid for a small JSON body instead --
-    ``[{id, name, thumb_url, kind}]`` on success, ``{"error": ...}`` with the 422 --
-    which is what the Generate page's "Upload first frame" control posts to. The
-    Assets page's htmx form sends no such header and keeps getting the partial."""
+    ``Accept: application/json`` swaps that grid for a small JSON body instead:
+    ``{"assets": [{id, name, thumb_url, kind}], "errors": ["name: why", ...]}``, with the
+    same 200/422 split. Both keys are always present, so a multi-file post that stored
+    some files and refused others reports both halves rather than hiding the refusals
+    behind a 200. This is what the Generate page's "Upload first frame" control posts
+    to; the Assets page's htmx form sends no such header and keeps getting the partial."""
     app = request.app
     form = await request.form()
     tags = str(form.get("tags", "") or "")
@@ -147,9 +149,9 @@ async def upload_assets(request: Request):
             )
 
     if _wants_json(request):
-        if not stored:
-            return JSONResponse({"error": errors[0] if errors else "Nothing was stored."}, 422)
-        return JSONResponse(picked)
+        if not stored and not errors:
+            errors.append("Nothing was stored.")
+        return JSONResponse({"assets": picked, "errors": errors}, 200 if stored else 422)
 
     filters = _filters_from(request)
     ctx = _grid_ctx(request, filters, 1)
