@@ -12,6 +12,7 @@ from vjhstudio.services import ideas
 
 WEB = Path(__file__).resolve().parent.parent / "vjhstudio" / "web"
 APP_JS = WEB / "static" / "js" / "app.js"
+APP_CSS = WEB / "static" / "css" / "app.css"
 BUILDER_HTML = WEB / "templates" / "generate" / "_prompt_builder.html"
 
 
@@ -95,7 +96,7 @@ async def test_composed_prompt_block_has_a_copy_button(client):
 
 async def test_describe_header_and_hint(client):
     html = (await client.get("/generate/image")).text
-    assert "<h3>Describe</h3>" in html
+    assert "<h2>Describe</h2>" in html
     assert "Fill in what you can; the app writes the prompt." in html
 
 
@@ -140,3 +141,14 @@ def test_autosize_is_skipped_where_field_sizing_is_supported():
     builder = BUILDER_HTML.read_text()
     assert "vjhAutosize" not in builder
     assert builder.count('@input="autosize($el)"') == 4
+
+
+def test_chips_carry_their_own_focus_ring():
+    """Pico styles `[role=group]` as a segmented bar and paints one focus ring around
+    the whole row, so a keyboard user could not tell which chip was focused."""
+    css = APP_CSS.read_text()
+    assert ".ideas{box-shadow:none}" in css
+    assert (
+        ".ideas .idea:focus-visible{outline:2px solid var(--sp-accent);outline-offset:2px}" in css
+    )
+    assert ".ideas .idea:focus{box-shadow:none}" in css

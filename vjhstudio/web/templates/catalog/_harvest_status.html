@@ -9,6 +9,9 @@
     {% if harvest.rows %}
     <details>
       <summary>{{ harvest.rows|length }} model{{ '' if harvest.rows|length == 1 else 's' }}</summary>
+      {# four columns do not fit on a phone; the table scrolls inside its own box so
+         the page itself never gets a horizontal scrollbar at 390 px #}
+      <div class="table-scroll">
       <table>
         <thead><tr><th>Model</th><th>Docs</th><th>API</th><th>Sizes</th></tr></thead>
         <tbody>
@@ -17,6 +20,7 @@
         {% endfor %}
         </tbody>
       </table>
+      </div>
     </details>
     {% endif %}
   {% endif %}

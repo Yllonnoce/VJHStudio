@@ -46,7 +46,7 @@
   <div class="gen-layout">
     {% include "generate/_prompt_builder.html" %}
     <aside class="gen-rail gen-card">
-      <header class="card-head"><h3>Model &amp; settings</h3></header>
+      <header class="card-head"><h2>Model &amp; settings</h2></header>
       <fieldset class="gen-pane" x-show="mode === 'image'" :disabled="mode !== 'image'"
                 {% if mode != 'image' %}disabled style="display:none"{% endif %}>
         {% with name='model', select_id='model-select', options=models, selected=selected, selected_unsupported=selected_unsupported, allow_empty=False %}{% include "catalog/_model_select.html" %}{% endwith %}

@@ -198,11 +198,25 @@ def _pico_light_vars() -> set[str]:
     return {d.split(":")[0].strip() for d in body.split(";") if d.strip()}
 
 
+def _strip_comments(css: str) -> str:
+    """`/* … */` out. A comment in the bridge block contains a `;` of its own, so
+    splitting the raw block on `;` glued the comment's tail onto the declaration that
+    followed it — and that declaration then silently failed every check below."""
+    return re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+
+
 def _bridge() -> tuple[str, set[str]]:
-    m = re.search(r"(:root[^{]*)\{(.*?)\n\}", APP_CSS, re.S)
+    m = re.search(r"(:root[^{]*)\{(.*?)\n\}", _strip_comments(APP_CSS), re.S)
     return m.group(1).strip(), {
         d.split(":")[0].strip() for d in m.group(2).split(";") if d.strip().startswith("--pico")
     }
+
+
+def test_bridge_declarations_survive_comment_stripping():
+    """The guard for the guard: the declaration that sits right after the bridge's
+    in-block comment must be one of the names the checks above can see."""
+    _, bridged = _bridge()
+    assert "--pico-secondary-inverse" in bridged
 
 
 def test_bridge_selector_outranks_picos_light_block():
@@ -289,3 +303,77 @@ async def test_named_themes_reach_the_document(client, theme, path):
     await client.post("/settings", data={"ui.theme": theme})
     r = await client.get(path)
     assert f'data-theme="{theme}"' in r.text
+
+
+# ── The Task 4 review nits ────────────────────────────────────────────────
+
+
+def test_the_phone_touch_target_escape_hatch_is_scoped_to_the_chips():
+    """`min-height:42px` at phone width is the touch-target floor. The chips opt out
+    (they are content-sized pills, not primary targets); `.btn-sm` — Delete, Favourite,
+    the star/hide buttons on Models — must not, or every one of them shrinks to ~20 px."""
+    css = _strip_comments(APP_CSS)
+    blocks = re.findall(r"@media \(max-width: 767px\)\{(.*?)\n\}", css, re.S)
+    hatch = [b for b in blocks if "min-height:0" in b]
+    assert hatch, "no phone-width escape hatch at all"
+    for b in hatch:
+        assert ".ideas .idea" in b
+        assert ".btn-sm" not in b
+    assert re.search(r"@media \(max-width: 767px\)[^}]*\{[^}]*min-height:\s*42px", css)
+
+
+def test_btn_sm_is_a_real_button_not_a_chip():
+    """`.btn-sm` is the compact *button* size (Save tags, Delete, Load into form); the
+    chip size lives on `.ideas .idea`. They were the same numbers, which made every
+    small button unreadably tiny."""
+    small = re.search(r"\.btn-sm\{([^}]*)\}", APP_CSS).group(1)
+    chip = re.search(r"\.ideas \.idea\{([^}]*)\}", APP_CSS, re.S).group(1)
+    assert "padding:.3rem .7rem" in small and "font-size:.85rem" in small
+    assert "padding:.15rem .6rem" in chip and "font-size:.8rem" in chip
+
+
+def test_contrast_hover_keeps_the_label_readable():
+    """`.contrast` keeps its ink (`--pico-contrast-inverse` = `--sp-bg`) on hover, so
+    filling it with the accent dropped the label under AA on the light themes. The fill
+    stays `--sp-text`; only the border/underline pick up the accent."""
+    body = re.search(r":root[^{]*\{(.*?)\n\}", _strip_comments(APP_CSS), re.S).group(1)
+    assert "--pico-contrast-hover-background: var(--sp-text);" in body
+
+
+def test_model_action_status_lines_line_up():
+    assert re.search(r"\.model-actions\{[^}]*align-items:stretch", APP_CSS)
+    assert re.search(r"\.model-actions > form > small\{[^}]*margin-top:auto", APP_CSS)
+
+
+async def test_harvest_results_table_scrolls_inside_its_own_box(client):
+    """A four-column results table is wider than 390 px; every other table on the site
+    is already wrapped, and this one scrolled the whole page."""
+    html = (WEB / "templates" / "catalog" / "_harvest_status.html").read_text(encoding="utf-8")
+    assert '<div class="table-scroll">' in html
+    assert html.index('<div class="table-scroll">') < html.index("<table>")
+    assert html.index("</table>") < html.rindex("</div>")
+
+
+def test_filter_bars_are_a_tidy_responsive_grid():
+    rule = re.search(r"\.gallery-filters-grid\{([^}]*)\}", APP_CSS).group(1)
+    assert "display:grid" in rule and "align-items:end" in rule
+    assert "repeat(auto-fit,minmax(180px,1fr))" in rule.replace(" ,", ",").replace(", ", ",")
+
+
+def test_queue_error_spans_the_results_grid():
+    """`.gen-results .queue-panel` is a multi-column grid; the retry-failed card is a
+    message, not a job card, so it takes the full width."""
+    assert ".gen-results .queue-panel #queue-error{grid-column:1 / -1}" in APP_CSS
+
+
+async def test_generate_headings_step_one_level_at_a_time(client):
+    """One `<h1>` per page, and the two card titles under it are `<h2>`; they used to
+    be `<h3>`, which skipped a level in a screen reader's heading list."""
+    text = _block((await client.get("/generate/image")).text, '<main class="container"', "main")
+    assert text.count("<h1>") == 1
+    levels = [int(m) for m in re.findall(r"<h([1-6])[ >]", text)]
+    assert levels[0] == 1
+    for prev, nxt in zip(levels, levels[1:], strict=False):
+        assert nxt <= prev + 1, (prev, nxt, levels)
+    assert "<h2>Describe</h2>" in text
+    assert "<h2>Model &amp; settings</h2>" in text

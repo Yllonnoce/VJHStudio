@@ -53,7 +53,10 @@
   --pico-contrast-underline: var(--sp-accent-glow);
   --pico-contrast-inverse: var(--sp-bg);
   --pico-contrast-hover: var(--sp-accent);
-  --pico-contrast-hover-background: var(--sp-accent);
+  /* A `.contrast` button keeps its ink (--pico-contrast-inverse = --sp-bg) on hover, so
+     filling it with the accent puts a near-white label on a mid-tone ground and drops it
+     under AA on every light theme. The fill stays put; the border carries the hover. */
+  --pico-contrast-hover-background: var(--sp-text);
   --pico-contrast-hover-border: var(--sp-accent);
   --pico-contrast-hover-underline: var(--sp-accent);
   --pico-contrast-focus: var(--sp-accent-glow);
@@ -132,7 +135,10 @@ input,select,textarea{font-size:.95rem}
    attribute and wins on source order. Full width is now opt-in. */
 button, button[type="submit"], [role="button"], input[type="submit"]{width:auto}
 .gen-submit, .hero-card [role="button"], .block{width:100%}
-.btn-sm{width:auto;margin:0;padding:.1rem .55rem;font-size:.75rem}
+/* The compact *button* size: Save tags, Delete, Load into form, the star/hide pair on
+   Models. It is deliberately larger than a chip (`.ideas .idea`) -- those are pills of
+   text, these are things you click. */
+.btn-sm{width:auto;margin:0;padding:.3rem .7rem;font-size:.85rem}
 .actions{display:flex;gap:.75rem;flex-wrap:wrap;align-items:flex-start}
 .actions > form{margin:0}
 /* A 1400 px-wide text input is unreadable; the forms that are pure
@@ -224,10 +230,15 @@ table.models td{vertical-align:top}
 tr.hidden-model{opacity:.55}
 /* "Refresh prices" and "Harvest constraints" sit side by side; each form stacks
    its own button over its own status line, so the two never interleave. */
-.model-actions{margin-bottom:1.25rem}
+/* `stretch` (not `.actions`' own flex-start) makes both forms as tall as the taller
+   one, and `margin-top:auto` then drops each status line to that shared bottom edge --
+   otherwise the refresh form's spinner row pushes its "Last refreshed:" a line below
+   the harvest form's "Free: …". */
+.model-actions{margin-bottom:1.25rem;align-items:stretch}
 .model-actions > form{flex:1 1 18rem;max-width:28rem;display:flex;flex-direction:column;align-items:flex-start;gap:.35rem;margin:0}
 .model-actions > form > *{margin:0}
 .model-actions small{color:var(--sp-muted)}
+.model-actions > form > small{margin-top:auto}
 .model-actions details{width:100%}
 .model-search{display:flex;flex-wrap:wrap;align-items:center;gap:.75rem}
 .model-search input[type="search"]{flex:2 1 18rem;margin:0}
@@ -261,7 +272,7 @@ tr.hidden-model{opacity:.55}
 .gen-layout{display:grid;gap:1.25rem;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);align-items:start}
 .gen-col{min-width:0}
 .gen-card,.gen-prompt{border:1px solid var(--sp-border);border-radius:var(--sp-radius);padding:1rem;background:var(--sp-surface)}
-.gen-col h3{margin-top:0}
+.gen-col h2,.gen-col h3{margin-top:0}
 .gen-rail{min-width:0;position:sticky;top:1rem;max-height:calc(100vh - 2rem);overflow-y:auto}
 .gen-results{margin-top:1.75rem}
 .gen-results h2{margin-bottom:.75rem}
@@ -292,10 +303,19 @@ tr.hidden-model{opacity:.55}
   color:var(--sp-text);cursor:pointer;
 }
 .ideas .idea:hover{border-color:var(--sp-accent)}
+/* Pico draws the focus ring on the `[role=group]` itself, which paints one box around
+   the whole row and tells a keyboard user nothing about which chip is focused. The row
+   gives its ring up and each chip grows its own. */
+.ideas{box-shadow:none}
+.ideas .idea:focus{box-shadow:none}
+.ideas .idea:focus-visible{outline:2px solid var(--sp-accent);outline-offset:2px}
 .ideas .idea.active{background:var(--sp-accent);color:var(--sp-on-accent);border-color:var(--sp-accent)}
 .preview-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin:0 0 .35rem}
 @media (max-width: 767px){
-  .ideas .idea, .btn-sm{min-height:0}   /* the chips are not primary touch targets */
+  /* Chips are content-sized pills, not primary touch targets, so they opt out of the
+     42 px floor. `.btn-sm` must NOT: Delete, Favourite and the star/hide pair are real
+     buttons and keep a thumb-sized target. */
+  .ideas .idea{min-height:0}
 }
 .new-project{display:flex;gap:.5rem;align-items:center;margin-bottom:.75rem}
 .new-project input{margin-bottom:0}
@@ -337,6 +357,8 @@ tr.hidden-model{opacity:.55}
 .gen-results .queue-panel > h4,
 .gen-results .queue-panel > .muted,
 .gen-results .queue-panel > button{grid-column:1 / -1}
+/* not a job card: a message about the whole queue, so it takes the full width */
+.gen-results .queue-panel #queue-error{grid-column:1 / -1}
 
 @media (max-width: 1100px){
   .gen-layout{grid-template-columns:1fr}
@@ -344,9 +366,18 @@ tr.hidden-model{opacity:.55}
 }
 
 /* ── Gallery ──────────────────────────────────────────────────────────── */
-.gallery-filters-grid{display:grid;gap:.75rem 1rem;grid-template-columns:repeat(auto-fit, minmax(160px, 1fr));align-items:end;margin-bottom:1.25rem}
+/* Gallery, Prompts and Assets share this bar. Equal tracks keep every control on the
+   same baseline (`align-items:end`) instead of wrapping raggedly; below ~640 px there is
+   room for one track, so the fields simply stack. Search is the one field that wants the
+   room, so it takes two tracks wherever there are two to take. */
+.gallery-filters-grid{display:grid;gap:.75rem 1rem;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));align-items:end;margin-bottom:1.25rem}
 .gallery-filters-grid label{margin-bottom:0}
-.gallery-fav-filter{display:flex;align-items:center;gap:.4rem;white-space:nowrap}
+.gallery-filters-grid label > input,.gallery-filters-grid label > select{margin-bottom:0}
+@media (min-width: 640px){
+  .gallery-filters-grid label:has(input[type="search"]){grid-column:span 2}
+}
+/* a one-line checkbox in a row of labelled inputs: it sits on their bottom edge */
+.gallery-fav-filter{display:flex;align-items:center;gap:.4rem;white-space:nowrap;margin-bottom:0;min-height:2.5rem}
 .gallery-grid{display:grid;gap:.85rem;grid-template-columns:repeat(auto-fill, minmax(180px, 1fr));align-items:start}
 .gallery-card{padding:0;overflow:hidden}
 .gallery-card:hover{transform:none}
@@ -403,7 +434,7 @@ tr.archived{opacity:.6}
 .gen-pane{border:0;padding:0;margin:0}
 .gen-submit{width:100%}
 .gen-refs{margin:.75rem 0}
-.gen-refs h4{margin-bottom:.4rem}
+.gen-refs h3{margin-bottom:.4rem}
 .ref-chips{display:flex;flex-direction:column;gap:.4rem}
 .ref-chip{display:flex;align-items:center;gap:.5rem;margin:0;padding:.35rem .5rem;background:var(--sp-surface-2);border-radius:var(--sp-radius)}
 .ref-chip img{width:48px;height:48px;object-fit:cover;border-radius:calc(var(--sp-radius) / 2)}
@@ -435,7 +466,7 @@ video.lightbox-image{width:100%;max-height:70vh;background:#000}
 
 /* ── Generate: polish with AI ─────────────────────────────────────────── */
 .gen-polish{margin:1rem 0;padding-top:.85rem;border-top:1px solid var(--sp-border)}
-.gen-polish h4{margin-bottom:.5rem}
+.gen-polish h3{margin-bottom:.5rem}
 .gen-polish .grid{align-items:end}
 #polish-versions-select{width:auto;min-width:4.5rem}
 .polish-results{margin-top:.65rem}
