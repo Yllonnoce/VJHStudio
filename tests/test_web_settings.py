@@ -139,3 +139,18 @@ async def test_header_balance_keeps_the_last_amount_when_runware_is_down(client,
 async def test_balance_chip_refreshes_right_after_each_page_load(client):
     r = await client.get("/gallery")
     assert 'hx-trigger="load delay:300ms, every 60s, job-finished from:body"' in r.text
+
+
+async def test_every_page_renders_the_cached_balance_in_the_header(client, app):
+    from vjhstudio import db
+    from vjhstudio.models import utcnow
+    from vjhstudio.services import meta
+
+    await client.post("/settings/api-key", data={"api_key": "abcdefgh1234"})
+    with db.session_scope(app.state.boot.session_factory) as s:
+        meta.set(s, "account.balance", "27.9")
+        meta.set(s, "account.balance_at", utcnow().isoformat())
+    for path in ("/gallery", "/models", "/queue", "/prompts", "/generate/video"):
+        r = await client.get(path)
+        chip = r.text.split('id="balance-chip"', 1)[1].split("</li>", 1)[0]
+        assert "$27.90" in chip and "Balance unknown" not in chip, path

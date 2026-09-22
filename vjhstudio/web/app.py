@@ -16,7 +16,7 @@ from .. import config, db, secrets
 from ..models import Job, JobStatus
 from ..runware.catalog_api import ContentAPI
 from ..runware.client import open_client
-from ..services import catalog, gitinfo, migrate, update
+from ..services import account, catalog, gitinfo, migrate, update
 from ..services import jobs as jobs_svc
 from ..services import outputs as outputs_svc
 from ..services import settings as settings_svc
@@ -195,6 +195,8 @@ def create_app(
                 "active_jobs": int(s.execute(active).scalar() or 0),
                 "unseen_jobs": int(s.execute(unseen).scalar() or 0),
                 "update_behind": update.behind_count(s),
+                # the header chip on EVERY page; only Home and Settings used to pass it
+                "balance": account.cached_balance(s),
             }
 
     app.state.theme = theme

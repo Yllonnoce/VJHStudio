@@ -20,6 +20,7 @@ _DEFAULT_GLOBALS = {
     "active_jobs": 0,
     "unseen_jobs": 0,
     "update_behind": 0,
+    "balance": None,
 }
 
 
