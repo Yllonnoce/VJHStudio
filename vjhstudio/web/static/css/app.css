@@ -126,6 +126,10 @@ body {
 
 /* ── Layout, type scale and buttons ───────────────────────────────────── */
 main.container,header.container,footer.container{max-width:1400px}
+/* Pico zeroes the container's side padding from 576px up (it relies on its own fixed
+   max-widths for the gutter); with a 1400px max-width that leaves content flush
+   against the viewport edge on every tablet and laptop. Keep a real gutter always. */
+.container{padding-left:max(1rem, env(safe-area-inset-left));padding-right:max(1rem, env(safe-area-inset-right))}
 h1{font-size:1.9rem}
 h2{font-size:1.35rem}
 h3{font-size:1.1rem}

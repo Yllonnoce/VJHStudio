@@ -389,3 +389,8 @@ def test_top_bar_is_sticky_and_the_page_rolls_underneath():
     assert ".gen-rail{" in APP_CSS and "top:calc(var(--vjh-header-h" in APP_CSS
     js = (WEB / "static" / "js" / "app.js").read_text()
     assert "setProperty('--vjh-header-h'" in js and "addEventListener('resize', measure)" in js
+
+
+def test_container_keeps_a_side_gutter_at_every_width():
+    """Pico drops the container padding above 576px; our 1400px max-width needs it back."""
+    assert ".container{padding-left:max(1rem, env(safe-area-inset-left))" in APP_CSS
