@@ -148,7 +148,12 @@ async def test_pre_submission_errors_are_still_collected():
 @pytest.mark.asyncio
 async def test_unsafe_providers_are_never_probed():
     fake = FakeRunware({"run": []})
-    for air in ("google:gemini@omni-flash", "luma:ray@3.2", "sourceful:riverflow-2.0@pro"):
+    for air in (
+        "google:gemini@omni-flash",
+        "google:4@2",
+        "luma:ray@3.2",
+        "sourceful:riverflow-2.0@pro",
+    ):
         res = await P.probe_model(fake, air, "video")
         assert res.errors == [P.SKIPPED_UNSAFE] and res.params == [] and res.dims is None
     assert fake.calls == []

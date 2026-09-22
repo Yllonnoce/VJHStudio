@@ -83,7 +83,9 @@ def _base(air: str, kind: str) -> dict:
 # Luma Ray 3.2, Riverflow 2.0/2.5 Pro each generated and billed a real result): their
 # validation happens provider-side and ignores unknown keys, so no probe is safe for
 # them. They get docs-page constraints only.
-UNSAFE_PREFIXES = ("google:gemini", "luma:", "sourceful:")
+# Nano Banana Pro (google:4@2) accepted it too on the same day, so the whole Google
+# prefix is out, Veo included (Veo has curated and docs-page constraints anyway).
+UNSAFE_PREFIXES = ("google:", "luma:", "sourceful:")
 # Error codes the SDK can raise before a request is submitted. Anything else after a
 # send (a polling timeout above all) means the task was accepted and will be billed.
 PRE_SUBMIT_CODES = ("auth", "quota", "rateLimit", "connection", "validation")
