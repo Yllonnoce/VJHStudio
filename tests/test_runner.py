@@ -282,3 +282,12 @@ async def test_a_second_size_rejection_fails_the_job():
             sleep=_no_sleep,
         )
     assert len([1 for n, _ in fake.calls if n == "run"]) == 2
+
+
+def test_size_correction_ignores_a_nested_field_that_merely_contains_width():
+    e = RunwareError(
+        "unsupportedParameter",
+        "Unsupported use of 'frameImages.0.width'. Supported values are: '64x64'.",
+    )
+    e.parameter = "inputs.frameImages.0.width"
+    assert runner.size_correction(e, {"width": 1280, "height": 720}) is None

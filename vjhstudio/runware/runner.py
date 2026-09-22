@@ -76,7 +76,9 @@ def size_correction(err: BaseException, task: dict) -> tuple[dict, dict] | None:
     isn't about width/height or the correction wouldn't change anything."""
     message = getattr(err, "message", None) or str(err)
     param = str(getattr(err, "parameter", "") or "")
-    if not ("width" in param or "height" in param or "width/height" in message):
+    # Only the top-level pair: a nested field such as inputs.frameImages.0.width must
+    # never rewrite the task's own width/height.
+    if not (param in PAIR or param == "width/height" or "width/height" in message):
         return None
     dims = parse_supported_dims(message)
     if dims.get("mode") == "unknown" or "width" not in task or "height" not in task:
