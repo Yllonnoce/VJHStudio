@@ -1,7 +1,62 @@
 {% extends "base.html" %}
+{% block title %}VJHStudio{% endblock %}
 {% block content %}
 <h1>VJHStudio</h1>
-{% if not has_api_key %}<article class="warn">No API key set. <a href="/settings#api">Add your RunWare key</a> to start generating.</article>{% endif %}
-<p><a role="button" href="/generate">Generate an image</a></p>
-<p>Gallery, Prompts and Assets arrive in the next phases.</p>
+<p class="muted">v{{ app_version }}</p>
+{% if not has_api_key %}{% include "generate/_no_key.html" %}{% endif %}
+
+<div class="hero-grid">
+  <article class="hero-card">
+    <h2>Create an image</h2>
+    <p>Photos, art and product shots from a description.</p>
+    <a role="button" href="/generate/image">Create an image</a>
+  </article>
+  <article class="hero-card">
+    <h2>Create a video</h2>
+    <p>Short clips from text or from a first frame.</p>
+    <a role="button" href="/generate/video">Create a video</a>
+  </article>
+</div>
+
+<section class="dash-section">
+  <header class="card-head"><h2>Recent</h2><a href="/gallery">See all</a></header>
+  {% include "partials/_recent_strip.html" %}
+</section>
+
+{% if active_count %}
+<section class="dash-section" id="dash-progress">
+  <h2>In progress</h2>
+  {% include "generate/_queue_panel.html" %}
+</section>
+{% endif %}
+
+<div class="stat-row">
+  <article class="stat">
+    <div class="muted">Balance</div>
+    <div class="value">{% if balance %}${{ '%.2f'|format(balance.amount) }}{% else %}unknown{% endif %}</div>
+  </article>
+  <article class="stat">
+    <div class="muted">Spent today</div>
+    <div class="value">${{ '%.4f'|format(spend_today) }}</div>
+  </article>
+  <article class="stat">
+    <div class="muted">Outputs</div>
+    <div class="value">{{ outputs_total }}</div>
+  </article>
+</div>
+
+<section class="dash-section">
+  <h2>Projects</h2>
+  <table>
+    <thead><tr><th>Name</th><th>Outputs</th><th>Cost</th></tr></thead>
+    <tbody>
+      {% for p in projects %}
+      <tr><td>{{ p.name }}</td><td>{{ p.outputs }}</td><td>${{ '%.4f'|format(p.cost) }}</td></tr>
+      {% else %}
+      <tr><td colspan="3">No projects yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p><a href="/projects">Manage projects</a></p>
+</section>
 {% endblock %}
