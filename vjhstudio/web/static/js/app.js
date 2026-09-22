@@ -720,6 +720,14 @@ window.vjhMeasureHeader = function () {
 // Generate). Only links the macro itself would mark carry `data-navlink`, so the logo
 // and the "Update available" / "No API key" chips (both /settings...) are left alone,
 // exactly as they are server-side.
+//
+// The Queue chip is one of those `data-navlink`s, and this is the *only* thing that
+// keeps it right: it re-renders itself every 10 seconds from /hx/jobs/badge, and the
+// server cannot know which page that poll belongs to. (It was once told, via a `?at=`
+// on the poll URL. htmx reads hx-get once, when it processes the element, and closes
+// over that string for good -- so the parameter was frozen at the cold-load path and
+// rewriting the attribute afterwards changed nothing.) Because the markup that comes
+// back is server-rendered, the settle below has to run after *every* swap.
 window.vjhMarkCurrentNav = function () {
   var path = window.location.pathname;
   var links = document.querySelectorAll('body > header nav a[data-navlink]');
@@ -729,18 +737,6 @@ window.vjhMarkCurrentNav = function () {
     if (current) a.setAttribute('aria-current', 'page');
     else a.removeAttribute('aria-current');
   });
-
-  // The Queue chip re-renders itself every 10s from /hx/jobs/badge?at=<path>, and the
-  // server marks the chip's own aria-current from that `at`. It was baked in when the
-  // header was rendered, so without this the next poll would undo the marking above --
-  // leaving two links marked, or the chip unmarked while you are on /queue. Only the
-  // attribute is rewritten: htmx reads hx-get when it fires the request, and running
-  // htmx.process() on the badge would bind a second copy of the `every 10s` trigger.
-  var badge = document.getElementById('jobs-badge');
-  if (badge) {
-    var url = (badge.getAttribute('hx-get') || '').split('?')[0];
-    if (url) badge.setAttribute('hx-get', url + '?at=' + encodeURIComponent(path));
-  }
 };
 
 (function () {
@@ -770,8 +766,15 @@ window.vjhMarkCurrentNav = function () {
   document.addEventListener('htmx:replacedInHistory', settleSoon);
   document.addEventListener('htmx:historyRestore', settleSoon);
   window.addEventListener('popstate', settleSoon);
-  // A badge swap brings back server-rendered markup: the Queue chip arrives with its
-  // own aria-current and its own `at=`, so the full settle has to run, not just the
-  // measure. (Which also covers the nav rewrapping when the Update chip appears.)
+  // EVERY swap, not just a navigation: the Queue chip's own 10-second poll replaces it
+  // with markup the server rendered for /hx/jobs/badge, and the queue panel re-renders
+  // it out of band as well. Both arrive unmarked, and this is what marks them. (It also
+  // covers the nav rewrapping when the Update chip appears.)
   document.addEventListener('htmx:afterSettle', settle);
+
+  // The cold-load markup is already right, but the JS has to agree with it from the
+  // start -- otherwise the first poll would be the first time the chip was ever marked
+  // by this code, on a page whose header it had never looked at.
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', settle);
+  else settle();
 })();

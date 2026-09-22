@@ -207,29 +207,60 @@ def test_no_lightbox_listener_is_bound_to_the_dialog_itself():
     assert "dlg.addEventListener" not in APP_JS
 
 
-def test_the_queue_chip_poll_url_follows_the_current_page():
-    """The chip re-renders from /hx/jobs/badge?at=<path> and the server marks its
-    aria-current from `at`. Left at the cold-load path, the next poll would undo the
-    client-side marking."""
+def test_the_queue_chips_highlight_is_owned_by_the_client():
+    """The chip replaces itself every 10s with markup the server rendered for
+    /hx/jobs/badge, and the server has no way of knowing which page that poll belongs
+    to. It was once told, as `?at=<path>` on the poll URL -- but htmx reads hx-get once,
+    when it processes the element, and closes over that string for the element's whole
+    life (see the test below), so the parameter was frozen at the cold-load path and
+    rewriting the attribute changed nothing. So JS owns the mark, and the settle runs
+    after every swap rather than only after a navigation."""
     mark = APP_JS[APP_JS.index("window.vjhMarkCurrentNav = function ()") :]
     mark = mark[: mark.index("\n};")]
     code = "\n".join(ln for ln in mark.splitlines() if not ln.lstrip().startswith("//"))
-    assert "document.getElementById('jobs-badge')" in code
-    assert "'?at=' + encodeURIComponent(path)" in code
-    assert "htmx.process" not in code  # that would bind a second `every 10s` trigger
-    # and a badge swap has to re-run the whole settle, not just the measure
+    assert "jobs-badge" not in code and "'?at='" not in code  # no attribute rewriting
+    assert "a[data-navlink]" in code  # the chip is one of these
     assert "document.addEventListener('htmx:afterSettle', settle);" in APP_JS
+    for event in ("htmx:pushedIntoHistory", "htmx:historyRestore"):
+        assert f"document.addEventListener('{event}', settleSoon)" in APP_JS
+    assert "window.addEventListener('popstate', settleSoon)" in APP_JS
+    # and from the cold load on, so the first poll is not the first time it runs
+    assert "document.addEventListener('DOMContentLoaded', settle);" in APP_JS
 
 
-async def test_the_badge_template_still_renders_the_at_parameter(client):
-    """The client-side rewrite splits on '?' and re-appends `at=`; the template has
-    to keep putting it there (and nothing else) for that to be lossless."""
-    r = await client.get("/gallery")
-    assert 'hx-get="/hx/jobs/badge?at=/gallery"' in r.text
-    # the server really does mark the chip from `at`
-    chip = await client.get("/hx/jobs/badge?at=/queue")
-    assert 'aria-current="page"' in chip.text
-    assert 'aria-current="page"' not in (await client.get("/hx/jobs/badge?at=/gallery")).text
+def test_htmx_captures_a_polls_url_when_it_processes_the_element():
+    """Why the `?at=` approach could not work, pinned in the vendored htmx 2.0.4: the
+    trigger-wiring loop reads hx-<verb> into a local and hands *that* to every request
+    the element ever issues. Changing the attribute afterwards is cosmetic."""
+    wire = HTMX_JS[HTMX_JS.index("function wt(t,n,e)") :]
+    wire = wire[: wire.index("function St(")]
+    assert 'const o=te(t,"hx-"+r)' in wire  # read once, at process time
+    assert "de(r,o,n,t)" in wire  # every request reuses that capture
+    assert wire.index('const o=te(t,"hx-"+r)') < wire.index("de(r,o,n,t)")
+
+
+async def test_the_badge_poll_url_carries_no_page_parameter(client):
+    for path in ("/", "/gallery", "/queue"):
+        assert 'hx-get="/hx/jobs/badge"' in (await client.get(path)).text
+        assert "/hx/jobs/badge?" not in (await client.get(path)).text
+    panel = (await client.get("/hx/jobs/active")).text
+    assert 'hx-get="/hx/jobs/active"' in panel and "/hx/jobs/active?" not in panel
+
+
+async def test_the_badge_endpoint_never_marks_anything_current(client):
+    """Decision recorded: the endpoint marks from the *request* path and nothing else,
+    and /hx/jobs/badge is never under /queue -- so a poll response is always unmarked,
+    whatever page it was fired from. Only the cold-load page render marks the chip
+    server-side (test below), and JS re-marks it after every swap."""
+    for url in ("/hx/jobs/badge", "/hx/jobs/badge?at=/queue", "/hx/jobs/active"):
+        assert 'aria-current="page"' not in (await client.get(url)).text
+
+
+async def test_a_cold_load_of_queue_still_marks_the_chip_server_side(client):
+    """Nothing here depends on JS having run: the page render knows its own path."""
+    nav = _nav((await client.get("/queue")).text)
+    marked = re.findall(r'<a href="([^"]+)"[^>]*aria-current="page"', nav)
+    assert marked == ["/queue"]
 
 
 def test_assets_dropzone_is_delegated_and_resolved_per_event():

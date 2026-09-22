@@ -1,5 +1,5 @@
 <aside id="queue-panel" class="queue-panel"
-       hx-get="/hx/jobs/active?at={{ current_path|default('/generate', true)|urlencode }}" hx-trigger="{% if jobs_active %}every 2s, {% endif %}jobs-changed from:body"
+       hx-get="/hx/jobs/active" hx-trigger="{% if jobs_active %}every 2s, {% endif %}jobs-changed from:body"
        hx-swap="outerHTML">
   <header class="queue-head">
     <h3>Queue</h3>

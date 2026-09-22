@@ -1,6 +1,14 @@
 {% from "partials/_boost.html" import boost %}
+{# The chip's own aria-current belongs to vjhMarkCurrentNav() in app.js, not to this
+   template. It used to be carried through the poll as `?at=<path>`, which cannot work:
+   htmx reads hx-get once, when it processes the element, and closes over that string
+   for the element's whole life (vendor/htmx.min.js, `const o = te(t, "hx-" + r)` inside
+   the trigger-wiring loop). Every poll after a boosted swap would therefore keep asking
+   for the page the chip was first rendered on, whatever the attribute said by then.
+   What the server renders below is only ever right for a cold load; app.js re-marks the
+   chip from location.pathname on htmx:afterSettle, which covers this poll too. #}
 <li id="jobs-badge" {% if oob %}hx-swap-oob="true"{% endif %}
-    hx-get="/hx/jobs/badge?at={{ current_path|default('/', true)|urlencode }}" hx-trigger="every 10s, jobs-changed from:body" hx-swap="outerHTML">
+    hx-get="/hx/jobs/badge" hx-trigger="every 10s, jobs-changed from:body" hx-swap="outerHTML">
   {% if active_jobs or unseen_jobs %}
     <a href="/queue" class="chip {% if active_jobs %}busy{% endif %}" data-navlink {{ boost() }}{% if current_path is defined and current_path.startswith('/queue') %} aria-current="page"{% endif %}
        title="{{ active_jobs }} in flight, {{ unseen_jobs }} finished unseen">
