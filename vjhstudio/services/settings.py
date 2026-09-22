@@ -24,7 +24,7 @@ class Spec:
 
 
 SPEC: dict[str, Spec] = {
-    "runware.transport": Spec(str, "rest", ("rest", "websocket"), "VJHSTUDIO_TRANSPORT"),
+    "runware.transport": Spec(str, "websocket", ("rest", "websocket"), "VJHSTUDIO_TRANSPORT"),
     "runware.timeout_s": Spec(int, 1200),
     "jobs.concurrency": Spec(int, 3),
     "paths.outputs_dir": Spec(str, ""),

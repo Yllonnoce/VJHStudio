@@ -325,7 +325,7 @@ class JobRunner:
             if job_id in self._cancelled:
                 ev.set()
             api_key = self.api_key_getter() or ""
-            transport = self.transport_getter() or "rest"
+            transport = self.transport_getter() or "websocket"
             async with self.client_factory(api_key, transport) as client:
                 media = await assets.media_map(
                     client, self.session_factory, self.paths, plan.asset_ids
