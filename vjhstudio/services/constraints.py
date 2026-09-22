@@ -432,7 +432,7 @@ async def harvest(
     docs_transport=None,
     state: HarvestState | None = None,
     docs_concurrency: int = 5,
-    api_concurrency: int = 3,
+    api_concurrency: int = 1,  # sequential: an accepted probe must stop the run before any other request is in flight
 ) -> HarvestState:
     """Learn what every catalog model accepts, for free. Never raises: a crash is
     reported through ``state.message`` so the poll on the Models page always ends."""
