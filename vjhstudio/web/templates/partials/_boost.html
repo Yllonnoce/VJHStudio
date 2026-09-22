@@ -10,6 +10,10 @@
    hx-select="main" / hx-push-url="true" would make every poll swap the page body and
    push /hx/jobs/badge into the browser's history.
 
+   The flip side of keeping the bar: nothing in it is re-rendered by a swap, so the
+   header's own hx-get URLs keep whatever the cold load baked into them -- the Queue
+   chip's `?at=<path>` is rewritten client-side by vjhMarkCurrentNav() in app.js.
+
    htmx 2.0.4 still updates document.title here: makeFragment() reads the <title> out
    of the *whole* response before hx-select narrows it down (vendor/htmx.min.js, the
    `l.title = n.title` in swap(), which runs ahead of the `if (o.select)` branch), and

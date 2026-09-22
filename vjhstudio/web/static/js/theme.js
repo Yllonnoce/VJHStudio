@@ -122,15 +122,22 @@ function _vjhUpdateSwatchStates(activeId) {
   });
 }
 
-/* ── Build swatch grid once DOM is ready ────────────────────────────────── */
-document.addEventListener('DOMContentLoaded', function () {
-  // The saved setting beats whatever this browser remembered
-  _vjhReconcileTheme();
-  // Compute and apply on-accent now that CSS has loaded
-  _vjhApplyOnAccent();
+/* ── Swatch clicks are delegated ─────────────────────────────────────────────
+   htmx's history cache replays a *snapshot of the markup* on Back, which brings
+   the swatch buttons back without the `onclick` properties they were built with
+   -- markup carries attributes, never JS properties. The grid is rebuilt only if
+   the restored snapshot has none; the click itself is read off the
+   `data-vjh-swatch` attribute, which does survive.                            */
+document.addEventListener('click', function (e) {
+  var el = e.target && e.target.closest ? e.target.closest('[data-vjh-swatch]') : null;
+  if (!el) return;
+  vjhSetTheme(el.dataset.vjhSwatch);
+});
 
+/* ── Build swatch grid once DOM is ready ────────────────────────────────── */
+function _vjhBuildSwatches() {
   var container = document.getElementById('vjh-swatches');
-  if (!container) return;
+  if (!container || container.querySelector('[data-vjh-swatch]')) return;
 
   var active = _vjhCurrentTheme();
 
@@ -158,7 +165,6 @@ document.addEventListener('DOMContentLoaded', function () {
       'background:' + t.swatch,
       'display:block',
     ].join(';');
-    btn.onclick = function () { vjhSetTheme(t.id); };
 
     var label = document.createElement('div');
     label.textContent   = t.name;
@@ -173,6 +179,21 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 
   _vjhUpdateSwatchStates(active);
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  // The saved setting beats whatever this browser remembered
+  _vjhReconcileTheme();
+  // Compute and apply on-accent now that CSS has loaded
+  _vjhApplyOnAccent();
+  _vjhBuildSwatches();
+});
+
+// A history restore replaces the whole body, so the picker comes back as markup only.
+document.addEventListener('htmx:historyRestore', function () {
+  _vjhApplyOnAccent();
+  _vjhBuildSwatches();
+  _vjhUpdateSwatchStates(_vjhCurrentTheme());
 });
 
 /* ── Close picker when clicking outside ────────────────────────────────── */

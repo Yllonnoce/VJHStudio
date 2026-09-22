@@ -153,11 +153,18 @@ def test_escape_is_only_swallowed_when_it_was_aimed_at_the_lightbox():
 def test_the_page_behind_the_lightbox_does_not_scroll():
     """A modal dialog blocks the page under it; a non-modal one does not, so the class
     goes on when it opens and comes off on the dialog's own close event -- which covers
-    Esc, the close button, the dim area and the delete path alike."""
+    Esc, the close button, the dim area and the delete path alike.
+
+    The listener is delegated from `document` in the capture phase (`close` does not
+    bubble): boosted navigation swaps <main>, so the <dialog> is a different node on
+    every visit to the gallery and a listener bound to it would stop firing, leaving
+    the page scroll-locked. See tests/test_web_nav.py for the delegation itself."""
     assert "html.vjh-lightbox-open{overflow:hidden}" in APP_CSS
     assert "classList.add('vjh-lightbox-open')" in APP_JS
-    close = APP_JS[APP_JS.index("dlg.addEventListener('close'") :]
-    assert "classList.remove('vjh-lightbox-open')" in close[: close.index("});")]
+    close = APP_JS[APP_JS.index("document.addEventListener('close'") :]
+    close = close[: close.index("}, true);")]
+    assert "e.target.id === 'lightbox'" in close
+    assert "classList.remove('vjh-lightbox-open')" in close
     assert APP_JS.count("classList.remove('vjh-lightbox-open')") == 1
 
 

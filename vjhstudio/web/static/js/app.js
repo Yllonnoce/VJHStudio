@@ -463,13 +463,17 @@ function vjhOpenLightbox() {
 
 // One place to undo that, on the dialog's own event: Esc, the close button, a click
 // on the dim area and the `close-lightbox` that a delete fires all end up here.
-document.addEventListener('DOMContentLoaded', () => {
-  const dlg = document.getElementById('lightbox');
-  if (!dlg) return;
-  dlg.addEventListener('close', () => {
+//
+// Delegated, and in the capture phase: boosted navigation swaps <main>, so the
+// <dialog> the gallery renders is a *different node* on every visit -- a listener
+// bound to the one that existed at load would stop firing, and the page would stay
+// scroll-locked for ever. `close` does not bubble, so a listener on `document` only
+// sees it going down the capture path, never coming back up.
+document.addEventListener('close', (e) => {
+  if (e.target && e.target.id === 'lightbox') {
     document.documentElement.classList.remove('vjh-lightbox-open');
-  });
-});
+  }
+}, true);
 
 document.body.addEventListener('close-lightbox', () => {
   const dlg = document.getElementById('lightbox');
@@ -532,19 +536,28 @@ document.body.addEventListener('htmx:afterSwap', (e) => {
 });
 
 // ── Assets: dropzone drag/drop + upload progress ────────────────────────────────
+// Delegated from `document` and resolved per event: boosted navigation swaps <main>,
+// so the upload form does not exist yet on a cold load of any other page, and it is a
+// new node every time you come back to /assets. Binding at load time would leave the
+// dropzone dead on exactly the visits that matter.
 (function () {
-  const form = document.getElementById('asset-upload-form');
-  if (!form) return;
-  const input = document.getElementById('asset-files-input');
+  function dropzone(e) {
+    const form = document.getElementById('asset-upload-form');
+    return form && form.contains(e.target) ? form : null;
+  }
 
   ['dragenter', 'dragover'].forEach((evt) => {
-    form.addEventListener(evt, (e) => {
+    document.addEventListener(evt, (e) => {
+      const form = dropzone(e);
+      if (!form) return;   // outside the form the browser's "no drop" default stands
       e.preventDefault();
       form.classList.add('is-dragover');
     });
   });
   ['dragleave', 'drop'].forEach((evt) => {
-    form.addEventListener(evt, (e) => {
+    document.addEventListener(evt, (e) => {
+      const form = dropzone(e);
+      if (!form) return;
       e.preventDefault();
       form.classList.remove('is-dragover');
     });
@@ -552,7 +565,10 @@ document.body.addEventListener('htmx:afterSwap', (e) => {
   // Dropping files assigns them straight to the hidden <input type=file> and submits
   // the form immediately; picking via the "choose files" label still requires the
   // explicit Upload click.
-  form.addEventListener('drop', (e) => {
+  document.addEventListener('drop', (e) => {
+    const form = dropzone(e);
+    if (!form) return;
+    const input = document.getElementById('asset-files-input');
     const files = e.dataTransfer && e.dataTransfer.files;
     if (!files || !files.length || !input) return;
     input.files = files;
@@ -713,6 +729,18 @@ window.vjhMarkCurrentNav = function () {
     if (current) a.setAttribute('aria-current', 'page');
     else a.removeAttribute('aria-current');
   });
+
+  // The Queue chip re-renders itself every 10s from /hx/jobs/badge?at=<path>, and the
+  // server marks the chip's own aria-current from that `at`. It was baked in when the
+  // header was rendered, so without this the next poll would undo the marking above --
+  // leaving two links marked, or the chip unmarked while you are on /queue. Only the
+  // attribute is rewritten: htmx reads hx-get when it fires the request, and running
+  // htmx.process() on the badge would bind a second copy of the `every 10s` trigger.
+  var badge = document.getElementById('jobs-badge');
+  if (badge) {
+    var url = (badge.getAttribute('hx-get') || '').split('?')[0];
+    if (url) badge.setAttribute('hx-get', url + '?at=' + encodeURIComponent(path));
+  }
 };
 
 (function () {
@@ -742,6 +770,8 @@ window.vjhMarkCurrentNav = function () {
   document.addEventListener('htmx:replacedInHistory', settleSoon);
   document.addEventListener('htmx:historyRestore', settleSoon);
   window.addEventListener('popstate', settleSoon);
-  // A badge swap (Queue going busy, the Update chip appearing) can rewrap the nav.
-  document.addEventListener('htmx:afterSettle', function () { window.vjhMeasureHeader(); });
+  // A badge swap brings back server-rendered markup: the Queue chip arrives with its
+  // own aria-current and its own `at=`, so the full settle has to run, not just the
+  // measure. (Which also covers the nav rewrapping when the Update chip appears.)
+  document.addEventListener('htmx:afterSettle', settle);
 })();

@@ -14,6 +14,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES = REPO_ROOT / "vjhstudio" / "web" / "templates"
 APP_JS = (REPO_ROOT / "vjhstudio" / "web" / "static" / "js" / "app.js").read_text()
+THEME_JS = (REPO_ROOT / "vjhstudio" / "web" / "static" / "js" / "theme.js").read_text()
 HTMX_JS = (REPO_ROOT / "vjhstudio" / "web" / "static" / "vendor" / "htmx.min.js").read_text()
 
 BOOST_ATTRS = [
@@ -178,3 +179,89 @@ async def test_generate_page_main_carries_the_opt_out(client):
     r = await client.get("/generate")
     assert re.search(r'<main class="container" hx-history="false">', r.text)
     assert '<main class="container">' in (await client.get("/gallery")).text
+
+
+# ── What a swap and a history restore break: load-time initialisers ─────────────
+# Every one of these used to run once, against the nodes that happened to exist then.
+# A boosted swap replaces <main> (so <main>'s nodes are new), and a history restore
+# replaces the whole body from a markup snapshot (so JS properties are gone). Each is
+# now delegated from a node that survives both.
+
+
+def test_lightbox_close_is_delegated_in_the_capture_phase():
+    """`close` does not bubble, so a delegated listener has to catch it on the way
+    down. Bound to the dialog instead, it would stop firing after the first boosted
+    swap and leave <html> stuck with vjh-lightbox-open -- the page would never scroll
+    again."""
+    assert "document.addEventListener('DOMContentLoaded', () => {\n  const dlg" not in APP_JS
+    close = APP_JS[APP_JS.index("document.addEventListener('close'") :]
+    close = close[: close.index("\n\n")]
+    assert "e.target.id === 'lightbox'" in close
+    assert "classList.remove('vjh-lightbox-open')" in close
+    assert close.rstrip().endswith("}, true);")  # capture phase
+
+
+def test_no_lightbox_listener_is_bound_to_the_dialog_itself():
+    """The rest of the lightbox (Esc, arrows, the dim-area click, close-lightbox)
+    already looks the dialog up per event; nothing may go back to binding it."""
+    assert "dlg.addEventListener" not in APP_JS
+
+
+def test_the_queue_chip_poll_url_follows_the_current_page():
+    """The chip re-renders from /hx/jobs/badge?at=<path> and the server marks its
+    aria-current from `at`. Left at the cold-load path, the next poll would undo the
+    client-side marking."""
+    mark = APP_JS[APP_JS.index("window.vjhMarkCurrentNav = function ()") :]
+    mark = mark[: mark.index("\n};")]
+    code = "\n".join(ln for ln in mark.splitlines() if not ln.lstrip().startswith("//"))
+    assert "document.getElementById('jobs-badge')" in code
+    assert "'?at=' + encodeURIComponent(path)" in code
+    assert "htmx.process" not in code  # that would bind a second `every 10s` trigger
+    # and a badge swap has to re-run the whole settle, not just the measure
+    assert "document.addEventListener('htmx:afterSettle', settle);" in APP_JS
+
+
+async def test_the_badge_template_still_renders_the_at_parameter(client):
+    """The client-side rewrite splits on '?' and re-appends `at=`; the template has
+    to keep putting it there (and nothing else) for that to be lossless."""
+    r = await client.get("/gallery")
+    assert 'hx-get="/hx/jobs/badge?at=/gallery"' in r.text
+    # the server really does mark the chip from `at`
+    chip = await client.get("/hx/jobs/badge?at=/queue")
+    assert 'aria-current="page"' in chip.text
+    assert 'aria-current="page"' not in (await client.get("/hx/jobs/badge?at=/gallery")).text
+
+
+def test_assets_dropzone_is_delegated_and_resolved_per_event():
+    """A cold load of any other page has no #asset-upload-form at all, so the old
+    load-time IIFE returned early and the dropzone was dead on every boosted visit
+    to /assets."""
+    zone = APP_JS[APP_JS.index("// ── Assets: dropzone drag/drop") :]
+    zone = zone[: zone.index("// htmx dispatches htmx:xhr:progress")]
+    assert (
+        "const form = document.getElementById('asset-upload-form');\n  if (!form) return;"
+        not in zone
+    )
+    assert "function dropzone(e)" in zone and "form.contains(e.target)" in zone
+    for evt in ("dragenter", "dragover", "dragleave", "drop"):
+        assert evt in zone
+    assert "form.addEventListener" not in zone
+    assert zone.count("document.addEventListener(evt") == 2
+    assert "document.addEventListener('drop'" in zone
+
+
+def test_theme_swatches_are_delegated_off_a_data_attribute():
+    """A restored snapshot is markup: `btn.onclick = ...` does not survive it."""
+    assert ".onclick" not in THEME_JS
+    assert "e.target.closest('[data-vjh-swatch]')" in THEME_JS
+    assert "vjhSetTheme(el.dataset.vjhSwatch)" in THEME_JS
+    # rebuilt only when the restored markup carries no swatches at all
+    assert "function _vjhBuildSwatches()" in THEME_JS
+    assert "container.querySelector('[data-vjh-swatch]')) return;" in THEME_JS
+    assert "document.addEventListener('htmx:historyRestore'" in THEME_JS
+
+
+def test_boost_partial_warns_that_header_urls_are_not_refreshed():
+    src = (TEMPLATES / "partials" / "_boost.html").read_text()
+    assert "nothing in it is re-rendered by a swap" in src
+    assert "hx-get" in src and "vjhMarkCurrentNav()" in src
