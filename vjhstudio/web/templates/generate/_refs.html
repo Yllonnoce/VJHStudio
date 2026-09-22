@@ -21,11 +21,37 @@
       </article>
     </template>
   </div>
+  {# An image-to-video-only model has no text-only path at all, so say so here, where
+     the fix is, rather than leaving it to the pre-flight 422. `needsFirstFrame` is read
+     off #model-params' data-needs-first-frame after every swap of that panel (app.js),
+     which is how this line follows the model select. #}
+  <p class="warn ref-needs-first" x-show="mode === 'video' && needsFirstFrame"
+     {% if not (mode == 'video' and params.needs_first_frame) %}style="display:none"{% endif %}>
+    This model needs a first-frame image.</p>
+  {# One "Upload …" + "+ Add …" pair per reference role. Both are rendered server-side
+     (every role, every mode) so the controls are real markup rather than an x-for
+     template; Alpine only hides the roles this mode does not offer and the single
+     slots that are already filled. The upload posts the file to /assets/upload and
+     lands as a chip through the same addRef() the picker dialog feeds. #}
+  {% set ref_roles = [('first', 'first frame'), ('last', 'last frame'), ('seed', 'seed image'), ('reference', 'reference')] %}
+  {% set mode_roles = ['first', 'last', 'reference'] if mode == 'video' else ['seed', 'reference'] %}
+  {% set filled_ref_roles = filled_ref_roles|default([], true) %}
   <div class="ref-add">
-    <template x-for="role in openRoles()" :key="role">
-      <button type="button" class="secondary outline" @click="openPicker(role)"
-              x-text="'+ Add ' + roleLabel(role)"></button>
-    </template>
+    {% for role, label in ref_roles %}
+    {% set needed = role == 'first' and mode == 'video' and params.needs_first_frame %}
+    <span class="ref-slot{{ ' needed' if needed else '' }}" data-role="{{ role }}"{% if role == 'first' %} :class="{ needed: needsFirstFrame }"{% endif %}
+          x-show="openRoles().indexOf('{{ role }}') >= 0"{% if role not in mode_roles or role in filled_ref_roles %} style="display:none"{% endif %}>
+      <label class="ref-upload" aria-busy="false" aria-disabled="false"
+             :aria-busy="uploading === '{{ role }}' ? 'true' : 'false'"
+             :aria-disabled="uploading !== '' ? 'true' : 'false'">
+        Upload {{ label }}
+        <input type="file" accept="image/*" aria-label="Upload {{ label }}"
+               aria-required="{{ 'true' if needed else 'false' }}"{% if role == 'first' %} :aria-required="needsFirstFrame ? 'true' : 'false'"{% endif %}
+               :disabled="uploading !== ''" @change="uploadRef('{{ role }}', $event.target)">
+      </label>
+      <button type="button" class="secondary outline" @click="openPicker('{{ role }}')">+ Add {{ label }}</button>
+    </span>
+    {% endfor %}
   </div>
 
   <dialog id="ref-picker">

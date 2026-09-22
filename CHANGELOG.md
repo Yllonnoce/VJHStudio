@@ -18,6 +18,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A Reset button on the Generate page that clears the form in the current mode.
 - The Models page can sort each list by price (default) or by name.
 - A Queue page (`/queue`): the live queue plus a history table of the last 50 finished jobs; the header chip links there instead of the Generate form.
+- Upload a first frame (or seed/reference image) straight from the Generate page; models that need a first frame say so in the References section.
 
 ### Changed
 

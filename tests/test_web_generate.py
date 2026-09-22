@@ -481,3 +481,75 @@ async def test_save_dialog_sits_outside_the_generate_form(client):
     form_html = html[start:end]
     assert 'name="title"' not in form_html and 'name="tags"' not in form_html
     assert 'id="save-prompt-open"' in form_html  # the opener stays in the prompt column
+
+
+# ---- reference uploads ------------------------------------------------------------
+def _slot_tag(refs_html: str, role: str) -> str:
+    """The opening <span class="ref-slot"> tag for one role (its x-show holds a `>`, so
+    slicing to the first `>` would cut the tag in half)."""
+    start = refs_html.index(f'data-role="{role}"')
+    return refs_html[start : refs_html.index("<label", start)]
+
+
+async def test_generate_page_renders_an_upload_control_per_reference_role(client):
+    """One file input per role, rendered server-side (not inside an x-for template) so
+    the controls exist in the markup; Alpine only hides the roles the mode never offers."""
+    html = (await client.get("/generate/video")).text
+    refs = html[html.index('<section class="gen-refs"') : html.index('<dialog id="ref-picker"')]
+    assert refs.count('type="file"') == 4
+    assert refs.count('accept="image/*"') == 4
+    for role, label in (
+        ("first", "first frame"),
+        ("last", "last frame"),
+        ("seed", "seed image"),
+        ("reference", "reference"),
+    ):
+        assert f"uploadRef('{role}', $event.target)" in refs
+        assert f"Upload {label}" in refs
+        assert f"+ Add {label}" in refs  # the picker button stays beside each upload
+    # video mode: the seed slot is the one role this mode has no use for
+    assert 'style="display:none"' in _slot_tag(refs, "seed")
+
+
+async def test_image_mode_hides_the_video_only_reference_slots(client):
+    html = (await client.get("/generate/image")).text
+    refs = html[html.index('<section class="gen-refs"') : html.index('<dialog id="ref-picker"')]
+    for role in ("first", "last"):
+        assert 'style="display:none"' in _slot_tag(refs, role)
+    assert 'style="display:none"' not in _slot_tag(refs, "seed")
+
+
+async def test_a_seeded_single_slot_role_hides_its_upload_row_server_side(client, app):
+    """?ref=asset:N&role=first arrives as a chip, so that slot's upload row is already
+    hidden in the HTML -- Alpine has nothing to un-flash on boot."""
+    with db.session_scope(app.state.boot.session_factory) as s:
+        asset = models.Asset(
+            filename="a.png",
+            original_name="a.png",
+            kind="image",
+            mime="image/png",
+            size_bytes=10,
+            sha256="f" * 64,
+            tags=",",
+        )
+        s.add(asset)
+        s.flush()
+        asset_id = asset.id
+
+    html = (await client.get(f"/generate/video?ref=asset:{asset_id}&role=first")).text
+    refs = html[html.index('<section class="gen-refs"') : html.index('<dialog id="ref-picker"')]
+    assert 'style="display:none"' in _slot_tag(refs, "first")
+    assert 'style="display:none"' not in _slot_tag(refs, "last")  # the free slot stays
+
+
+async def test_every_upload_control_dims_while_one_is_in_flight(client):
+    html = (await client.get("/generate/video")).text
+    refs = html[html.index('<section class="gen-refs"') : html.index('<dialog id="ref-picker"')]
+    dim = ":aria-disabled=\"uploading !== '' ? 'true' : 'false'\""
+    assert refs.count(dim) == 4
+    assert refs.count('aria-disabled="false"') == 4  # the static value before Alpine runs
+
+
+async def test_image_params_panel_carries_the_first_frame_flag_as_false(client):
+    r = await client.get("/hx/model-options?mode=image")
+    assert 'data-needs-first-frame="false"' in r.text

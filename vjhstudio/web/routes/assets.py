@@ -36,6 +36,12 @@ def _filters_from(request: Request) -> dict:
     }
 
 
+def _wants_json(request: Request) -> bool:
+    """True for a caller that asked for JSON outright. htmx sends ``Accept: */*``, so the
+    Assets page's form never trips this; the Generate page's ``fetch`` sets the header."""
+    return "application/json" in request.headers.get("accept", "")
+
+
 def _card_ctx(asset: Asset, *, error: str | None = None) -> dict:
     return {
         "a": asset,
@@ -83,7 +89,14 @@ async def upload_assets(request: Request):
     independently: a 413/415 from one bad file is collected into a toast rather than
     failing the whole batch. The grid always reflects the current DB state afterwards;
     only the status code says whether anything actually got through (200) or every
-    file was rejected (422)."""
+    file was rejected (422).
+
+    ``Accept: application/json`` swaps that grid for a small JSON body instead:
+    ``{"assets": [{id, name, thumb_url, kind}], "errors": ["name: why", ...]}``, with the
+    same 200/422 split. Both keys are always present, so a multi-file post that stored
+    some files and refused others reports both halves rather than hiding the refusals
+    behind a 200. This is what the Generate page's "Upload first frame" control posts
+    to; the Assets page's htmx form sends no such header and keeps getting the partial."""
     app = request.app
     form = await request.form()
     tags = str(form.get("tags", "") or "")
@@ -92,6 +105,7 @@ async def upload_assets(request: Request):
 
     errors: list[str] = []
     duplicates: list[str] = []
+    picked: list[dict] = []
     stored = 0
     if not uploads:
         errors.append("No files were selected.")
@@ -109,7 +123,7 @@ async def upload_assets(request: Request):
             content = await f.read()
             mime = f.content_type or "application/octet-stream"
             try:
-                _asset, created = assets_svc.store_upload(
+                asset, created = assets_svc.store_upload(
                     s,
                     app.state.paths,
                     original_name=name,
@@ -124,6 +138,20 @@ async def upload_assets(request: Request):
             stored += 1
             if not created:
                 duplicates.append(name)
+            # read while the session is open: after the scope commits the row is expired
+            picked.append(
+                {
+                    "id": asset.id,
+                    "name": asset.original_name,
+                    "kind": asset.kind,
+                    "thumb_url": asset_thumb_url(assets_svc.thumb_rel(asset)),
+                }
+            )
+
+    if _wants_json(request):
+        if not stored and not errors:
+            errors.append("Nothing was stored.")
+        return JSONResponse({"assets": picked, "errors": errors}, 200 if stored else 422)
 
     filters = _filters_from(request)
     ctx = _grid_ctx(request, filters, 1)

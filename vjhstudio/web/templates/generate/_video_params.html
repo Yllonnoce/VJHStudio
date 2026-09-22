@@ -1,7 +1,11 @@
 {# Swapped onto itself and onto #model-params when the mode tabs switch: the root keeps
    that id so a mode switch, a model change and a 422 retarget all land in one slot. #}
 {% set ps = posted_settings|default({}, true) %}
+{# data-needs-first-frame rides in with every swap of this panel: the References
+   section (Alpine, outside the swapped subtree) reads it on htmx:afterSwap so its
+   "This model needs a first-frame image." notice follows the model select. #}
 <div id="model-params" class="gen-card"
+     data-needs-first-frame="{{ 'true' if needs_first_frame else 'false' }}"
      hx-get="/hx/model-options?mode=video" hx-trigger="change from:#video-model-select"
      hx-include="#video-model-select" hx-swap="outerHTML">
   <h3>Parameters</h3>

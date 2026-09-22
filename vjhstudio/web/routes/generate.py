@@ -762,6 +762,16 @@ def _page(request: Request, remix: str, mode: str, ref: str = "", role: str = ""
             "polish_versions": polish_svc.VERSIONS_MAX,
             "prompt_id": initial.get("prompt_id") or "",
             "prompt_title": initial.get("title") or "",
+            # a ?ref=asset:N&role=first link (or a remix) seeds a chip for a single-slot
+            # role: its upload row is hidden server-side too, so Alpine has no filled
+            # slot to un-flash on boot
+            "filled_ref_roles": sorted(
+                {
+                    str(chip.get("role"))
+                    for chip in (initial.get("refs") or [])
+                    if str(chip.get("role")) in ROLE_FIELDS
+                }
+            ),
         }
     ctx.update(panel_ctx(request))
     ctx["oob"] = False  # the page already carries the header badge

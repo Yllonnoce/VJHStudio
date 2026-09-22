@@ -350,3 +350,49 @@ async def test_an_air_the_catalog_has_never_seen_still_says_not_in_catalog(clien
     r = await client.get("/generate/video")
     assert r.status_code == 200
     assert "someone:custom@1 (not in catalog)" in r.text
+
+
+# ---- the References section's first-frame notice --------------------------
+async def test_references_section_calls_out_a_model_that_needs_a_first_frame(client, seeded, app):
+    """The params panel's badge is a label; the fix lives under References, so the
+    notice and the first-frame slot are marked there too. The flag reaches the
+    (Alpine-rendered) section through #model-params' data-needs-first-frame."""
+    from vjhstudio.services import settings as settings_svc
+
+    with db.session_scope(app.state.boot.session_factory) as s:
+        settings_svc.set_many(s, {"defaults.video_model": FIRST_ONLY})
+
+    html = (await client.get("/generate/video")).text
+    assert 'data-needs-first-frame="true"' in html
+    refs = html[html.index('<section class="gen-refs"') : html.index('<dialog id="ref-picker"')]
+    assert "This model needs a first-frame image." in refs
+    assert 'style="display:none"' not in refs[: refs.index("This model needs")]
+    first = refs[refs.index('data-role="first"') : refs.index('data-role="last"')]
+    assert 'class="ref-slot needed"' in refs
+    assert 'aria-required="true"' in first
+    assert "Upload first frame" in first
+
+
+async def test_references_section_stays_quiet_for_a_text_to_video_model(client, seeded, app):
+    from vjhstudio.services import settings as settings_svc
+
+    with db.session_scope(app.state.boot.session_factory) as s:
+        settings_svc.set_many(s, {"defaults.video_model": VEO})
+
+    html = (await client.get("/generate/video")).text
+    assert 'data-needs-first-frame="false"' in html
+    refs = html[html.index('<section class="gen-refs"') : html.index('<dialog id="ref-picker"')]
+    # the line is still in the markup (Alpine shows it on a model change) but hidden,
+    # and the first-frame slot is not marked required
+    notice = refs[refs.index('<p class="warn ref-needs-first"') : refs.index("This model needs")]
+    assert 'style="display:none"' in notice
+    first = refs[refs.index('data-role="first"') : refs.index('data-role="last"')]
+    assert 'aria-required="true"' not in first
+    assert "ref-slot needed" not in refs
+
+
+async def test_the_first_frame_flag_follows_a_model_change_in_the_swapped_panel(client, seeded):
+    r = await client.get(f"/hx/model-options?mode=video&air={FIRST_ONLY}")
+    assert 'data-needs-first-frame="true"' in r.text
+    r = await client.get(f"/hx/model-options?mode=video&air={VEO}")
+    assert 'data-needs-first-frame="false"' in r.text

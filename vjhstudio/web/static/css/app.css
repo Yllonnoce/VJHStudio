@@ -444,6 +444,20 @@ tr.archived{opacity:.6}
 .ref-chip-remove{width:auto;padding:.15rem .6rem;margin:0;font-size:.75rem}
 .ref-add{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.5rem}
 .ref-add button{width:auto;padding:.2rem .7rem;margin:0;font-size:.8rem}
+.ref-slot{display:inline-flex;flex-wrap:wrap;align-items:center;gap:.3rem}
+/* "Upload first frame": a file input styled as one of the outline buttons beside it.
+   The input keeps its own box (absolutely placed over the label, fully transparent) so
+   it stays clickable, focusable and announced; the label only supplies the look. */
+.ref-upload{position:relative;display:inline-flex;align-items:center;margin:0;padding:.2rem .7rem;font-size:.8rem;line-height:1.7;white-space:nowrap;cursor:pointer;color:var(--sp-text);background:transparent;border:1px solid var(--sp-btn-tint-border);border-radius:var(--sp-radius)}
+.ref-upload input[type=file]{position:absolute;inset:0;width:100%;height:100%;margin:0;padding:0;opacity:0;cursor:pointer}
+.ref-upload:hover{border-color:var(--sp-accent);color:var(--sp-accent)}
+.ref-upload:focus-within{outline:2px solid var(--sp-accent-glow);outline-offset:2px}
+/* one upload at a time: the one in flight is busy, every other control is dimmed so a
+   click on it is visibly ignored rather than silently dropped */
+.ref-upload[aria-busy=true],.ref-upload[aria-disabled=true]{opacity:.55;pointer-events:none}
+.ref-upload[aria-busy=true]{opacity:.8;border-color:var(--sp-accent);color:var(--sp-accent)}
+.ref-slot.needed .ref-upload{border-color:var(--sp-warning);color:var(--sp-warning);font-weight:600}
+.ref-needs-first{margin:.6rem 0 .35rem;padding:.35rem .5rem;border-left:3px solid var(--sp-warning);border-radius:calc(var(--sp-radius) / 2);background:color-mix(in srgb, var(--sp-warning) 10%, var(--sp-surface))}
 #ref-picker article{max-width:min(46rem, 92vw)}
 #ref-picker header{display:flex;align-items:center;gap:.6rem}
 .ref-picker-close{width:auto;padding:.1rem .5rem;margin:0}
