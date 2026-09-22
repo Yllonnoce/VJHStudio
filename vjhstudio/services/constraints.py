@@ -548,7 +548,7 @@ async def harvest(
     airs: list[str] | None = None,
     docs: bool = True,
     api: bool = True,
-    transport: str = "rest",
+    transport: str = "websocket",
     docs_transport=None,
     state: HarvestState | None = None,
     claimed: bool = False,

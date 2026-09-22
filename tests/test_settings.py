@@ -59,3 +59,7 @@ def test_invalid_env_override_warns_and_falls_back(session, caplog):
         settings.all_values(session, env={"VJHSTUDIO_TRANSPORT": "grpc"})["runware.transport"]
         == "websocket"
     )
+
+
+def test_transport_defaults_to_websocket(session):
+    assert settings.get(session, "runware.transport") == "websocket"
