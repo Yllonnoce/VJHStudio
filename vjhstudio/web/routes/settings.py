@@ -179,7 +179,23 @@ def clear_database(request: Request, form: deps.Form):
 
 
 @router.get("/hx/header/balance")
-def header_balance(request: Request):
-    with db.session_scope(request.app.state.boot.session_factory) as s:
+async def header_balance(request: Request):
+    """The header chip polls this every 60 s and after a job finishes. The cache is
+    only as fresh as the last refresh, so when it is older than a few seconds we ask
+    RunWare again; if that fails the last known amount is shown, marked stale."""
+    app = request.app
+    with db.session_scope(app.state.boot.session_factory) as s:
         bal = account.cached_balance(s)
-    return deps.render(request, "partials/_balance_chip.html", {"balance": bal})
+    stale = False
+    key = app.state.api_key()
+    if key and account.is_stale(bal):
+        try:
+            bal = await account.refresh_balance(
+                app.state.client_factory,
+                key,
+                app.state.setting("runware.transport"),
+                app.state.boot.session_factory,
+            )
+        except account.BalanceError:
+            stale = bal is not None
+    return deps.render(request, "partials/_balance_chip.html", {"balance": bal, "stale": stale})

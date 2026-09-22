@@ -28,6 +28,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- The header balance chip asks RunWare again when its cached value is older than 30 seconds and after every finished job; if RunWare cannot be reached it shows the last known amount marked with a question mark. Before, the cache was only refreshed by the Test button in Settings.
 - Headings and inputs no longer render with Pico's light-theme colours when a dark theme is active
   (the theme bridge now outranks Pico's specificity).
 - No page scrolls horizontally at phone width.

@@ -30,7 +30,6 @@ def test_db_only_handlers_are_sync_so_starlette_threadpools_them():
         settings_routes.save_api_key,
         settings_routes.clear_api_key,
         settings_routes.clear_database,
-        settings_routes.header_balance,
     ):
         assert not inspect.iscoroutinefunction(fn), fn.__name__
     assert inspect.iscoroutinefunction(settings_routes.test_api_key)

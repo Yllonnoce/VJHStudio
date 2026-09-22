@@ -96,3 +96,41 @@ async def test_settings_page_has_exactly_one_balance_chip(client, fake):
     r = await client.get("/settings")
     assert r.text.count('id="balance-chip"') == 1
     assert "hx-swap-oob" not in r.text
+
+
+async def test_header_balance_refreshes_a_stale_cache(client, fake, app):
+    from datetime import timedelta
+
+    from vjhstudio import db
+    from vjhstudio.models import utcnow
+    from vjhstudio.services import meta
+
+    await client.post("/settings/api-key", data={"api_key": "abcdefgh1234"})
+    with db.session_scope(app.state.boot.session_factory) as s:
+        meta.set(s, "account.balance", "36.84")
+        meta.set(s, "account.balance_at", (utcnow() - timedelta(hours=30)).isoformat())
+    fake.script["account_management"] = [[{"balance": 27.9}]]
+    r = await client.get("/hx/header/balance")
+    assert r.status_code == 200 and "$27.90" in r.text and "$36.84" not in r.text
+    # fresh now: the next poll shows the cache without asking again
+    fake.script["account_management"] = []
+    r = await client.get("/hx/header/balance")
+    assert "$27.90" in r.text
+
+
+async def test_header_balance_keeps_the_last_amount_when_runware_is_down(client, fake, app):
+    from datetime import timedelta
+
+    from runware import RunwareError
+
+    from vjhstudio import db
+    from vjhstudio.models import utcnow
+    from vjhstudio.services import meta
+
+    await client.post("/settings/api-key", data={"api_key": "abcdefgh1234"})
+    with db.session_scope(app.state.boot.session_factory) as s:
+        meta.set(s, "account.balance", "12.5")
+        meta.set(s, "account.balance_at", (utcnow() - timedelta(minutes=5)).isoformat())
+    fake.script["account_management"] = [RunwareError("connectionFailed", "offline")]
+    r = await client.get("/hx/header/balance")
+    assert r.status_code == 200 and "$12.50 ?" in r.text and "last known" in r.text

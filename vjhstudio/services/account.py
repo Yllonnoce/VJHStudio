@@ -66,6 +66,16 @@ async def refresh_balance(
     return info
 
 
+BALANCE_MAX_AGE_S = 30
+
+
+def is_stale(info: BalanceInfo | None, max_age_s: int = BALANCE_MAX_AGE_S) -> bool:
+    """True when the header chip should ask RunWare again rather than show the cache."""
+    if info is None:
+        return True
+    return (utcnow() - info.fetched_at).total_seconds() > max_age_s
+
+
 def cached_balance(session: Session) -> BalanceInfo | None:
     amount, at = meta.get(session, "account.balance"), meta.get(session, "account.balance_at")
     if amount is None or at is None:
