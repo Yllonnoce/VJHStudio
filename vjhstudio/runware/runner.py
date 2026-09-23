@@ -18,13 +18,19 @@ from .sizes import nearest_size_in
 MAX_ATTEMPTS = 5
 PROTECTED = ("taskType", "taskUUID", "model", "positivePrompt")
 PAIR = ("width", "height")
-_UNSUPPORTED = re.compile(r"unsupported use of '?([A-Za-z0-9_.]+)'? parameter", re.I)
+# RunWare words an unknown key two ways: "unsupported use of 'x' parameter" and
+# "Invalid parameter detected. The parameter "'x'" is not recognized or supported".
+_UNSUPPORTED = re.compile(
+    r"unsupported use of '?([A-Za-z0-9_.]+)'? parameter"
+    r"""|parameter\s+["']*([A-Za-z0-9_.]+)["']*\s+is not recognized""",
+    re.I,
+)
 # The fallback contract is about *unsupported* parameters only. RunWare reports an
 # out-of-range value ("Invalid value for 'height' parameter…") with the same
 # ``validation`` code and a populated ``.parameter``; dropping that field would delete a
 # required input, retry blindly and finally fail with a misleading cause, so every
-# message that does not say "unsupported" must surface as-is.
-_UNSUPPORTED_HINT = re.compile(r"unsupported", re.I)
+# message that does not say the *parameter* is unknown must surface as-is.
+_UNSUPPORTED_HINT = re.compile(r"unsupported|not recognized", re.I)
 _BACKOFF = {"rateLimit": [2, 5, 15], "connection": [1, 3, 8], "serverError": [5]}
 
 
@@ -58,7 +64,7 @@ def rejected_field(err: BaseException, task: dict) -> str | None:
     cand = getattr(err, "parameter", None)
     if not cand:
         m = _UNSUPPORTED.search(message)
-        cand = m.group(1) if m else None
+        cand = (m.group(1) or m.group(2)) if m else None
     if not cand:
         return None
     path = cand if _has_path(task, cand) else _find_path(task, cand.split(".")[-1])

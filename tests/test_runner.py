@@ -302,3 +302,24 @@ def test_a_nested_width_is_still_dropped():
     e.parameter = "inputs.frameImages.width"
     task = {"width": 1280, "height": 720, "inputs": {"frameImages": {"width": 512}}}
     assert runner.rejected_field(e, task) == "inputs.frameImages.width"
+
+
+NOT_RECOGNIZED = (
+    "Invalid parameter detected. The parameter \"'negativePrompt'\" is not recognized "
+    "or supported by this model."
+)
+
+
+def test_not_recognized_wording_is_an_unsupported_parameter():
+    """RunWare's second wording for an unknown key (seen live from bfl:2@2). The job
+    must drop the field and retry for free, not surface a failure."""
+    task = {"model": "bfl:2@2", "positivePrompt": "x", "negativePrompt": "blurry"}
+    e = RunwareError("unsupportedParameter", NOT_RECOGNIZED)
+    e.parameter = "negativePrompt"
+    assert runner.rejected_field(e, task) == "negativePrompt"
+    e2 = RunwareError("unsupportedParameter", NOT_RECOGNIZED)  # no .parameter: parse it
+    assert runner.rejected_field(e2, task) == "negativePrompt"
+    # an invalid *value* still surfaces as-is
+    e3 = RunwareError("invalidValue", "Invalid value for 'height' parameter: must be even.")
+    e3.parameter = "height"
+    assert runner.rejected_field(e3, {"height": 3, "positivePrompt": "x"}) is None
