@@ -2,19 +2,23 @@
 
 from __future__ import annotations
 
+import errno
+import json
 import logging
+import os
+import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session, object_session, sessionmaker
 
 from .. import __version__
 from .. import db as db_mod
 from ..config import Paths
-from ..models import Job, Output, Project, utcnow
+from ..models import Job, Output, Project, UsageEntry, utcnow
 from ..runware.download import SavedFile, make_poster, make_thumbnail, write_sidecar
 from . import projects, prompts
 
@@ -354,6 +358,154 @@ def delete(session: Session, paths: Paths, output_id: int) -> bool:
     session.delete(o)
     session.flush()
     return True
+
+
+class OutputMoveError(RuntimeError):
+    """A move that could not be carried out. The row is left exactly as it was."""
+
+
+def _sidecar_name(filename: str, sidecar_rel_path: str) -> str:
+    """Keep the sidecar paired with its media file: the file's stem, the sidecar's suffix."""
+    return Path(filename).stem + (Path(sidecar_rel_path).suffix or ".json")
+
+
+def _free_filename(
+    session: Session, dest_dir: Path, project_id: int, output_id: int, output: Output
+) -> str:
+    """A name that is free in the target project, both on disk and in the table.
+
+    ``ux_outputs_project_filename`` is unique, so a collision has to be resolved for the
+    row as well as for the file -- and the sidecar is checked too, or the media file
+    would land on a free name next to somebody else's sidecar."""
+    stem, suffix = Path(output.filename).stem, Path(output.filename).suffix
+    candidate, n = output.filename, 1
+    while True:
+        on_disk = (dest_dir / candidate).exists() or (
+            dest_dir / _sidecar_name(candidate, output.sidecar_rel_path)
+        ).exists()
+        in_db = (
+            session.execute(
+                select(Output.id).where(
+                    Output.project_id == project_id,
+                    Output.filename == candidate,
+                    Output.id != output_id,
+                )
+            ).first()
+            is not None
+        )
+        if not (on_disk or in_db):
+            return candidate
+        n += 1
+        candidate = f"{stem}-{n}{suffix}"
+
+
+def _relocate(src: Path, dest: Path) -> None:
+    """``os.replace`` is atomic but only within one filesystem; the outputs root can be
+    set to another drive, and that raises EXDEV -- which is exactly ``shutil.move``'s job."""
+    try:
+        os.replace(src, dest)
+    except OSError as e:
+        if e.errno != errno.EXDEV:
+            raise
+        shutil.move(str(src), str(dest))
+
+
+def _retag_sidecar(path: Path, slug: str) -> None:
+    """Keep the sidecar's own ``project`` field honest after a move. Best effort: a
+    sidecar that is missing, or is not readable JSON, is left as it is -- the move
+    itself has already succeeded and must not be undone over a metadata nicety."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        log.warning("could not re-tag sidecar %s: %s", path, e)
+        return
+    if not isinstance(data, dict) or data.get("project") == slug:
+        return
+    data["project"] = slug
+    try:
+        path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+    except OSError as e:
+        log.warning("could not re-tag sidecar %s: %s", path, e)
+
+
+def move(session: Session, paths: Paths, output_id: int, project_id: int) -> Output:
+    """File an output under another project: the media file, its sidecar and its cost.
+
+    The thumbnail (and a video's poster) live in the shared ``thumbs/`` folder, which is
+    project-independent, so they stay exactly where they are.
+
+    Cost follows the *job*: the output's job and that job's usage rows are re-pointed too,
+    which is what the project totals are built from. A job with several outputs therefore
+    takes its whole spend along with the first one moved -- spend is charged per task, and
+    splitting it over the images a task returned would invent numbers nobody was billed.
+
+    The disk is done first and the row second, so a failed move leaves the row describing
+    a file that is still there. ``is_missing`` rows (and rows whose file has gone without
+    the flag being set yet) move as a row only.
+    """
+    o = session.get(Output, output_id)
+    if o is None:
+        raise LookupError(output_id)
+    target = projects.get(session, int(project_id))
+    if target is None:
+        raise OutputMoveError("that project does not exist")
+    if target.is_archived:
+        raise OutputMoveError(f"{target.name} is archived — un-archive it first")
+    if o.project_id == target.id:
+        return o
+
+    root = projects.root_for(session, paths)
+    src = contained(root, o.rel_path)
+    if src is None:
+        # a row pointing outside the outputs root is never followed onto the filesystem
+        raise OutputMoveError("this output's path lies outside the outputs folder")
+    src_sidecar = contained(root, o.sidecar_rel_path)
+    on_disk = src.is_file()
+
+    dest_dir = projects.dir_for(paths, target.slug, projects.root_override(session))
+    if on_disk:
+        try:
+            dest_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            raise OutputMoveError(f"could not open the folder for {target.name}: {e}") from e
+
+    filename = _free_filename(session, dest_dir, target.id, o.id, o)
+    rel_path = f"{target.slug}/{filename}"
+    sidecar_rel_path = f"{target.slug}/{_sidecar_name(filename, o.sidecar_rel_path)}"
+    dest, dest_sidecar = contained(root, rel_path), contained(root, sidecar_rel_path)
+    if dest is None or dest_sidecar is None:
+        raise OutputMoveError("that project's folder lies outside the outputs folder")
+
+    if on_disk:
+        try:
+            _relocate(src, dest)
+        except OSError as e:
+            raise OutputMoveError(f"could not move {o.filename}: {e}") from e
+        if src_sidecar is not None and src_sidecar.is_file():
+            try:
+                _relocate(src_sidecar, dest_sidecar)
+            except OSError as e:
+                # put the media file back, so the untouched row still describes the disk
+                try:
+                    _relocate(dest, src)
+                except OSError:
+                    log.warning("could not undo the move of %s back to %s", dest, src)
+                raise OutputMoveError(f"could not move the sidecar for {o.filename}: {e}") from e
+        _retag_sidecar(dest_sidecar, target.slug)
+
+    o.filename = filename
+    o.rel_path = rel_path
+    o.sidecar_rel_path = sidecar_rel_path
+    o.project_id = target.id
+    o.is_missing = not on_disk
+    job = session.get(Job, o.job_id)
+    if job is not None:
+        job.project_id = target.id
+    session.execute(
+        update(UsageEntry).where(UsageEntry.job_id == o.job_id).values(project_id=target.id)
+    )
+    session.flush()
+    return o
 
 
 def remix_request(output: Output) -> dict:

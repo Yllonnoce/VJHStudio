@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -23,6 +24,9 @@ router = APIRouter()
 _MIME_BY_EXT = {ext: mime for mime, ext in assets_svc.ALLOWED_IMAGE.items()} | {
     "jpeg": "image/jpeg"
 }
+# htmx takes an HX-Trigger with several events as JSON; the grid and the queue/
+# spend widgets listen for one each.
+_MOVED_EVENTS = json.dumps({"outputs-changed": True, "jobs-changed": True})
 _TRUTHY = ("1", "true", "yes", "on")
 _FALSY = ("0", "false", "no", "off")
 
@@ -121,23 +125,64 @@ def hx_gallery(request: Request, page: int = 1):
     return deps.render(request, template, ctx)
 
 
+def _detail_ctx(session, output: Output, *, note: str = "", error: str = "") -> dict:
+    project = session.get(Project, output.project_id)
+    model = catalog.get_by_air(session, output.model_air)
+    active = projects.list_active(session)
+    # a still-open lightbox on an archived project must keep naming it, or the dropdown
+    # would silently offer to move the output somewhere it is not
+    if project is not None and all(p.id != project.id for p in active):
+        active = [project, *active]
+    return {
+        "o": output,
+        "url": output_url(project.slug if project else "", output.filename),
+        "thumb": thumb_url(output.thumb_rel_path),
+        "poster": thumb_url(output.poster_rel_path),
+        "model_name": catalog.label(model) if model else output.model_air,
+        "project_name": project.name if project else "—",
+        "move_projects": active,
+        "move_note": note,
+        "move_error": error,
+    }
+
+
 @router.get("/hx/outputs/{output_id}")
 def hx_output_detail(request: Request, output_id: int):
     with db.session_scope(request.app.state.boot.session_factory) as s:
         o = outputs_svc.get(s, output_id)
         if o is None:
             raise HTTPException(status_code=404, detail="unknown output")
-        project = s.get(Project, o.project_id)
-        slug = project.slug if project else ""
-        model = catalog.get_by_air(s, o.model_air)
-        ctx = {
-            "o": o,
-            "url": output_url(slug, o.filename),
-            "thumb": thumb_url(o.thumb_rel_path),
-            "poster": thumb_url(o.poster_rel_path),
-            "model_name": catalog.label(model) if model else o.model_air,
-        }
-        return deps.render(request, "gallery/_detail.html", ctx)
+        return deps.render(request, "gallery/_detail.html", _detail_ctx(s, o))
+
+
+@router.post("/outputs/{output_id}/move")
+def move_output(request: Request, output_id: int, form: deps.Form):
+    """File an output under another project, file and cost included.
+
+    The lightbox deliberately stays open -- the panel is re-rendered in place with the
+    new project already selected -- while ``outputs-changed`` sends the grid behind it
+    for a fresh page and ``jobs-changed`` refreshes anything showing project spend.
+    """
+    with db.session_scope(request.app.state.boot.session_factory) as s:
+        o = outputs_svc.get(s, output_id)
+        if o is None:
+            raise HTTPException(status_code=404, detail="unknown output")
+        target_id = _int_or_none(str(form.get("project_id", "") or "").strip())
+        if target_id is None:
+            ctx = _detail_ctx(s, o, error="Pick a project to move this to.")
+            return deps.render(request, "gallery/_detail.html", ctx, status_code=422)
+        was = o.project_id
+        try:
+            o = outputs_svc.move(s, request.app.state.paths, output_id, target_id)
+        except outputs_svc.OutputMoveError as e:
+            ctx = _detail_ctx(s, o, error=f"Could not move this output: {e}.")
+            return deps.render(request, "gallery/_detail.html", ctx, status_code=422)
+        moved = o.project_id != was
+        ctx = _detail_ctx(s, o, note="Moved." if moved else "Already in that project.")
+        response = deps.render(request, "gallery/_detail.html", ctx)
+        if moved:
+            response.headers["HX-Trigger"] = _MOVED_EVENTS
+        return response
 
 
 @router.post("/outputs/{output_id}/favourite")

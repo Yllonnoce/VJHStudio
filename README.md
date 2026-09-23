@@ -136,6 +136,9 @@ If the test worked, your balance appears at the top of the page.
 5. Watch the progress bar; when it finishes, your image appears in **Results** and in the
    **Gallery**.
 
+Click any picture in the **Gallery** to see its details. The **Project** dropdown down there moves
+that image or video to another project — the file, its sidecar and its cost move with it.
+
 ## Models
 
 Click **Models** in the top menu to see every model VJHStudio knows about, with its price and a

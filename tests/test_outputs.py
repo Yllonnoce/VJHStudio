@@ -8,7 +8,8 @@ import vjhstudio
 from vjhstudio import boot, config, db, models
 from vjhstudio.runware.download import SavedFile
 from vjhstudio.runware.results import ResultItem
-from vjhstudio.services import outputs
+from vjhstudio.services import costs, outputs
+from vjhstudio.services import projects as projects_svc
 from vjhstudio.services import settings as settings_svc
 
 
@@ -27,6 +28,11 @@ def _meta(pid):
         prompt_text="fox",
         negative_prompt="blurry",
     )
+
+
+def _png_path(paths, row):
+    """The file behind an ``env`` row, as an absolute path."""
+    return paths.outputs / row.rel_path
 
 
 def _png(paths, name="20260920-130000-bbbbbb.png"):
@@ -311,3 +317,115 @@ def test_delete_removes_a_videos_poster_file(env, make_mp4):
     with db.session_scope(f) as s:
         assert outputs.delete(s, paths, oid) is True
     assert not poster.exists()
+
+
+# ---- moving an output to another project ---------------------------------
+def _sidecar_for(paths, row, project="default"):
+    side = paths.outputs / row.sidecar_rel_path
+    side.parent.mkdir(parents=True, exist_ok=True)
+    side.write_text(json.dumps({"project": project, "job_id": row.job_id}), encoding="utf-8")
+    return side
+
+
+def test_move_takes_the_file_its_sidecar_and_its_cost_along(env):
+    paths, f, pid = env
+    with db.session_scope(f) as s:
+        other = projects_svc.create(s, paths, "Book covers")
+        row = outputs.gallery(s)[0][0]
+        old_media, old_side = _png_path(paths, row), _sidecar_for(paths, row)
+        row.thumb_rel_path = "thumbs/keepme.jpg"
+        costs.record_usage(
+            s, job=s.get(models.Job, "j1"), task_type="imageInference", cost=0.5, model_air="m1"
+        )
+        s.flush()
+
+        moved = outputs.move(s, paths, row.id, other.id)
+
+        assert moved.project_id == other.id
+        assert moved.rel_path == f"{other.slug}/{moved.filename}"
+        assert moved.sidecar_rel_path == f"{other.slug}/{Path(moved.filename).stem}.json"
+        assert (paths.outputs / moved.rel_path).is_file() and not old_media.exists()
+        side = paths.outputs / moved.sidecar_rel_path
+        assert side.is_file() and not old_side.exists()
+        # the sidecar's own "project" field follows the file it describes
+        assert json.loads(side.read_text())["project"] == other.slug
+        # thumbs are shared and project-independent: the path is untouched
+        assert moved.thumb_rel_path == "thumbs/keepme.jpg"
+        # the cost follows, via the job and its usage rows
+        assert s.get(models.Job, "j1").project_id == other.id
+        totals = costs.totals_by_project(s)
+        assert totals[other.id] == {"outputs": 1, "cost": 0.5}
+        assert totals[pid]["outputs"] == 2 and totals[pid]["cost"] == 0.0
+
+
+def test_move_suffixes_a_name_that_is_already_taken(env):
+    paths, f, pid = env
+    with db.session_scope(f) as s:
+        other = projects_svc.create(s, paths, "Book covers")
+        row = outputs.gallery(s)[0][0]
+        name = row.filename
+        _png_path(paths, row).write_bytes(b"mine")
+        clash = paths.outputs / other.slug / name
+        clash.parent.mkdir(parents=True, exist_ok=True)
+        clash.write_bytes(b"theirs")
+
+        moved = outputs.move(s, paths, row.id, other.id)
+
+        assert moved.filename == f"{Path(name).stem}-2.png"
+        assert clash.read_bytes() == b"theirs"  # the stranger's file is never overwritten
+        assert (paths.outputs / moved.rel_path).read_bytes() == b"mine"
+
+
+def test_move_of_a_missing_file_moves_the_row_only(env):
+    paths, f, pid = env
+    with db.session_scope(f) as s:
+        other = projects_svc.create(s, paths, "Book covers")
+        row = outputs.gallery(s)[0][0]
+        _png_path(paths, row).unlink()
+
+        moved = outputs.move(s, paths, row.id, other.id)
+
+        assert moved.project_id == other.id and moved.is_missing is True
+        assert moved.rel_path == f"{other.slug}/{moved.filename}"
+        assert not (paths.outputs / moved.rel_path).exists()  # nothing was invented
+
+
+def test_move_to_the_same_project_changes_nothing(env):
+    paths, f, pid = env
+    with db.session_scope(f) as s:
+        row = outputs.gallery(s)[0][0]
+        before = (row.rel_path, row.sidecar_rel_path, row.filename)
+        moved = outputs.move(s, paths, row.id, pid)
+        assert (moved.rel_path, moved.sidecar_rel_path, moved.filename) == before
+        assert moved.project_id == pid
+
+
+def test_move_refuses_an_unknown_or_archived_project(env):
+    paths, f, pid = env
+    with db.session_scope(f) as s:
+        row = outputs.gallery(s)[0][0]
+        with pytest.raises(outputs.OutputMoveError):
+            outputs.move(s, paths, row.id, 999999)
+        shelved = projects_svc.create(s, paths, "Shelved")
+        projects_svc.set_archived(s, shelved.id, True)
+        with pytest.raises(outputs.OutputMoveError):
+            outputs.move(s, paths, row.id, shelved.id)
+        assert s.get(models.Output, row.id).project_id == pid
+        with pytest.raises(LookupError):
+            outputs.move(s, paths, 999999, pid)
+
+
+def test_move_never_follows_a_path_out_of_the_outputs_root(env):
+    """A crafted rel_path must not let a move drag the database into a project folder."""
+    paths, f, pid = env
+    assert paths.db.exists()
+    with db.session_scope(f) as s:
+        other = projects_svc.create(s, paths, "Book covers")
+        row = outputs.gallery(s)[0][0]
+        row.rel_path = "../vjh.db"
+        s.flush()
+        with pytest.raises(outputs.OutputMoveError):
+            outputs.move(s, paths, row.id, other.id)
+        assert s.get(models.Output, row.id).project_id == pid
+        assert s.get(models.Output, row.id).rel_path == "../vjh.db"
+    assert paths.db.exists()

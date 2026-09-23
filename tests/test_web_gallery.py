@@ -116,3 +116,71 @@ async def test_gallery_filters_push_the_page_url_not_a_fragment(client, fake, ap
     assert r.text.count("/files/thumbs/") == 1
     assert 'hx-get="/gallery"' in r.text and 'hx-select="#gallery-grid"' in r.text
     assert 'hx-get="/hx/gallery"' not in r.text.split("</form>")[0]
+
+
+async def _second_project(client, name="Book covers"):
+    await client.post("/projects", data={"name": name})
+    return [p for p in (await client.get("/api/projects")).json() if p["name"] == name][0]
+
+
+async def test_move_an_output_to_another_project(client, fake, app):
+    from vjhstudio import db, models
+
+    await _make(client, fake, app)
+    oid = (await client.get("/api/jobs")).json()[0]["outputs"][0]["id"]
+    other = await _second_project(client)
+
+    detail = await client.get(f"/hx/outputs/{oid}")
+    assert f'hx-post="/outputs/{oid}/move"' in detail.text
+    assert '<option value="1" selected>' in detail.text  # the project it is in now
+    assert f'<option value="{other["id"]}" >' in detail.text
+
+    r = await client.post(f"/outputs/{oid}/move", data={"project_id": str(other["id"])})
+    assert r.status_code == 200 and "Moved." in r.text
+    trigger = r.headers.get("HX-Trigger", "")
+    assert "outputs-changed" in trigger and "jobs-changed" in trigger
+    # the panel stays open on the same output, now pointing at the new project
+    assert f'hx-post="/outputs/{oid}/move"' in r.text
+    assert f'<option value="{other["id"]}" selected>' in r.text
+    assert other["slug"] in r.text
+
+    with db.session_scope(app.state.boot.session_factory) as s:
+        o = s.get(models.Output, oid)
+        assert o.project_id == other["id"]
+        assert (app.state.paths.outputs / o.rel_path).is_file()
+        assert not (app.state.paths.outputs / "default" / o.filename).exists()
+
+    assert f'id="output-{oid}"' in (await client.get(f"/hx/gallery?project_id={other['id']}")).text
+    assert f'id="output-{oid}"' not in (await client.get("/hx/gallery?project_id=1")).text
+    # the project table follows: one output and the job's spend under the new project
+    row = (await client.get("/projects")).text.split(f'id="project-{other["id"]}"')[1]
+    assert "<td>1</td>" in row
+    totals = {p["id"]: p for p in (await client.get("/api/projects")).json()}
+    assert totals[other["id"]]["outputs"] == 1 and totals[1]["outputs"] == 0
+    assert totals[other["id"]]["cost"] > 0 and totals[1]["cost"] == 0.0
+
+
+async def test_move_to_a_bad_project_is_a_422_with_a_message(client, fake, app):
+    await _make(client, fake, app)
+    oid = (await client.get("/api/jobs")).json()[0]["outputs"][0]["id"]
+
+    r = await client.post(f"/outputs/{oid}/move", data={"project_id": "999999"})
+    assert r.status_code == 422 and "Could not move this output" in r.text
+    assert "HX-Trigger" not in r.headers
+
+    r = await client.post(f"/outputs/{oid}/move", data={"project_id": ""})
+    assert r.status_code == 422 and "Pick a project" in r.text
+
+    shelved = await _second_project(client, "Shelved")
+    await client.post(f"/projects/{shelved['id']}/archive")
+    r = await client.post(f"/outputs/{oid}/move", data={"project_id": str(shelved["id"])})
+    assert r.status_code == 422 and "archived" in r.text
+
+    assert (await client.post("/outputs/999999/move", data={"project_id": "1"})).status_code == 404
+    # nothing moved: the output is still in its own project
+    assert f'id="output-{oid}"' in (await client.get("/hx/gallery?project_id=1")).text
+
+
+async def test_the_gallery_grid_refetches_when_an_output_is_moved(client):
+    r = await client.get("/gallery")
+    assert 'hx-trigger="close-lightbox from:body, outputs-changed from:body"' in r.text
