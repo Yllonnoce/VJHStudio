@@ -22,6 +22,7 @@ FLUX = "runware:101@1"
 LTX = "lightricks:ltx@2.3"
 VEO = "google:3@2"  # generateAudio defaults on, and doubles the per-second rate
 WAN = "alibaba:wan@2.7"  # a list-mode model with a 720p and a 1080p rate
+KLING4K = "klingai:kling-video@3-4k"  # a list-mode model whose only sizes are 4K
 NANO = "google:4@2"  # lists sizes ImageRequest will not take (1376x768, 6336x2688 ...)
 FIRST_FRAME = "tests:firstframe@1"
 
@@ -422,3 +423,41 @@ async def test_a_size_ImageRequest_would_reject_is_refused_with_the_ones_that_wo
     assert res.is_error and "multiple of 64" in text and "1024x1024" in text
     res = await mcp.call_tool("generate_image", {"prompt": "x", **picked})
     assert res.is_error and "1024x1024" in res.content[0].text
+
+
+async def test_a_rule_model_is_priced_at_the_tier_its_pixels_will_bill_at(quoted, client, app):
+    """LTX is a ``rule`` model: 1920x1080 is snapped to its 1080p pixels (1920x1088) and
+    billed at the 1080p rate, whatever the ``resolution`` argument was left at. Priced at
+    720p the cap would admit twice the clips it can actually pay for."""
+    picked = {"air": LTX, "width": 1920, "height": 1080, "duration": 5}
+    r = _data(await quoted.call_tool("estimate", {"kind": "video", **picked}))
+    assert r["resolution"] == "1080p" and r["estimate_usd"] == pytest.approx(0.08 * 5)
+    hx = await _hx(client, f"mode=video&air={LTX}&duration=5&resolution=1080p")
+    assert f"≈${r['estimate_usd']:.2f}" in hx.text
+
+    g = _data(
+        await quoted.call_tool("generate_video", {"prompt": "x", "resolution": "720p", **picked})
+    )
+    assert g["estimate_usd"] == pytest.approx(0.4) and g["resolution"] == "1080p"
+    with db.session_scope(app.state.boot.session_factory) as s:
+        job = s.get(Job, g["job_id"])
+        assert (job.request_json["width"], job.request_json["height"]) == (1920, 1088)
+        assert job.request_json["resolution"] == "1080p"
+        assert job.request_json["_estimate"] == pytest.approx(0.4)
+
+
+async def test_a_list_model_with_no_size_still_gets_one_it_offers(quoted, app):
+    """The panel never posts an off-list size and neither may the tool: Kling 4K lists
+    only 3840x2160, 2160x3840 and 2880x2880, so the default 720p preset's 1280x720 is a
+    size it never offered -- and it bills at the 4K rate either way."""
+    with db.session_scope(app.state.boot.session_factory) as s:
+        settings.set_many(s, {"mcp.daily_cap_usd": "10"})
+    r = _data(
+        await quoted.call_tool("generate_video", {"air": KLING4K, "prompt": "x", "duration": 5})
+    )
+    assert r["resolution"] == "4K" and r["estimate_usd"] == pytest.approx(0.42 * 5)
+    assert "3840x2160" in r["note"]
+    with db.session_scope(app.state.boot.session_factory) as s:
+        job = s.get(Job, r["job_id"])
+        assert (job.request_json["width"], job.request_json["height"]) == (3840, 2160)
+        assert job.request_json["resolution"] == "4K"

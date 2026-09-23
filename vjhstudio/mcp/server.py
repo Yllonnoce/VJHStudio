@@ -23,7 +23,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from .. import db
 from ..models import CatalogModel, Job, JobStatus, Output, Project, utcnow
-from ..runware.tasks import nearest
+from ..runware.tasks import nearest, resolution_wh, split_orientation
 from ..schemas.image import ImageRequest, PromptForm
 from ..schemas.video import DURATION_MAX, DURATION_MIN, VideoRequest
 from ..services import account as account_svc
@@ -214,22 +214,57 @@ def _provider_settings(m: CatalogModel, sent: dict | None) -> dict:
     return out
 
 
-def _video_size(m: CatalogModel, width: int | None, height: int | None) -> tuple[int, int] | None:
+def _video_size(
+    m: CatalogModel, width: int | None, height: int | None, resolution: str = ""
+) -> tuple[int, int] | None:
     """Pixels are posted only when the model advertised sizes, exactly as the video panel
-    does; otherwise the resolution preset decides and raw pixels would be a guess."""
-    if width is None or height is None or _size_mode(m) == "unknown":
+    does; otherwise the resolution preset decides and raw pixels would be a guess.
+
+    A ``list`` model always gets one of its own sizes: the panel opens on a listed size
+    and never posts anything else, so an agent that sends none is given the listed size
+    nearest the preset it asked for rather than the preset's own nominal pixels, which
+    that model may never have offered."""
+    mode = _size_mode(m)
+    if mode == "unknown":
         return None
+    if width is None or height is None:
+        if mode != "list":
+            return None
+        return constraints.nearest_size(
+            m.constraints_json, *resolution_wh(resolution, _video_tiers(m))
+        )
     return constraints.nearest_size(m.constraints_json, int(width), int(height))
 
 
+def _preset_tier(m: CatalogModel, size: tuple[int, int]) -> str:
+    """The resolution name whose own pixels are the ones being sent, or ``""``.
+
+    ``rule`` mode carries no per-size labels and ``_tier_name`` reads the shorter side,
+    which calls LTX's 1080p (1920x1088, its curated ``video.dims``) "4K" -- a tier it has
+    no rate for. The presets say plainly which tier those pixels are. The last match
+    wins: the names are listed cheapest first, so a tie is priced at the dearer one."""
+    tiers = _video_tiers(m)
+    found = ""
+    for name in _resolutions(m):
+        w, h = resolution_wh(name, tiers)
+        if constraints.nearest_size(m.constraints_json, w, h) == size:
+            found = split_orientation(name)[0]  # a portrait twin bills at its tier's rate
+    return found
+
+
 def _video_tier(m: CatalogModel, size: tuple[int, int] | None, resolution: str) -> str:
-    """The tier the chosen size is priced under. In ``list`` mode the panel posts the
-    size's own tier as the hidden ``resolution`` (see ``_default_resolution``), because
-    ``build_video_task`` lets the pixels win over the preset name."""
-    if size is None or _size_mode(m) != "list":
+    """The tier the size will really be billed under. ``build_video_task`` lets the pixels
+    win over the preset name in *every* dims mode, so the price has to follow the pixels:
+    through the size's own label in ``list`` mode (the panel posts it as the hidden
+    ``resolution`` -- see ``_default_resolution``), through the curated preset the size
+    was snapped from in ``rule`` mode, and only then by the shorter side. With no size at
+    all the preset name is what the task builder will use, so it is what is priced."""
+    if size is None:
         return resolution
-    labels = _dims_block(m).get("labels") or {}
-    return _tier_name(size[0], size[1], labels.get(f"{size[0]}x{size[1]}", ""))
+    label = (_dims_block(m).get("labels") or {}).get(f"{size[0]}x{size[1]}", "")
+    if label:
+        return _tier_name(size[0], size[1], label)
+    return _preset_tier(m, size) or _tier_name(size[0], size[1], "")
 
 
 def _audio_on(provider_settings: dict) -> bool:
@@ -394,7 +429,7 @@ def build_server(ctx: MCPContext) -> MCPServer:
                     "number_results": data["number_results"],
                 }
             seconds = _duration_for(m, duration)
-            size = _video_size(m, width, height)
+            size = _video_size(m, width, height, resolution)
             tier = _video_tier(m, size, resolution)
             sound = _audio_on(_provider_settings(m, None)) if audio is None else bool(audio)
             data = video_estimate_ctx(s, air, seconds, sound, tier)
@@ -500,7 +535,7 @@ def build_server(ctx: MCPContext) -> MCPServer:
             m = _model(s, air, "video")
             seconds = _duration_for(m, duration)
             settings_sent = _provider_settings(m, provider_settings)
-            size = _video_size(m, width, height)
+            size = _video_size(m, width, height, resolution)
             tier = _video_tier(m, size, resolution)
             est = video_estimate_ctx(s, air, seconds, _audio_on(settings_sent), tier)["total"]
             project_id = p.id
@@ -527,11 +562,14 @@ def build_server(ctx: MCPContext) -> MCPServer:
         notes = []
         if seconds != float(duration):
             notes.append(f"duration snapped to {seconds:g}s")
-        if size is not None and size != (int(width), int(height)):
+        asked = (int(width), int(height)) if width is not None and height is not None else None
+        if size is not None and asked is None:
+            notes.append(f"size set to {size[0]}x{size[1]}")
+        elif size is not None and size != asked:
             notes.append(f"size snapped to {size[0]}x{size[1]}")
         if not sized and (width is not None or height is not None):
             notes.append(f"this model lists no sizes: {tier} decides the dimensions")
-        elif (width is None) != (height is None):
+        elif size is None and (width is None) != (height is None):
             notes.append(f"width and height go together: {tier} decides the dimensions")
         if tier != resolution:
             notes.append(f"priced at the {tier} rate")
