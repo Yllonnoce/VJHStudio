@@ -16,7 +16,9 @@
   {% endif %}
   {% if needs_first_frame %}<p class="warn">needs a first frame</p>{% endif %}
   {% set cur_duration = values.duration|default(defaults.duration, true) %}
-  <div class="grid grid-res">
+  {# Duration and Resolution stack: each gets the full rail width, so the − / + stepper
+     and the long "720p — 1280×720" labels never fight for one row. #}
+  <div class="params-stack">
     <label>Duration
       {% if duration_values %}
       {# the model enumerated its durations (Veo: 4/6/7/8): nothing else is accepted #}

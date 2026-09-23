@@ -383,10 +383,12 @@ async def test_portrait_resolution_prices_by_its_landscape_tier(client):
     assert money.findall(a.text) and money.findall(a.text) == money.findall(b.text)
 
 
-async def test_resolution_gets_two_thirds_of_the_parameter_row(client):
+async def test_resolution_sits_below_duration_not_beside_it(client):
     r = await client.get(f"/hx/model-options?mode=video&air={LTX}")
-    assert 'class="grid grid-res"' in r.text
+    assert "grid-res" not in r.text
+    assert 'class="params-stack"' in r.text
+    assert r.text.index("Duration") < r.text.index("Resolution")
     from pathlib import Path
 
     css = (Path(__file__).parents[1] / "vjhstudio/web/static/css/app.css").read_text()
-    assert ".grid-res{grid-template-columns:minmax(11rem,1fr) minmax(0,1.6fr)}" in css
+    assert ".params-stack>label{display:block}" in css

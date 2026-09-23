@@ -582,8 +582,7 @@ body > header.container > nav{border-radius:0 0 var(--sp-radius) var(--sp-radius
 [id]{scroll-margin-top:calc(var(--vjh-header-h, 4.5rem) + 1rem)}
 
 /* ── Video parameters: Resolution needs the room, Duration does not ── */
-.grid-res{grid-template-columns:minmax(11rem,1fr) minmax(0,1.6fr)}
-@media (max-width:767px){.grid-res{grid-template-columns:1fr}}
+.params-stack>label{display:block}
 
 /* ── Phones: every dialog is a full-screen sheet ──────────────────────────
    A centred panel wastes the little room a phone has, and Pico caps the inner
