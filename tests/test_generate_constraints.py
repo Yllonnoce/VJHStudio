@@ -427,6 +427,18 @@ async def test_params_panel_carries_the_roles_a_harvested_model_accepts(client, 
     assert 'data-ref-accepts="first frame, last frame, up to 9 reference images"' in r.text
 
 
+async def test_full_page_render_carries_the_roles_too(client):
+    """The page renders #model-params through a `with` block that names every
+    variable the partial gets; the role triple must be in that list or the first paint
+    says "text only" while the partial says "first frame, last frame"."""
+    r = await client.get("/generate/video")  # default video model: LTX, frames only
+    assert r.status_code == 200
+    assert 'data-ref-roles="first,last"' in r.text
+    assert 'data-ref-accepts="first frame, last frame"' in r.text
+    r = await client.get("/generate/image")  # default image model: FLUX dev, seed image
+    assert 'data-ref-roles="seed"' in r.text and 'data-ref-accepts="seed image"' in r.text
+
+
 async def test_params_panel_marks_a_required_role_and_drops_the_rest(client, seeded):
     """A harvested block that names frames and nothing else: no reference slot, and the
     frame is required."""
