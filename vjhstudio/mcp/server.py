@@ -187,6 +187,20 @@ def _project(session, ref: str | int) -> Project:
     return p
 
 
+def _project_or_default(session, ref: str | int | None) -> tuple[Project, str]:
+    """For the generate tools: a project the agent names, or Default when that name
+    does not exist -- with a note saying so, so the job never fails over a typo."""
+    want = _text(ref)
+    if want:
+        try:
+            return _project(session, want), ""
+        except ValueError:
+            pass
+    fallback = _project(session, "default")
+    note = f"project {want!r} does not exist; filed under {fallback.name}" if want else ""
+    return fallback, note
+
+
 def _roles(m: CatalogModel) -> dict[str, dict]:
     return constraints.accepted_roles(
         m.kind, m.capabilities_json or [], m.constraints_json, catalog.family(m)
@@ -568,7 +582,7 @@ def build_server(ctx: MCPContext) -> MCPServer:
         number_results = max(1, int(_num(number_results, 1)))
         runner()  # before the row exists: a refusal must leave nothing to requeue
         with db.session_scope(sf) as s:
-            p = _project(s, _text(project) or "default")
+            p, project_note = _project_or_default(s, project)
             air = _text(air) or _default_air(ctx, "image")
             m = _model(s, air, "image")
             asked = (
@@ -608,7 +622,8 @@ def build_server(ctx: MCPContext) -> MCPServer:
             "job_id": job.id,
             "estimate_usd": est,
             "cap": cap,
-            "note": _snap_note(asked, used),
+            "note": "; ".join(n for n in (project_note, _snap_note(asked, used)) if n),
+            "project": p.slug,
             "width": used[0],
             "height": used[1],
         }
@@ -642,7 +657,7 @@ def build_server(ctx: MCPContext) -> MCPServer:
         duration = _num(duration, DEFAULT_DURATION)
         runner()  # before the row exists: a refusal must leave nothing to requeue
         with db.session_scope(sf) as s:
-            p = _project(s, _text(project) or "default")
+            p, project_note = _project_or_default(s, project)
             air = _text(air) or _default_air(ctx, "video")
             m = _model(s, air, "video")
             resolution = resolution or _default_resolution(m)
@@ -686,11 +701,14 @@ def build_server(ctx: MCPContext) -> MCPServer:
             notes.append(f"width and height go together: {tier} decides the dimensions")
         if tier != resolution:
             notes.append(f"priced at the {tier} rate")
+        if project_note:
+            notes.insert(0, project_note)
         return {
             "job_id": job.id,
             "estimate_usd": est,
             "cap": cap,
             "note": "; ".join(notes),
+            "project": p.slug,
             "duration": seconds,
             "resolution": tier,
             "provider_settings": settings_sent,

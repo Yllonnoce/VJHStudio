@@ -246,7 +246,14 @@ async def test_project_by_name_slug_or_id_and_move(mcp, fake):
     listed = _data(await mcp.call_tool("list_projects", {}))
     assert {row["slug"] for row in listed} == {"default", "campaign-one"}
     assert any(row["id"] == p["id"] for row in listed)
-    res = await mcp.call_tool("generate_image", {"air": FLUX, "prompt": "x", "project": "nope"})
+    # an unknown project name files the job under Default and says so
+    fake.script["run"] = [IMAGE_REPLY]
+    r = _data(
+        await mcp.call_tool("generate_image", {"air": FLUX, "prompt": "x", "project": "nope"})
+    )
+    assert r["project"] == "default" and "does not exist" in r["note"]
+    # but moving to a project that does not exist is still refused
+    res = await mcp.call_tool("move_output", {"output_id": oid, "project": "nope"})
     assert res.is_error and "list_projects" in res.content[0].text
 
 
