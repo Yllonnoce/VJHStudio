@@ -830,3 +830,48 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
 else vjhApplySavedSort(document);
 document.addEventListener('htmx:afterSettle', function (e) { vjhApplySavedSort(e.target || document); });
 document.addEventListener('htmx:historyRestore', function () { vjhApplySavedSort(document); });
+
+// ── Big steppers for every number input ──────────────────────────────────────
+// The native up/down spinner is tiny and cannot be enlarged with CSS, so each
+// <input type="number"> gets a real "−" and "+" button beside it. Steps honour
+// min/max/step, keep the value's decimals, and fire input + change so Alpine,
+// htmx (the estimate, the params panel) and form validation all notice. Idempotent:
+// runs on load, after every htmx swap and after a history restore.
+function vjhStepValue(value, step, dir, min, max) {
+  var st = step && !isNaN(Number(step)) && Number(step) > 0 ? Number(step) : 1;
+  var empty = value === '' || value == null || isNaN(Number(value));
+  // an empty box starts at its minimum (or 0) on the first click, without stepping past it
+  var next = empty ? (min !== null && min !== '' && !isNaN(Number(min)) ? Number(min) : 0) : Number(value) + dir * st;
+  if (min !== null && min !== '' && !isNaN(Number(min))) next = Math.max(Number(min), next);
+  if (max !== null && max !== '' && !isNaN(Number(max))) next = Math.min(Number(max), next);
+  var decimals = String(st).indexOf('.') >= 0 ? String(st).split('.')[1].length : 0;
+  return Number(next.toFixed(decimals)).toString();
+}
+function vjhEnhanceSteppers(root) {
+  (root || document).querySelectorAll('input[type="number"]:not([data-stepper])').forEach(function (input) {
+    if (input.closest('.stepper')) { input.dataset.stepper = '1'; return; }
+    input.dataset.stepper = '1';
+    var wrap = document.createElement('div');
+    wrap.className = 'stepper';
+    input.parentNode.insertBefore(wrap, input);
+    var minus = document.createElement('button');
+    minus.type = 'button'; minus.className = 'stepper-btn'; minus.textContent = '−';
+    minus.setAttribute('aria-label', 'Decrease'); minus.tabIndex = -1;
+    var plus = document.createElement('button');
+    plus.type = 'button'; plus.className = 'stepper-btn'; plus.textContent = '+';
+    plus.setAttribute('aria-label', 'Increase'); plus.tabIndex = -1;
+    wrap.appendChild(minus); wrap.appendChild(input); wrap.appendChild(plus);
+    var bump = function (dir) {
+      if (input.disabled || input.readOnly) return;
+      input.value = vjhStepValue(input.value, input.step, dir, input.min, input.max);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    minus.addEventListener('click', function () { bump(-1); });
+    plus.addEventListener('click', function () { bump(1); });
+  });
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { vjhEnhanceSteppers(document); });
+else vjhEnhanceSteppers(document);
+document.addEventListener('htmx:afterSettle', function (e) { vjhEnhanceSteppers(e.target || document); });
+document.addEventListener('htmx:historyRestore', function () { vjhEnhanceSteppers(document); });

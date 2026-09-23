@@ -113,3 +113,42 @@ def test_autosize_grows_a_textarea_to_its_content_capped_at_twelve_lines():
     )
     assert grew == "100px"
     assert capped == "240px"  # 12 lines x 20px
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_step_value_honours_min_max_step_and_decimals():
+    """vjhStepValue drives the big − / + buttons that replace the tiny native spinner."""
+    import json
+    import subprocess
+
+    app_js = REPO_ROOT / "vjhstudio" / "web" / "static" / "js" / "app.js"
+    src = app_js.read_text()
+    fn = src[src.index("function vjhStepValue(") : src.index("function vjhEnhanceSteppers(")]
+    script = (
+        fn
+        + """
+      console.log(JSON.stringify([
+        vjhStepValue('5', '1', 1, '3', '15'), vjhStepValue('15', '1', 1, '3', '15'), vjhStepValue('3', '1', -1, '3', '15'),
+        vjhStepValue('', '1', 1, '3', '15'), vjhStepValue('3.5', '0.5', 1, '0', '20'), vjhStepValue('0.1', '0.1', 1, null, null),
+        vjhStepValue('1024', '64', -1, '128', '2048'),
+      ]));
+    """
+    )
+    got = json.loads(
+        subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True).stdout
+    )
+    assert got == ["6", "15", "3", "3", "4", "0.2", "960"]
+
+
+def test_steppers_are_wired_on_load_and_after_swaps():
+    src = (REPO_ROOT / "vjhstudio" / "web" / "static" / "js" / "app.js").read_text()
+    body = src.split("function vjhEnhanceSteppers(", 1)[1]
+    assert 'input[type="number"]:not([data-stepper])' in body
+    assert (
+        "new Event('input', { bubbles: true })" in body
+        and "new Event('change', { bubbles: true })" in body
+    )
+    assert "htmx:afterSettle" in body and "vjhEnhanceSteppers(e.target || document)" in body
+    css = (REPO_ROOT / "vjhstudio" / "web" / "static" / "css" / "app.css").read_text()
+    assert ".stepper-btn{flex:0 0 2.75rem;width:2.75rem;min-height:42px" in css
+    assert "::-webkit-inner-spin-button{-webkit-appearance:none" in css
