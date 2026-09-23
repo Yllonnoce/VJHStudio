@@ -130,7 +130,9 @@ If the test worked, your balance appears at the top of the page.
    image** (or click **Generate** in the top menu).
 2. Type a few words into **Subject** — for example "a red fox in a snowy forest".
 3. Under Style, Mood, Lighting and the other boxes, click a few of the ideas to add them, or just
-   type your own. Clicking an idea again removes it.
+   type your own. Clicking an idea again removes it. Style takes one at a time. The ideas change
+   when you switch to **Video**: camera moves, motion and colour grades instead of painting styles,
+   plus sound chips when the video model makes its own audio.
 4. Pick a model from the dropdown if you want something other than the default, then click
    **Generate**.
 5. Watch the progress bar; when it finishes, your image appears in **Results** and in the

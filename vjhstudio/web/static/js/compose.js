@@ -136,6 +136,15 @@
     return parts.concat([p]).join(', ');
   }
 
+  // Single-select rows (Style: a picture is one medium, not three). The chip replaces
+  // whatever the field held, and clicking the active chip clears it -- so a row never
+  // has to be un-picked one phrase at a time.
+  function vjhSetIdea(text, phrase) {
+    var p = String(phrase || '').trim();
+    if (!p) return String(text || '');
+    return String(text || '').trim().toLowerCase() === p.toLowerCase() ? '' : p;
+  }
+
   // Grow a textarea to fit its content, capped at 12 rows. `field-sizing: content` does
   // this in CSS where it is supported; this is the fallback for everywhere else, and it
   // is a no-op off a textarea (and under node, where there is no DOM at all).
@@ -176,6 +185,7 @@
     vjhChoosePolish: vjhChoosePolish,
     vjhHasIdea: vjhHasIdea,
     vjhToggleIdea: vjhToggleIdea,
+    vjhSetIdea: vjhSetIdea,
     vjhAutosize: vjhAutosize,
     vjhSortOptions: vjhSortOptions,
   };
@@ -192,6 +202,7 @@
     global.vjhChoosePolish = vjhChoosePolish;
     global.vjhHasIdea = vjhHasIdea;
     global.vjhToggleIdea = vjhToggleIdea;
+    global.vjhSetIdea = vjhSetIdea;
     global.vjhAutosize = vjhAutosize;
     global.vjhSortOptions = vjhSortOptions;
   }

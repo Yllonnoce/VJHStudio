@@ -21,7 +21,7 @@ pytestmark = pytest.mark.skipif(NODE is None, reason="node is not installed")
 def _run(expression: str):
     script = (
         "const m = require(" + json.dumps(str(COMPOSE_JS)) + ");"
-        "const {vjhToggleIdea, vjhHasIdea, vjhAutosize, composePrompt} = m;"
+        "const {vjhToggleIdea, vjhSetIdea, vjhHasIdea, vjhAutosize, composePrompt} = m;"
         "process.stdout.write(JSON.stringify(" + expression + "));"
     )
     out = subprocess.run(
@@ -46,6 +46,22 @@ def test_toggle_idea_ignores_a_blank_phrase():
     assert _run('vjhToggleIdea("soft light", "   ")') == "soft light"
 
 
+def test_set_idea_replaces_whatever_the_field_held():
+    """Style is single-select: the media are mutually exclusive, so a chip overwrites."""
+    assert _run('vjhSetIdea("", "anime")') == "anime"
+    assert _run('vjhSetIdea("oil painting", "anime")') == "anime"
+    assert _run('vjhSetIdea("oil painting, watercolour", "anime")') == "anime"
+
+
+def test_set_idea_clears_the_field_when_the_active_chip_is_clicked_again():
+    assert _run('vjhSetIdea("anime", "anime")') == ""
+    assert _run('vjhSetIdea("  Anime ", "anime")') == ""
+
+
+def test_set_idea_ignores_a_blank_phrase():
+    assert _run('vjhSetIdea("anime", "   ")') == "anime"
+
+
 def test_has_idea_compares_case_insensitively():
     assert _run('vjhHasIdea("a, b", "B")') is True
     assert _run('vjhHasIdea("a, b", "c")') is False
@@ -54,11 +70,12 @@ def test_has_idea_compares_case_insensitively():
 def test_helpers_are_exported_on_the_module_and_on_the_global():
     assert (
         _run(
-            "[typeof vjhToggleIdea, typeof vjhHasIdea, typeof vjhAutosize, "
-            "typeof globalThis.vjhToggleIdea, typeof globalThis.vjhHasIdea, "
+            "[typeof vjhToggleIdea, typeof vjhSetIdea, typeof vjhHasIdea, "
+            "typeof vjhAutosize, typeof globalThis.vjhToggleIdea, "
+            "typeof globalThis.vjhSetIdea, typeof globalThis.vjhHasIdea, "
             "typeof globalThis.vjhAutosize]"
         )
-        == ["function"] * 6
+        == ["function"] * 8
     )
 
 

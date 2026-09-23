@@ -25,6 +25,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Idea chips are now different for images and videos (video gets camera moves, motion and grading
+  terms instead of painting styles). Style is one choice at a time, and a video model that makes
+  its own sound adds "ambient sound", "spoken dialogue" and "background music" to Extras.
 - Generate is now a two-column page: the prompt builder on the left, a sticky "Model & settings"
   rail on the right, and results below both. Every page has a title and subtitle, and the current
   page is highlighted in the navigation. Action buttons are inline instead of full-width bars, and

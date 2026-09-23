@@ -57,6 +57,9 @@ window.generateForm = function (initial) {
     // that panel (init() below): an image-to-video-only model has no text-only path,
     // so the References section says so before the pre-flight 422 has to.
     needsFirstFrame: false,
+    // Same trick for #model-params' data-has-audio: a video model that advertises
+    // "feat:audio" gets three sound chips at the end of the Extras row.
+    hasAudio: false,
     uploading: '',
     // the prompt library: the row this form was loaded from (posted back so the job
     // links it instead of creating a second one) and the polish blob to store on it
@@ -88,9 +91,13 @@ window.generateForm = function (initial) {
     // Both are thin wrappers over the pure helpers in compose.js (tested under node);
     // a chip only ever rewrites the field's own text, so the posted value and the
     // composed preview follow along exactly as if the phrase had been typed.
-    toggleIdea(field, phrase) {
+    // `single` marks a row whose phrases are mutually exclusive (Style: one medium per
+    // picture), so the chip replaces the field instead of appending to it.
+    toggleIdea(field, phrase, single) {
       if (!(field in this.fields) || !window.vjhToggleIdea) return;
-      this.fields[field] = window.vjhToggleIdea(this.fields[field], phrase);
+      this.fields[field] = single && window.vjhSetIdea
+        ? window.vjhSetIdea(this.fields[field], phrase)
+        : window.vjhToggleIdea(this.fields[field], phrase);
       this._grow(field);   // Extras is a text area: a chip can push it onto a new line
     },
 
@@ -212,6 +219,11 @@ window.generateForm = function (initial) {
       this.needsFirstFrame = !!panel && panel.dataset.needsFirstFrame === 'true';
     },
 
+    _syncHasAudio() {
+      const panel = document.getElementById('model-params');
+      this.hasAudio = !!panel && panel.dataset.hasAudio === '1';
+    },
+
     openPicker(role) {
       this.pickerRole = role;
       const dlg = document.getElementById('ref-picker');
@@ -272,6 +284,8 @@ window.generateForm = function (initial) {
       }
       this._syncNeedsFirstFrame();
       document.addEventListener('htmx:afterSwap', () => this._syncNeedsFirstFrame());
+      this._syncHasAudio();
+      document.addEventListener('htmx:afterSwap', () => this._syncHasAudio());
       window.addEventListener('ref-picked', (e) => this.addRef(e.detail || {}));
       window.addEventListener('use-polish', (e) => this.usePolish(e.detail || {}));
 

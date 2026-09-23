@@ -5,45 +5,76 @@
 {# The idea chips under each short field are rendered here by Jinja, so they are present
    (and unpressed) without JavaScript; Alpine then binds `active`/`aria-pressed` over the
    top. `idea_row` is the one place that markup is written. #}
+{# Stills and clips get different phrases (services/ideas.py): both rows are rendered,
+   and only the active mode's is shown -- server-side with an inline `display:none`, and
+   from then on by Alpine's x-show, so switching tabs needs no round trip. The example
+   placeholders follow the mode the same way. #}
 {# The field name and the phrase ride on data-* rather than being inlined into the
    Alpine expressions, so Jinja's own escaping covers any character a phrase contains. #}
-{% macro idea_row(field, label, phrases) -%}
-<div class="ideas" role="group" aria-label="{{ label }} ideas">
+{# `data-single` marks a row whose phrases are mutually exclusive -- Style, because a
+   picture is one medium and not three -- and the click reads it off the row. #}
+{% macro idea_row(field, label, phrases, row_mode, mode, single=False, audio=(), has_audio=False) -%}
+<div class="ideas" role="group" aria-label="{{ label }} ideas" data-mode="{{ row_mode }}"{% if single %} data-single="1"{% endif %}
+     x-show="mode === '{{ row_mode }}'"{% if mode != row_mode %} style="display:none"{% endif %}>
   {%- for p in phrases %}
   <button type="button" class="idea" data-field="{{ field }}" data-phrase="{{ p }}"
           aria-pressed="false"
           :class="{active: hasIdea($el.dataset.field, $el.dataset.phrase)}"
           :aria-pressed="hasIdea($el.dataset.field, $el.dataset.phrase) ? 'true' : 'false'"
-          @click="toggleIdea($el.dataset.field, $el.dataset.phrase)">{{ p }}</button>
+          @click="toggleIdea($el.dataset.field, $el.dataset.phrase, $el.parentElement.dataset.single === '1')">{{ p }}</button>
+  {%- endfor %}
+  {#- the sound chips only make sense on a model that renders audio with the clip, so
+      they hang off #model-params' data-has-audio (app.js `hasAudio`) the way the
+      first-frame notice hangs off data-needs-first-frame #}
+  {%- for p in audio %}
+  <button type="button" class="idea" data-field="{{ field }}" data-phrase="{{ p }}" data-audio="1"
+          aria-pressed="false" x-show="hasAudio"{% if not has_audio %} style="display:none"{% endif %}
+          :class="{active: hasIdea($el.dataset.field, $el.dataset.phrase)}"
+          :aria-pressed="hasIdea($el.dataset.field, $el.dataset.phrase) ? 'true' : 'false'"
+          @click="toggleIdea($el.dataset.field, $el.dataset.phrase, $el.parentElement.dataset.single === '1')">{{ p }}</button>
   {%- endfor %}
 </div>
 {%- endmacro %}
-{% macro idea_field(name, label, placeholder, form, ideas) -%}
-<label>{{ label }}<input type="text" name="{{ name }}" x-model="fields.{{ name }}" value="{{ form.get(name, '') }}" placeholder="{{ placeholder }}"></label>
-{{ idea_row(name, label, ideas.get(name, [])) }}
+{% macro idea_rows(field, label, ideas, mode, single=False, audio=(), has_audio=False) -%}
+{% for row_mode in ('image', 'video') %}{{ idea_row(field, label, ideas[row_mode].get(field, []), row_mode, mode, single, audio if row_mode == 'video' else (), has_audio) }}
+{% endfor %}
 {%- endmacro %}
+{# `ph` is the still's example, `ph_video` the clip's: the current mode's is written
+   into the attribute, and Alpine's `:placeholder` takes over from the first tab switch. #}
+{% macro idea_field(name, label, ph, ph_video, form, ideas, mode, single=False) -%}
+<label>{{ label }}<input type="text" name="{{ name }}" x-model="fields.{{ name }}" value="{{ form.get(name, '') }}" placeholder="{{ ph_video if mode == 'video' else ph }}" :placeholder="mode === 'video' ? '{{ ph_video }}' : '{{ ph }}'"></label>
+{{ idea_rows(name, label, ideas, mode, single) }}
+{%- endmacro %}
+{% set audio_chips = ('ambient sound', 'spoken dialogue', 'background music') %}
+{% set has_audio = params.has_audio %}
 <section class="gen-col gen-prompt">
   <header class="card-head">
     <h2>Describe</h2>
     <p class="hint">Fill in what you can; the app writes the prompt.</p>
   </header>
   {# Subject gets no chips -- it is the user's own idea -- but a roomy box and a
-     fuller example placeholder. #}
+     fuller example placeholder: a still is a moment, a clip is a movement. #}
+  {% set subject_ph = 'a red fox in a snowy forest, looking back over its shoulder' %}
+  {% set subject_ph_video = 'a red fox running through a snowy forest, looking back at the camera' %}
   <label>Subject
     <textarea name="subject" rows="3" x-model="fields.subject" @input="autosize($el)"
-              placeholder="a red fox in a snowy forest, looking back over its shoulder">{{ form.get('subject', '') }}</textarea>
+              placeholder="{{ subject_ph_video if mode == 'video' else subject_ph }}"
+              :placeholder="mode === 'video' ? '{{ subject_ph_video }}' : '{{ subject_ph }}'">{{ form.get('subject', '') }}</textarea>
   </label>
-  {{ idea_field('style', 'Style', 'oil painting', form, ideas) }}
-  {{ idea_field('mood', 'Mood', 'serene', form, ideas) }}
-  {{ idea_field('lighting', 'Lighting', 'golden hour', form, ideas) }}
-  {{ idea_field('camera', 'Camera', '85mm, shallow depth of field', form, ideas) }}
-  {{ idea_field('composition', 'Composition', 'rule of thirds', form, ideas) }}
-  {{ idea_field('colour', 'Colour', 'muted earth tones', form, ideas) }}
+  {{ idea_field('style', 'Style', 'oil painting', 'cinematic film', form, ideas, mode, single=True) }}
+  {{ idea_field('mood', 'Mood', 'serene', 'tense', form, ideas, mode) }}
+  {{ idea_field('lighting', 'Lighting', 'golden hour', 'golden hour', form, ideas, mode) }}
+  {{ idea_field('camera', 'Camera', '85mm, shallow depth of field', 'handheld tracking shot', form, ideas, mode) }}
+  {{ idea_field('composition', 'Composition', 'rule of thirds', 'wide establishing shot', form, ideas, mode) }}
+  {{ idea_field('colour', 'Colour', 'muted earth tones', 'teal and orange grade', form, ideas, mode) }}
+  {% set extras_ph = 'sharp focus, film grain' %}
+  {% set extras_ph_video = 'slow motion, natural motion blur' %}
   <label>Extras
     <textarea name="extras" rows="2" x-model="fields.extras" @input="autosize($el)"
-              placeholder="fine detail, sharp focus">{{ form.get('extras', '') }}</textarea>
+              placeholder="{{ extras_ph_video if mode == 'video' else extras_ph }}"
+              :placeholder="mode === 'video' ? '{{ extras_ph_video }}' : '{{ extras_ph }}'">{{ form.get('extras', '') }}</textarea>
   </label>
-  {{ idea_row('extras', 'Extras', ideas.get('extras', [])) }}
+  {{ idea_rows('extras', 'Extras', ideas, mode, audio=audio_chips, has_audio=has_audio) }}
   {# video models take no negative prompt: the field stays in the DOM for the shared
      partial but is hidden (and ignored server-side) while the Video tab is active #}
   <label x-show="mode === 'image'">Negative
@@ -82,6 +113,6 @@
     <button type="button" class="secondary outline" id="save-prompt-open"
             @click="openSaveDialog()">Save prompt</button>
   </div>
-  {# Alpine reads back the same mapping the chips above were rendered from. #}
+  {# Alpine reads back the same mapping the chips above were rendered from, both modes. #}
   <script id="prompt-ideas" type="application/json">{{ ideas|tojson }}</script>
 </section>

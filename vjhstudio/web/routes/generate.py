@@ -277,6 +277,8 @@ def params_ctx(session, air: str, values: dict | None = None, errors: dict | Non
         "mode": "image",
         "family": catalog.family(m) if m is not None else "diffusion",
         "capabilities": list((m.capabilities_json if m else None) or []),
+        # no sound in a still: the Extras audio chips are a video-only row
+        "has_audio": False,
         "defaults": {
             "width": width,
             "height": height,
@@ -290,6 +292,10 @@ def params_ctx(session, air: str, values: dict | None = None, errors: dict | Non
         "values": values,
         "errors": errors or {},
     }
+
+
+# The capability tag a video model carries when it renders sound with the clip.
+AUDIO_CAPABILITY = "feat:audio"
 
 
 def _video_tiers(m: CatalogModel | None) -> dict:
@@ -421,6 +427,9 @@ def video_params_ctx(
         "sizes": sizes,
         "size_mode": size_mode,
         "needs_first_frame": constraints.needs_first_frame(caps, c),
+        # a model that makes its own soundtrack earns the three Extras sound chips; the
+        # flag rides to Alpine on #model-params' data-has-audio, like needs_first_frame
+        "has_audio": AUDIO_CAPABILITY in caps,
         "fps_options": fps_options,
         "provider_settings": list((m.provider_settings_schema if m else None) or []),
         "formats": VIDEO_FORMATS,
