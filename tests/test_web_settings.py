@@ -1,3 +1,4 @@
+import httpx
 from runware import RunwareError
 
 from vjhstudio import secrets
@@ -162,3 +163,139 @@ async def test_the_polled_balance_chip_does_not_rearm_its_load_trigger(client):
     poll = await client.get("/hx/header/balance")
     assert "load delay" not in poll.text
     assert 'hx-trigger="every 60s, job-finished from:body"' in poll.text
+
+
+# ── Automation (MCP) card ───────────────────────────────────────────────────────
+
+
+async def test_settings_shows_the_automation_card_with_snippets(client):
+    r = await client.get("/settings")
+    assert 'id="automation"' in r.text and "streamable_http" in r.text
+    assert "claude mcp add" in r.text
+    assert "vjhstudio mcp" in r.text  # stdio block
+    assert "vjhstudio.exe" in r.text  # the Windows path variant
+
+
+async def test_the_mcp_settings_live_only_in_the_automation_card(client):
+    r = await client.get("/settings")
+    general = r.text.split('id="general-form"', 1)[1].split("</form>", 1)[0]
+    card = r.text.split('id="automation"', 1)[1].split("</article>", 1)[0]
+    assert "mcp.daily_cap_usd" not in general and "mcp.enabled" not in general
+    assert "mcp.daily_cap_usd" in card
+    assert 'name="mcp_daily_cap_usd"' in card
+
+
+async def test_saving_automation_settings(client, app):
+    from vjhstudio import db
+    from vjhstudio.services import settings
+
+    r = await client.post(
+        "/settings/automation",
+        data={"mcp_enabled": "on", "mcp_daily_cap_usd": "3.5", "mcp_max_jobs_per_day": "7"},
+    )
+    assert r.status_code == 200 and "restart" in r.text.lower()
+    with db.session_scope(app.state.boot.session_factory) as s:
+        assert settings.get(s, "mcp.enabled") is True
+        assert settings.get(s, "mcp.daily_cap_usd") == 3.5
+        assert settings.get(s, "mcp.max_jobs_per_day") == 7
+
+
+async def test_saving_automation_settings_rejects_nonsense(client):
+    r = await client.post(
+        "/settings/automation",
+        data={"mcp_daily_cap_usd": "lots", "mcp_max_jobs_per_day": "7"},
+    )
+    assert r.status_code == 422 and "number" in r.text and 'aria-invalid="true"' in r.text
+
+
+async def test_unchecking_enabled_turns_it_off(client, app):
+    from vjhstudio import db
+    from vjhstudio.services import settings
+
+    await client.post(
+        "/settings/automation",
+        data={"mcp_enabled": "on", "mcp_daily_cap_usd": "2", "mcp_max_jobs_per_day": "20"},
+    )
+    await client.post(
+        "/settings/automation", data={"mcp_daily_cap_usd": "2", "mcp_max_jobs_per_day": "20"}
+    )
+    with db.session_scope(app.state.boot.session_factory) as s:
+        assert settings.get(s, "mcp.enabled") is False
+
+
+async def test_regenerating_the_token_reveals_it_once_and_never_logs_it(client, app, caplog):
+    r = await client.post("/settings/automation/token")
+    tok = secrets.read_mcp_token(app.state.paths)
+    assert tok and tok in r.text
+    assert tok not in caplog.text
+    r = await client.get("/settings")
+    assert tok not in r.text and "••••" in r.text
+
+
+async def test_revealing_the_token_puts_it_back_on_the_card(client, app):
+    await client.post("/settings/automation/token")
+    tok = secrets.read_mcp_token(app.state.paths)
+    r = await client.post("/settings/automation/reveal")
+    assert r.status_code == 200 and tok in r.text
+
+
+async def test_revealing_without_a_token_asks_for_one(client):
+    r = await client.post("/settings/automation/reveal")
+    assert r.status_code == 422 and "Regenerate" in r.text
+
+
+async def test_the_env_token_cannot_be_regenerated(client, app, paths):
+    app.state.env = {"VJHSTUDIO_MCP_TOKEN": "from-the-environment"}
+    r = await client.post("/settings/automation/token")
+    assert r.status_code == 422 and "VJHSTUDIO_MCP_TOKEN" in r.text
+    assert secrets.read_mcp_token(paths) is None
+
+
+async def _remote(app, client=("10.0.0.5", 1234), base_url="http://192.168.1.20:8080"):
+    """A client that reaches the app from another machine on the network."""
+    transport = httpx.ASGITransport(app=app, client=client)
+    return httpx.AsyncClient(transport=transport, base_url=base_url)
+
+
+async def test_the_automation_routes_refuse_a_remote_peer(app, paths):
+    """The reveal hands back a stored credential, so it is loopback-only like
+    /api/restart. Nothing on the LAN may read or rotate the token."""
+    secrets.rotate_mcp_token(paths)
+    tok = secrets.read_mcp_token(paths)
+    async with app.router.lifespan_context(app), await _remote(app) as c:
+        for path in (
+            "/settings/automation/reveal",
+            "/settings/automation/token",
+            "/settings/automation",
+        ):
+            r = await c.post(path)
+            assert r.status_code == 403, path
+            assert tok not in r.text, path
+    assert secrets.read_mcp_token(paths) == tok  # and nothing was rotated
+
+
+async def test_the_card_uses_the_address_the_browser_reached_it_on(app):
+    """Bound to 0.0.0.0, the bind address is no use to an agent; the address the
+    page was opened with is the one that works."""
+    app.state.env = {"VJHSTUDIO_HOST": "0.0.0.0"}
+    async with app.router.lifespan_context(app), await _remote(app, client=("127.0.0.1", 9)) as c:
+        r = await c.get("/settings")
+    assert "http://192.168.1.20:8080/mcp" in r.text
+    assert "0.0.0.0" not in r.text
+
+
+async def test_a_rejected_save_keeps_what_was_typed(client):
+    r = await client.post(
+        "/settings/automation",
+        data={"mcp_enabled": "on", "mcp_daily_cap_usd": "lots", "mcp_max_jobs_per_day": "7"},
+    )
+    assert r.status_code == 422
+    assert 'value="lots"' in r.text and 'value="7"' in r.text
+    assert 'value="2.0"' not in r.text and "checked" in r.text  # not the saved values
+
+
+async def test_the_snippet_copy_buttons_wait_for_the_reveal(client):
+    r = await client.get("/settings")
+    card = r.text.split('id="automation"', 1)[1].split("</article>", 1)[0]
+    assert card.count(':disabled="!shown"') == 3  # Goose, Claude Code, stdio
+    assert "Ctrl+C" in card  # the fallback for a page with no clipboard API

@@ -3,6 +3,7 @@
     <span class="pill status-{{ j.status }}">{{ j.status }}</span>
     <strong class="job-title">{{ j.title }}</strong>
     <small class="muted">{{ j.model_name }}</small>
+    {% if j.source == 'mcp' %}<small class="chip" title="An AI agent queued this job">via agent</small>{% endif %}
   </header>
   <progress value="{{ j.progress }}" max="100">{{ j.progress }}%</progress>
   <p class="job-meta">

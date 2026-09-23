@@ -18,7 +18,7 @@
         {% for j in history %}
         <tr id="history-{{ j.id }}">
           <td><small>{{ j.finished_at.strftime('%Y-%m-%d %H:%M') if j.finished_at else '' }}</small></td>
-          <td>{{ j.title }}</td>
+          <td>{{ j.title }}{% if j.source == 'mcp' %} <small class="chip" title="An AI agent queued this job">via agent</small>{% endif %}</td>
           <td><small>{{ j.model_name }}</small></td>
           <td><span class="pill status-{{ j.status }}">{{ j.status }}</span></td>
           <td>{% if j.cost %}${{ '%.4f'|format(j.cost) }}{% endif %}</td>

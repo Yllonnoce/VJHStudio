@@ -1,0 +1,163 @@
+{# Automation (MCP) — the whole card is one htmx swap target, so saving, revealing and
+   regenerating all re-render it in place.
+
+   The token is NEVER part of a plain page load: /settings renders the mask only, and
+   the real value arrives just in the response to Reveal or Regenerate. `shown`
+   (Alpine) drives the token row and the three copy-paste blocks together, so Hide
+   puts the mask back everywhere and a screenshot of a hidden card leaks nothing.
+   Hide is cosmetic on purpose: the revealed token stays in this element's x-data, so
+   view-source still has it. The threat it answers is a shoulder or a screenshot, not
+   somebody already reading the DOM.
+   No load-time script: Alpine initialises the swapped-in node itself, which a
+   load-time initialiser would miss after a boosted navigation. #}
+<article id="automation"
+         x-data='{
+           "shown": {{ (mcp_token is not none)|tojson }},
+           "token": {{ (mcp_token or "")|tojson }},
+           "mask": {{ mcp_masked|tojson }},
+           "note": "",
+           "copy": function (text, el) {
+             try {
+               if (!navigator.clipboard) throw new Error("no clipboard");
+               navigator.clipboard.writeText(text);
+               return "Copied.";
+             } catch (e) {
+               if (el && window.getSelection) {
+                 var range = document.createRange();
+                 range.selectNodeContents(el);
+                 var sel = window.getSelection();
+                 sel.removeAllRanges();
+                 sel.addRange(range);
+               }
+               return "This page cannot reach the clipboard (it is not a secure origin). The text is selected — press Ctrl+C, or Cmd+C on a Mac.";
+             }
+           }
+         }'>
+  <header>
+    <strong>Let an AI agent use VJHStudio</strong>
+  </header>
+  <p>
+    An agent such as Goose or Claude Code can browse your models, write prompts, queue
+    images and videos and read the results back — all through this app, with your
+    projects, your settings and your spend cap. It uses the Model Context Protocol
+    (MCP), so any agent that speaks MCP can connect.
+  </p>
+
+  <form hx-post="/settings/automation" hx-target="#automation" hx-swap="outerHTML">
+    <label>
+      <input type="checkbox" name="mcp_enabled" value="on" {% if mcp_enabled %}checked{% endif %}>
+      Let agents connect
+    </label>
+    <div class="grid">
+      <label>Daily spend cap (USD)
+        <input name="mcp_daily_cap_usd" type="number" step="0.01" min="0"
+               value="{{ mcp_daily_cap_usd }}"
+               {% if mcp_error_field == 'mcp_daily_cap_usd' %}aria-invalid="true"{% endif %}>
+        <small>What agents may spend in a day. 0 means no cap.</small>
+      </label>
+      <label>Most jobs a day
+        <input name="mcp_max_jobs_per_day" type="number" step="1" min="0"
+               value="{{ mcp_max_jobs_per_day }}"
+               {% if mcp_error_field == 'mcp_max_jobs_per_day' %}aria-invalid="true"{% endif %}>
+        <small>A second brake, counted per day. 0 means no limit.</small>
+      </label>
+    </div>
+    <button type="submit">Save</button>
+    {% if mcp_saved %}<p class="ok">Saved.</p>{% endif %}
+    {% if mcp_error %}<p class="error">{{ mcp_error }}</p>{% endif %}
+    {% if mcp_message %}<p class="ok">{{ mcp_message }}</p>{% endif %}
+    <p><small class="muted">
+      Agents have spent ${{ '%.4f'|format(mcp_spent_usd) }} today
+      {%- if mcp_cap_usd %} of ${{ '%.2f'|format(mcp_cap_usd) }}{% endif %}, over
+      {{ mcp_jobs_today }} job{{ '' if mcp_jobs_today == 1 else 's' }}.
+      Saved as <code>mcp.enabled</code>, <code>mcp.daily_cap_usd</code> and
+      <code>mcp.max_jobs_per_day</code>; the environment variables
+      <code>VJHSTUDIO_MCP_ENABLED</code>, <code>VJHSTUDIO_MCP_DAILY_CAP_USD</code> and
+      <code>VJHSTUDIO_MCP_MAX_JOBS_PER_DAY</code> override whatever you save here.
+    </small></p>
+    <p><small>
+      Letting agents connect, and a new token, take effect after a restart —
+      see <a href="#updates">Updates</a> below, or stop and start VJHStudio yourself.
+    </small></p>
+  </form>
+
+  <h4>Token</h4>
+  <p>
+    <code x-ref="tokenCode" x-text="shown ? token : mask">{{ mcp_masked }}</code>
+    {% if mcp_token %}
+      <button type="button" class="secondary outline" @click="shown = !shown"
+              x-text="shown ? 'Hide' : 'Reveal'">Hide</button>
+      <button type="button" class="secondary outline"
+              @click="shown = true; note = copy(token, $refs.tokenCode)">Copy</button>
+    {% else %}
+      <button type="button" class="secondary outline" hx-post="/settings/automation/reveal"
+              hx-target="#automation" hx-swap="outerHTML">Reveal</button>
+    {% endif %}
+    <button type="button" class="contrast outline" hx-post="/settings/automation/token"
+            hx-target="#automation" hx-swap="outerHTML"
+            hx-confirm="Make a new token? Agents using the old one stop working until you give them the new one."
+            {% if mcp_token_source == 'env' %}disabled{% endif %}>Regenerate</button>
+  </p>
+  <p><small>
+    Treat the token like a password: anyone who has it can spend your RunWare balance
+    through this app. It is stored on this computer only, in
+    <code>{{ mcp_token_file }}</code>.
+    {% if mcp_token_source == 'env' %}
+      <strong>VJHSTUDIO_MCP_TOKEN is set in the environment, so that value is used and
+      the file is ignored.</strong>
+    {% elif mcp_token_source == 'none' %}
+      <strong>No token yet — click Regenerate to make one.</strong>
+    {% endif %}
+  </small></p>
+
+  <h4>Connect an agent</h4>
+  <p>Address: <code>{{ mcp_url }}</code> —
+    {% if mcp_host_is_local %}this works for an agent on this computer; from another
+      computer on your network, swap <code>{{ mcp_host }}</code> for this computer's
+      address (open VJHStudio from that computer once and this line will show it).
+    {% else %}this is the address you opened VJHStudio on, so an agent on another
+      computer can use it as it stands.{% endif %}</p>
+  <p x-show="note" x-text="note" class="muted" role="status"></p>
+
+  <details open>
+    <summary>Goose (over the network)</summary>
+    <pre><code x-ref="goose">extensions:
+  vjhstudio:
+    type: streamable_http
+    name: VJHStudio
+    enabled: true
+    uri: "{{ mcp_url }}"
+    headers: { "Authorization": "Bearer <span x-text="shown ? token : mask">{{ mcp_masked }}</span>" }
+    timeout: 900</code></pre>
+    <button type="button" class="secondary outline" :disabled="!shown"
+            @click="note = copy($refs.goose.innerText, $refs.goose)">Copy</button>
+    <small x-show="!shown" class="muted">Reveal the token first — otherwise you would copy the mask.</small>
+  </details>
+
+  <details>
+    <summary>Claude Code (over the network)</summary>
+    <pre><code x-ref="claude">claude mcp add --transport http vjhstudio {{ mcp_url }} --header "Authorization: Bearer <span x-text="shown ? token : mask">{{ mcp_masked }}</span>"</code></pre>
+    <button type="button" class="secondary outline" :disabled="!shown"
+            @click="note = copy($refs.claude.innerText, $refs.claude)">Copy</button>
+    <small x-show="!shown" class="muted">Reveal the token first — otherwise you would copy the mask.</small>
+  </details>
+
+  <details>
+    <summary>On this computer only (stdio — no token needed)</summary>
+    <p><small>The agent starts <code>vjhstudio mcp</code> itself and talks to it over its
+      own input and output, so nothing is exposed on the network.</small></p>
+    <pre><code x-ref="stdio">extensions:
+  vjhstudio:
+    type: stdio
+    name: VJHStudio
+    enabled: true
+    cmd: {{ mcp_venv_bin }}/vjhstudio
+    args: [mcp]
+    timeout: 900</code></pre>
+    <p><small>On Windows the command is <code>{{ mcp_venv_bin_win }}\vjhstudio.exe</code>
+      with the same <code>args: [mcp]</code>.</small></p>
+    <button type="button" class="secondary outline" :disabled="!shown"
+            @click="note = copy($refs.stdio.innerText, $refs.stdio)">Copy</button>
+    <small x-show="!shown" class="muted">Reveal the token first — otherwise you would copy the mask.</small>
+  </details>
+</article>

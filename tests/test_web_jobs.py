@@ -164,3 +164,52 @@ async def test_clear_finished_hides_done_jobs_until_a_newer_one_finishes(client,
     await _finish_one_job(client, fake, app)
     r = await client.get("/hx/jobs/active")
     assert r.text.count('id="job-') == 1
+
+
+async def _agent_job(app, status=None):
+    """One job as an agent would have queued it, without going through the runner."""
+    from vjhstudio import db
+    from vjhstudio.models import Job, utcnow
+    from vjhstudio.schemas.image import ImageRequest, PromptForm
+    from vjhstudio.services import generate
+
+    req = ImageRequest(project_id=1, model="runware:101@1", form=PromptForm(subject="a red fox"))
+    job = generate.enqueue_image(
+        app.state.boot.session_factory,
+        app.state.paths,
+        req,
+        default_negative="",
+        source="mcp",
+        estimate_usd=0.01,
+    )
+    if status is not None:
+        with db.session_scope(app.state.boot.session_factory) as s:
+            row = s.get(Job, job.id)
+            row.status, row.finished_at = status, utcnow()
+    return job
+
+
+async def test_queue_panel_shows_a_via_agent_chip(client, app):
+    await _agent_job(app)
+    r = await client.get("/queue")
+    assert "via agent" in r.text
+    panel = await client.get("/hx/jobs/active")
+    assert "via agent" in panel.text
+
+
+async def test_queue_history_shows_a_via_agent_chip(client, app):
+    from vjhstudio.models import JobStatus
+
+    await _agent_job(app, status=JobStatus.succeeded.value)
+    r = await client.get("/queue")
+    history = r.text.split('class="queue-history"', 1)[1]
+    assert "via agent" in history
+
+
+async def test_browser_jobs_have_no_chip(client, fake, app):
+    await client.post("/settings/api-key", data={"api_key": "abcdefgh1234"})
+    await client.post("/generate/image", data=FORM)
+    r = await client.get("/queue")
+    assert 'id="job-' in r.text  # the job really is on the page
+    assert "via agent" not in r.text
+    await app.state.runner.wait_idle()

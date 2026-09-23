@@ -4,6 +4,29 @@ All notable changes to VJHStudio are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.5.0 — 2026-09-23
+
+### Added
+
+- **Use VJHStudio from an AI agent (MCP).** Goose, Claude Code, Claude Desktop — anything that
+  speaks the Model Context Protocol — can browse your models, write prompts, queue images and
+  videos into your projects and read the results back. Settings gains an **Automation (MCP)** card
+  with the switch, the token and ready-made copy-paste blocks for each agent, and the README has a
+  "Use VJHStudio from an agent (MCP)" section; `docs/goose/vjhstudio-recipe.yaml` is a Goose recipe
+  to start from.
+- A **daily spend cap** (default $2) and a limit on how many jobs a day an agent may queue. A job
+  that would go past either is refused before anything is sent, and a job whose price VJHStudio
+  cannot work out in advance is refused too.
+- Jobs an agent queued are marked **via agent** on the queue cards, in the Queue page's history and
+  in an image or video's details.
+- An access token for agents on your network, kept beside your API key in `data/secrets` and shown
+  in full only when you ask for it. `VJHSTUDIO_MCP_TOKEN` overrides the stored one.
+
+### Changed
+
+- The three automation settings live in the Automation card with proper labels instead of appearing
+  as raw keys in the General form.
+
 ## 0.4.0 — 2026-09-22
 
 ### Added

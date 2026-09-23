@@ -184,3 +184,17 @@ async def test_move_to_a_bad_project_is_a_422_with_a_message(client, fake, app):
 async def test_the_gallery_grid_refetches_when_an_output_is_moved(client):
     r = await client.get("/gallery")
     assert 'hx-trigger="close-lightbox from:body, outputs-changed from:body"' in r.text
+
+
+async def test_gallery_detail_shows_a_via_agent_chip(client, fake, app):
+    from vjhstudio import db
+    from vjhstudio.models import Job
+
+    await _make(client, fake, app)
+    view = (await client.get("/api/jobs")).json()[0]
+    oid = view["outputs"][0]["id"]
+    assert "via agent" not in (await client.get(f"/hx/outputs/{oid}")).text
+    with db.session_scope(app.state.boot.session_factory) as s:
+        s.get(Job, view["id"]).source = "mcp"
+    r = await client.get(f"/hx/outputs/{oid}")
+    assert "via agent" in r.text
