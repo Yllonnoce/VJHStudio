@@ -158,9 +158,10 @@ def _jobs(f) -> int:
 def test_preflight_refuses_a_seed_image_a_text_only_model_cannot_take(env):
     paths, f = env
     pid = _pid(f)
+    _catalog_row(f, "vjh:t2i-only@1", "image", ["io:text-to-image"], None)
     req = ImageRequest(
         project_id=pid,
-        model="runware:100@1",  # io:text-to-image only
+        model="vjh:t2i-only@1",  # io:text-to-image only, nothing harvested
         form=PromptForm(subject="a fox"),
         seed_image_asset_id=7,
     )

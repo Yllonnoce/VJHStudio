@@ -37,6 +37,12 @@ ALEPH_C = {
 # a harvested ``inputs`` block, as the docs pass writes it: frames (two of them, so a
 # last-frame slot too) plus up to nine reference images
 SEEDANCE = "vjh:seedance-inputs@1"
+# harvested frames, no reference images at all (LTX-2.3's shape)
+FRAMES = "vjh:frames-only@1"
+FRAMES_C = {
+    "dims": {"mode": "unknown"},
+    "inputs": {"frameImages": {"required": True, "min_items": 1, "max_items": 2}},
+}
 SEEDANCE_C = {
     "dims": {"mode": "unknown"},
     "inputs": {
@@ -89,6 +95,7 @@ def seeded(app):
     _add(app, FIRST_ONLY, "video", "FrameStart", I2V_ONLY, None)
     _add(app, NANO, "image", "Nano Banana Pro", ["io:text-to-image"], NANO_C)
     _add(app, SEEDANCE, "video", "Seedance Inputs", T2V, SEEDANCE_C)
+    _add(app, FRAMES, "video", "Frames Only", T2V, FRAMES_C)
     return app
 
 
@@ -421,11 +428,20 @@ async def test_params_panel_carries_the_roles_a_harvested_model_accepts(client, 
 
 
 async def test_params_panel_marks_a_required_role_and_drops_the_rest(client, seeded):
-    r = await client.get(f"/hx/model-options?mode=video&air={FIRST_ONLY}")
-    # no harvested inputs: the capability tags decide, and i2v-only means a first frame
+    """A harvested block that names frames and nothing else: no reference slot, and the
+    frame is required."""
+    r = await client.get(f"/hx/model-options?mode=video&air={FRAMES}")
     assert 'data-ref-roles="first,last"' in r.text
     assert 'data-required-roles="first"' in r.text
     assert 'data-ref-accepts="first frame (required), last frame"' in r.text
+
+
+async def test_params_panel_keeps_reference_open_for_a_tag_only_model(client, seeded):
+    """No harvested inputs at all: i2v-only means the first frame is required, and
+    reference images stay offered until a harvest says otherwise."""
+    r = await client.get(f"/hx/model-options?mode=video&air={FIRST_ONLY}")
+    assert 'data-ref-roles="first,last,reference"' in r.text
+    assert 'data-required-roles="first"' in r.text
 
 
 async def test_params_panel_says_text_only_for_a_model_with_no_image_input(client, seeded):
@@ -438,7 +454,7 @@ async def test_references_section_offers_only_the_accepted_slots(client, seeded,
     from vjhstudio.services import settings as settings_svc
 
     with db.session_scope(app.state.boot.session_factory) as s:
-        settings_svc.set_many(s, {"defaults.video_model": FIRST_ONLY})
+        settings_svc.set_many(s, {"defaults.video_model": FRAMES})
     html = (await client.get("/generate/video")).text
     refs = html[html.index('<section class="gen-refs"') : html.index('<dialog id="ref-picker"')]
     assert "Accepts: first frame (required), last frame." in refs
@@ -483,7 +499,7 @@ async def test_posting_a_reference_image_a_frames_only_video_model_refuses(clien
         "/generate/video",
         data={
             **FORM,
-            "model": FIRST_ONLY,
+            "model": FRAMES,
             "first_frame_asset_id": "3",  # this one it does take
             "reference_asset_ids": "4",
         },
