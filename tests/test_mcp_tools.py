@@ -8,6 +8,7 @@ A refusal arrives as ``is_error`` with the sentence inside
 
 import asyncio
 import json
+from contextlib import asynccontextmanager
 
 import pytest
 from mcp.client import Client
@@ -19,27 +20,28 @@ from vjhstudio.services import settings
 
 FLUX = "runware:101@1"
 LTX = "lightricks:ltx@2.3"
+VEO = "google:3@2"  # generateAudio defaults on, and doubles the per-second rate
+WAN = "alibaba:wan@2.7"  # a list-mode model with a 720p and a 1080p rate
+NANO = "google:4@2"  # lists sizes ImageRequest will not take (1376x768, 6336x2688 ...)
 FIRST_FRAME = "tests:firstframe@1"
 
 IMAGE_REPLY = [{"imageURL": "http://x/1.png", "seed": 5, "cost": 0.004}]
 
 
-@pytest.fixture
-async def ctx(app, client):
-    """``client`` keeps the app lifespan -- and therefore ``boot`` and the runner -- alive."""
+def _context(app, runner=None):
     return MCPContext(
         session_factory=app.state.boot.session_factory,
         paths=app.state.paths,
-        runner=lambda: app.state.runner,
+        runner=runner or (lambda: app.state.runner),
         env=app.state.env,
         setting=app.state.setting,
         base_url="http://test",
     )
 
 
-@pytest.fixture
-async def mcp(ctx):
-    """The client is opened and closed inside one task of its own.
+@asynccontextmanager
+async def open_mcp(ctx):
+    """Open and close the client inside one task of its own.
 
     pytest-asyncio runs a fixture's setup and its teardown in two different tasks, and
     the SDK's client holds an anyio task group, which refuses to be left from a task
@@ -58,9 +60,48 @@ async def mcp(ctx):
             raise
 
     task = asyncio.create_task(hold())
-    yield await ready
-    done.set()
-    await task
+    try:
+        yield await ready
+    finally:
+        done.set()
+        await task
+
+
+class _Recorder:
+    """A runner stand-in: the job is queued and priced, and never actually run."""
+
+    def __init__(self):
+        self.submitted: list[str] = []
+
+    def submit(self, job_id: str) -> None:
+        self.submitted.append(job_id)
+
+    def cancel(self, job_id: str) -> bool:
+        return False
+
+    def snapshot(self) -> dict:
+        return {}
+
+
+@pytest.fixture
+async def ctx(app, client):
+    """``client`` keeps the app lifespan -- and therefore ``boot`` and the runner -- alive."""
+    return _context(app)
+
+
+@pytest.fixture
+async def mcp(ctx):
+    async with open_mcp(ctx) as c:
+        yield c
+
+
+@pytest.fixture
+async def quoted(app, client):
+    """A server whose runner only records submits: these tests are about what a job is
+    priced and queued as, not about running it."""
+    recorder = _Recorder()
+    async with open_mcp(_context(app, runner=lambda: recorder)) as c:
+        yield c
 
 
 def _data(result):
@@ -107,6 +148,7 @@ async def test_list_models_shape(mcp):
     flux = next(r for r in rows if r["air"] == FLUX)
     assert flux["accepts"] == "seed image" and flux["price_usd"] > 0
     assert flux["unit"] == "per_image" and flux["needs_first_frame"] is False
+    assert flux["sizes_known"] is True  # rule mode: the model told us its grid
     by_name = _data(await mcp.call_tool("list_models", {"kind": "image", "sort": "name"}))
     assert [r["name"].lower() for r in by_name] == sorted(r["name"].lower() for r in by_name)
     res = await mcp.call_tool("list_models", {"kind": "audio"})
@@ -207,13 +249,50 @@ async def test_project_by_name_slug_or_id_and_move(mcp, fake):
     assert res.is_error and "list_projects" in res.content[0].text
 
 
-async def test_cancel_job_and_unknown_job_ids(mcp, fake):
+async def test_cancel_job_stops_a_queued_job(mcp, app, fake):
+    """One worker, the first job gated open: the second is provably still queued, so the
+    cancel is deterministic and the row must end up ``cancelled``."""
+    gate = asyncio.Event()
+    scripted = fake.run
+
+    async def slow(params, options=None):
+        await gate.wait()
+        return await scripted(params, options)
+
+    fake.run = slow
     fake.script["run"] = [IMAGE_REPLY]
-    r = _data(await mcp.call_tool("generate_image", {"air": FLUX, "prompt": "x"}))
-    cancelled = _data(await mcp.call_tool("cancel_job", {"job_id": r["job_id"]}))
-    assert cancelled["cancelled"] in (True, False)
-    res = await mcp.call_tool("job_status", {"job_id": "nope"})
-    assert res.is_error and "nope" in res.content[0].text
+    app.state.runner.set_concurrency(1)
+
+    first = _data(await mcp.call_tool("generate_image", {"air": FLUX, "prompt": "one"}))
+    second = _data(await mcp.call_tool("generate_image", {"air": FLUX, "prompt": "two"}))
+    await asyncio.sleep(0.05)
+    assert app.state.runner.active_ids() == [first["job_id"]]
+
+    assert _data(await mcp.call_tool("cancel_job", {"job_id": second["job_id"]}))["cancelled"]
+    gate.set()
+    await app.state.runner.wait_idle()
+    done = _data(await mcp.call_tool("job_status", {"job_id": second["job_id"]}))
+    assert done["status"] == "cancelled"
+    assert _data(await mcp.call_tool("job_status", {"job_id": first["job_id"]}))["status"] == (
+        "succeeded"
+    )
+
+
+async def test_unknown_job_ids_are_refused(mcp):
+    for tool in ("job_status", "cancel_job", "wait_for_job"):
+        res = await mcp.call_tool(tool, {"job_id": "nope"})
+        assert res.is_error and "nope" in res.content[0].text
+
+
+async def test_generate_refuses_when_the_runner_is_missing(app, client):
+    """A refusal must not leave a queued, cap-consuming row behind for the next boot."""
+    async with open_mcp(_context(app, runner=lambda: None)) as m:
+        res = await m.call_tool("generate_image", {"air": FLUX, "prompt": "x"})
+        assert res.is_error and "runner is not running" in res.content[0].text
+        res = await m.call_tool("generate_video", {"air": LTX, "prompt": "x"})
+        assert res.is_error and "runner is not running" in res.content[0].text
+    with db.session_scope(app.state.boot.session_factory) as s:
+        assert s.query(Job).count() == 0
 
 
 async def test_account_assets_and_resources(mcp):
@@ -227,3 +306,119 @@ async def test_account_assets_and_resources(mcp):
     assert json.loads(body.text)[0]["slug"] == "default"
     names = {p.name for p in (await mcp.list_prompts()).prompts}
     assert "plan_shoot" in names
+
+
+# ---- price exactly what is queued ----------------------------------------
+LOOSE = "tests:loose@1"
+
+
+def _hx(client, query: str):
+    return client.get("/hx/generate/estimate?" + query)
+
+
+async def test_video_estimate_prices_the_audio_the_model_defaults_to(mcp, client):
+    """Veo's ``generateAudio`` defaults to true and doubles the per-second rate. The form
+    never omits a schema-declared boolean, and neither may the tool."""
+    r = _data(
+        await mcp.call_tool(
+            "estimate", {"kind": "video", "air": VEO, "duration": 8, "resolution": "720p"}
+        )
+    )
+    assert r["audio"] is True and r["estimate_usd"] == pytest.approx(0.4 * 8)
+    hx = await _hx(client, f"mode=video&air={VEO}&duration=8&resolution=720p&ps_generateAudio=on")
+    assert f"\u2248${r['estimate_usd']:.2f}" in hx.text
+
+    off = _data(
+        await mcp.call_tool(
+            "estimate",
+            {
+                "kind": "video",
+                "air": VEO,
+                "duration": 8,
+                "resolution": "720p",
+                "audio": False,
+            },
+        )
+    )
+    assert off["estimate_usd"] == pytest.approx(0.2 * 8)
+
+
+async def test_generate_video_prices_the_settings_the_job_will_carry(quoted, app):
+    """The blocker: priced from the agent's arguments alone an 8 s Veo clip looks like
+    $1.60 and slips under the $2 cap, then bills $3.20."""
+    res = await quoted.call_tool(
+        "generate_video", {"air": VEO, "prompt": "x", "duration": 8, "resolution": "720p"}
+    )
+    assert res.is_error and "$3.20" in res.content[0].text
+    with db.session_scope(app.state.boot.session_factory) as s:
+        assert s.query(Job).count() == 0
+        settings.set_many(s, {"mcp.daily_cap_usd": "10"})
+
+    r = _data(
+        await quoted.call_tool(
+            "generate_video", {"air": VEO, "prompt": "x", "duration": 8, "resolution": "720p"}
+        )
+    )
+    assert r["estimate_usd"] == pytest.approx(3.2)
+    assert r["provider_settings"] == {"generateAudio": True}
+    with db.session_scope(app.state.boot.session_factory) as s:
+        job = s.get(Job, r["job_id"])
+        assert job.request_json["provider_settings"] == {"generateAudio": True}
+        assert job.request_json["_estimate"] == pytest.approx(3.2)
+        assert job.request_json["duration"] == 8
+
+
+async def test_video_is_priced_at_the_tier_of_the_size_it_will_render(quoted, client, app):
+    """Wan lists 1920x1080 and charges the 1080p rate for it; the pixels win over the
+    preset name inside ``build_video_task``, so the estimate must follow them."""
+    picked = {"air": WAN, "width": 1920, "height": 1080, "duration": 5, "resolution": "720p"}
+    r = _data(await quoted.call_tool("estimate", {"kind": "video", **picked}))
+    assert r["resolution"] == "1080p" and r["estimate_usd"] == pytest.approx(0.15 * 5)
+    hx = await _hx(client, f"mode=video&air={WAN}&duration=5&resolution=1080p")
+    assert f"\u2248${r['estimate_usd']:.2f}" in hx.text
+
+    g = _data(await quoted.call_tool("generate_video", {"prompt": "x", **picked}))
+    assert g["estimate_usd"] == pytest.approx(0.75) and g["resolution"] == "1080p"
+    with db.session_scope(app.state.boot.session_factory) as s:
+        job = s.get(Job, g["job_id"])
+        assert (job.request_json["width"], job.request_json["height"]) == (1920, 1080)
+        assert job.request_json["resolution"] == "1080p"
+
+
+async def test_a_model_with_no_known_sizes_keeps_the_preset(quoted, app):
+    with db.session_scope(app.state.boot.session_factory) as s:
+        s.add(
+            CatalogModel(
+                air=LOOSE,
+                name="Loose Video",
+                kind="video",
+                capabilities_json=["io:text-to-video"],
+                price_unit="per_second",
+                price_primary=0.02,
+                constraints_json={"dims": {"mode": "unknown"}},
+                source="curated",
+            )
+        )
+    rows = _data(await quoted.call_tool("list_models", {"kind": "video"}))
+    assert next(r for r in rows if r["air"] == LOOSE)["sizes_known"] is False
+
+    r = _data(
+        await quoted.call_tool(
+            "generate_video", {"air": LOOSE, "prompt": "x", "width": 1000, "height": 1000}
+        )
+    )
+    assert "lists no sizes" in r["note"]
+    with db.session_scope(app.state.boot.session_factory) as s:
+        job = s.get(Job, r["job_id"])
+        assert job.request_json["width"] is None and job.request_json["height"] is None
+
+
+async def test_a_size_ImageRequest_would_reject_is_refused_with_the_ones_that_work(mcp):
+    """google:4@2 lists 1376x768 and 6336x2688; ``ImageRequest`` takes neither. The agent
+    gets the sizes that do work, not a pydantic dump naming a number it never sent."""
+    picked = {"air": NANO, "width": 1920, "height": 1080}
+    res = await mcp.call_tool("estimate", {"kind": "image", **picked})
+    text = res.content[0].text
+    assert res.is_error and "multiple of 64" in text and "1024x1024" in text
+    res = await mcp.call_tool("generate_image", {"prompt": "x", **picked})
+    assert res.is_error and "1024x1024" in res.content[0].text

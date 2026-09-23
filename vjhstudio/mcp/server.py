@@ -23,6 +23,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from .. import db
 from ..models import CatalogModel, Job, JobStatus, Output, Project, utcnow
+from ..runware.tasks import nearest
 from ..schemas.image import ImageRequest, PromptForm
 from ..schemas.video import DURATION_MAX, DURATION_MIN, VideoRequest
 from ..services import account as account_svc
@@ -33,6 +34,7 @@ from ..web.routes.generate import (
     DEFAULT_DURATION,
     FALLBACK_RESOLUTIONS,
     SIZE_PRESETS,
+    _tier_name,
     estimate_ctx,
     video_estimate_ctx,
     with_portrait,
@@ -52,6 +54,10 @@ TIMEOUT_MAX = 900
 POLL_FIRST = 0.1
 POLL_MAX = 2.0
 RECENT_OUTPUTS = 24
+# ``ImageRequest`` takes nothing else, whatever a model's own size list says.
+IMAGE_SIZE_STEP, IMAGE_SIZE_MIN, IMAGE_SIZE_MAX = 64, 128, 2048
+SIZES_SUGGESTED = 8
+SIZED_MODES = ("list", "rule")
 
 
 @dataclass
@@ -133,6 +139,35 @@ def _dims_block(m: CatalogModel) -> dict:
     return block if isinstance(block, dict) else {}
 
 
+def _size_mode(m: CatalogModel) -> str:
+    """``list``, ``rule`` or ``unknown``. A harvested row carries ``{"mode": "unknown"}``
+    by default, which says the opposite of "we know its sizes"."""
+    mode = str(_dims_block(m).get("mode") or "unknown")
+    return mode if mode in SIZED_MODES else "unknown"
+
+
+def _valid_image_size(w: int, h: int) -> bool:
+    return all(v % IMAGE_SIZE_STEP == 0 and IMAGE_SIZE_MIN <= v <= IMAGE_SIZE_MAX for v in (w, h))
+
+
+def _require_image_size(m: CatalogModel, size: tuple[int, int]) -> tuple[int, int]:
+    """A ``list`` model can offer sizes ``ImageRequest`` will not take (google:4@2 lists
+    1376x768 and 6336x2688). Refuse with the sizes that *do* work rather than let pydantic
+    answer with a number the agent never sent."""
+    if _valid_image_size(*size):
+        return size
+    usable = [
+        f"{o['w']}x{o['h']}"
+        for o in constraints.size_options(m.constraints_json, "image", list(SIZE_PRESETS))
+        if _valid_image_size(o["w"], o["h"])
+    ][:SIZES_SUGGESTED]
+    tail = f" Try one of: {', '.join(usable)}." if usable else ""
+    raise ValueError(
+        f"{m.air} cannot be run at {size[0]}x{size[1]}: sizes must be a multiple of "
+        f"{IMAGE_SIZE_STEP} between {IMAGE_SIZE_MIN} and {IMAGE_SIZE_MAX}.{tail}"
+    )
+
+
 def _video_tiers(m: CatalogModel) -> dict:
     tiers = (m.price_tiers_json or {}).get("video")
     return dict(tiers) if isinstance(tiers, dict) else {}
@@ -145,8 +180,9 @@ def _resolutions(m: CatalogModel) -> list[str]:
 
 
 def _duration_for(m: CatalogModel, duration: float | None) -> float:
-    """The duration this model will actually take: its own list or range wins, and the
-    schema's 1--30 s bounds are the last word."""
+    """The duration this model will actually run for, so the price quoted is the price
+    billed: the harvested spec first, then the curated ``tiers.video.durations`` that
+    ``build_video_task`` snaps to, then the schema's 1--30 s bounds."""
     spec = constraints.duration_spec(m.constraints_json)
     default = spec.get("default")
     value = float(duration) if duration is not None else float(default or DEFAULT_DURATION)
@@ -158,7 +194,42 @@ def _duration_for(m: CatalogModel, duration: float | None) -> float:
             value = max(float(spec["min"]), value)
         if spec.get("max") is not None:
             value = min(float(spec["max"]), value)
+    offered = nearest(value, _video_tiers(m).get("durations") or [])
+    if offered is not None:
+        value = float(offered)
     return max(DURATION_MIN, min(DURATION_MAX, value))
+
+
+def _provider_settings(m: CatalogModel, sent: dict | None) -> dict:
+    """What the job will really carry. The form never omits a schema-declared boolean
+    (``parse_provider_settings`` fills it from its default), and neither may a tool: Veo's
+    ``generateAudio`` defaults to true and doubles the rate, so an estimate taken from the
+    agent's arguments alone would be half the bill."""
+    out = {
+        str(e["key"]): bool(e.get("default"))
+        for e in (m.provider_settings_schema or [])
+        if e.get("key") and str(e.get("type") or "").lower() == "bool"
+    }
+    out.update(dict(sent or {}))
+    return out
+
+
+def _video_size(m: CatalogModel, width: int | None, height: int | None) -> tuple[int, int] | None:
+    """Pixels are posted only when the model advertised sizes, exactly as the video panel
+    does; otherwise the resolution preset decides and raw pixels would be a guess."""
+    if width is None or height is None or _size_mode(m) == "unknown":
+        return None
+    return constraints.nearest_size(m.constraints_json, int(width), int(height))
+
+
+def _video_tier(m: CatalogModel, size: tuple[int, int] | None, resolution: str) -> str:
+    """The tier the chosen size is priced under. In ``list`` mode the panel posts the
+    size's own tier as the hidden ``resolution`` (see ``_default_resolution``), because
+    ``build_video_task`` lets the pixels win over the preset name."""
+    if size is None or _size_mode(m) != "list":
+        return resolution
+    labels = _dims_block(m).get("labels") or {}
+    return _tier_name(size[0], size[1], labels.get(f"{size[0]}x{size[1]}", ""))
 
 
 def _audio_on(provider_settings: dict) -> bool:
@@ -188,7 +259,7 @@ def model_summary(m: CatalogModel) -> dict:
         "needs_first_frame": (
             constraints.needs_first_frame(caps, m.constraints_json) if m.kind == "video" else False
         ),
-        "sizes_known": bool(_dims_block(m).get("mode")),
+        "sizes_known": _size_mode(m) in SIZED_MODES,
         "favourite": bool(m.is_favourite),
     }
 
@@ -298,10 +369,12 @@ def build_server(ctx: MCPContext) -> MCPServer:
         number_results: int = 1,
         duration: float | None = None,
         resolution: str = "",
-        audio: bool = False,
+        audio: bool | None = None,
     ) -> dict:
-        """What one run would cost, in US dollars. ``estimate_usd`` is null when the
-        model has no known price -- those cannot run under a spend cap."""
+        """What one run would cost, in US dollars -- the same number the cap is checked
+        against, for the size, duration and settings the job would really use.
+        ``estimate_usd`` is null when the model has no known price; those cannot run under
+        a spend cap. Leave ``audio`` unset to price the model's own default."""
         k = _kind(kind)
         with db.session_scope(sf) as s:
             m = _model(s, air, k)
@@ -310,7 +383,7 @@ def build_server(ctx: MCPContext) -> MCPServer:
                     int(width or m.default_width or 1024),
                     int(height or m.default_height or 1024),
                 )
-                used = constraints.nearest_size(m.constraints_json, *asked)
+                used = _require_image_size(m, constraints.nearest_size(m.constraints_json, *asked))
                 data = estimate_ctx(s, air, used[0], used[1], number_results)
                 return {
                     "estimate_usd": data["total"],
@@ -321,19 +394,22 @@ def build_server(ctx: MCPContext) -> MCPServer:
                     "number_results": data["number_results"],
                 }
             seconds = _duration_for(m, duration)
-            data = video_estimate_ctx(s, air, seconds, audio, resolution)
-            note = (
-                ""
-                if duration is None or seconds == float(duration)
-                else (f"duration snapped to {seconds:g}s")
-            )
+            size = _video_size(m, width, height)
+            tier = _video_tier(m, size, resolution)
+            sound = _audio_on(_provider_settings(m, None)) if audio is None else bool(audio)
+            data = video_estimate_ctx(s, air, seconds, sound, tier)
+            notes = []
+            if duration is not None and seconds != float(duration):
+                notes.append(f"duration snapped to {seconds:g}s")
+            if tier != resolution:
+                notes.append(f"priced at the {tier} rate")
             return {
                 "estimate_usd": data["total"],
                 "rate": data["rate"],
-                "note": note,
+                "note": "; ".join(notes),
                 "duration": seconds,
-                "resolution": resolution,
-                "audio": audio,
+                "resolution": tier,
+                "audio": sound,
             }
 
     # ---- generation ------------------------------------------------------
@@ -354,11 +430,12 @@ def build_server(ctx: MCPContext) -> MCPServer:
     ) -> dict:
         """Queue an image job. Refuses, before anything is queued or billed, when
         today's agent spend would pass the cap."""
+        runner()  # before the row exists: a refusal must leave nothing to requeue
         with db.session_scope(sf) as s:
             p = _project(s, project)
             m = _model(s, air, "image")
             asked = (int(width), int(height))
-            used = constraints.nearest_size(m.constraints_json, *asked)
+            used = _require_image_size(m, constraints.nearest_size(m.constraints_json, *asked))
             est = estimate_ctx(s, air, used[0], used[1], number_results)["total"]
             project_id = p.id
         req = ImageRequest(
@@ -412,24 +489,29 @@ def build_server(ctx: MCPContext) -> MCPServer:
         provider_settings: dict | None = None,
         title: str | None = None,
     ) -> dict:
-        """Queue a video job. Same cap, and the same refusal-before-billing rule."""
-        settings_sent = dict(provider_settings or {})
+        """Queue a video job. Same cap, and the same refusal-before-billing rule.
+
+        Everything that moves the price is resolved here -- the settings the provider will
+        really see, the duration the task builder will really send, the size and its rate
+        tier -- so the number the cap is checked against is the number that gets billed."""
+        runner()  # before the row exists: a refusal must leave nothing to requeue
         with db.session_scope(sf) as s:
             p = _project(s, project)
             m = _model(s, air, "video")
             seconds = _duration_for(m, duration)
-            size: tuple[int, int] | None = None
-            if width is not None and height is not None:
-                size = constraints.nearest_size(m.constraints_json, int(width), int(height))
-            est = video_estimate_ctx(s, air, seconds, _audio_on(settings_sent), resolution)["total"]
+            settings_sent = _provider_settings(m, provider_settings)
+            size = _video_size(m, width, height)
+            tier = _video_tier(m, size, resolution)
+            est = video_estimate_ctx(s, air, seconds, _audio_on(settings_sent), tier)["total"]
             project_id = p.id
+            sized = _size_mode(m) != "unknown"
         req = VideoRequest(
             project_id=project_id,
             model=air,
             final_prompt=prompt,
             form=PromptForm(subject=prompt, no_text=False),
             duration=seconds,
-            resolution=resolution,
+            resolution=tier,
             width=size[0] if size else None,
             height=size[1] if size else None,
             first_frame_asset_id=first_frame_asset_id,
@@ -447,13 +529,20 @@ def build_server(ctx: MCPContext) -> MCPServer:
             notes.append(f"duration snapped to {seconds:g}s")
         if size is not None and size != (int(width), int(height)):
             notes.append(f"size snapped to {size[0]}x{size[1]}")
+        if not sized and (width is not None or height is not None):
+            notes.append(f"this model lists no sizes: {tier} decides the dimensions")
+        elif (width is None) != (height is None):
+            notes.append(f"width and height go together: {tier} decides the dimensions")
+        if tier != resolution:
+            notes.append(f"priced at the {tier} rate")
         return {
             "job_id": job.id,
             "estimate_usd": est,
             "cap": cap,
             "note": "; ".join(notes),
             "duration": seconds,
-            "resolution": resolution,
+            "resolution": tier,
+            "provider_settings": settings_sent,
         }
 
     # ---- queue -----------------------------------------------------------
@@ -469,7 +558,9 @@ def build_server(ctx: MCPContext) -> MCPServer:
 
     @server.tool()
     @_guard
-    async def wait_for_job(job_id: str, timeout_s: int = 300, mcp_ctx: Context = None) -> dict:
+    async def wait_for_job(
+        job_id: str, timeout_s: int = 300, mcp_ctx: Context | None = None
+    ) -> dict:
         """Wait until the job finishes (or ``timeout_s``, at most 900) and return its
         outputs. A reply carrying ``timed_out`` means the job is still running."""
         loop = asyncio.get_running_loop()
