@@ -85,9 +85,107 @@ def can_start_from_text(capabilities: list[str]) -> bool:
     return "io:text-to-video" in (capabilities or []) or "io:text-to-image" in (capabilities or [])
 
 
+def _inputs(c: dict | None) -> dict:
+    """The harvested ``inputs`` block (docs-derived: ``frameImages``, ``seedImage``,
+    ``referenceImages`` ... each ``{"required", "min_items", "max_items"}``), or ``{}``."""
+    inputs = (c or {}).get("inputs")
+    return inputs if isinstance(inputs, dict) else {}
+
+
 def needs_first_frame(capabilities: list[str], c: dict | None) -> bool:
     caps = capabilities or []
+    if _inputs(c).get("frameImages", {}).get("required"):
+        return True
     return "io:image-to-video" in caps and "io:text-to-video" not in caps
+
+
+# The reference roles the Generate page offers, in display order, and the request
+# field each single-slot one fills (``reference`` is a list: ``reference_asset_ids``).
+ROLE_ORDER = ("first", "last", "seed", "reference")
+ROLE_LABELS = {
+    "first": "first frame",
+    "last": "last frame",
+    "seed": "seed image",
+    "reference": "reference image",
+}
+MODE_ROLES = {"image": ("seed", "reference"), "video": ("first", "last", "reference")}
+
+
+def _max_items(spec: dict) -> int | None:
+    n = spec.get("max_items")
+    try:
+        return int(n) if n is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def accepted_roles(
+    kind: str, capabilities: list[str], c: dict | None, family: str = "diffusion"
+) -> dict[str, dict]:
+    """Which reference roles this model takes: ``{role: {"required": bool, "max": int|None}}``
+    in ``ROLE_ORDER``. ``max`` is the item cap for ``reference``; ``None`` = unknown.
+
+    The harvested ``inputs`` block is the authority when the model has one. Without it,
+    the capability tags decide (``io:image-to-video`` -> frames, ``io:image-to-image``
+    -> a seed image for diffusion models, reference images for instruction models), and
+    a row with no tags at all (search-added) keeps every role of its mode, since nothing
+    says otherwise and the runner drops what the provider rejects.
+    """
+    caps = capabilities or []
+    inputs = _inputs(c)
+    out: dict[str, dict] = {}
+    if kind == "video":
+        if inputs:
+            frames = inputs.get("frameImages")
+            if isinstance(frames, dict):
+                out["first"] = {"required": needs_first_frame(caps, c), "max": 1}
+                cap = _max_items(frames)
+                if cap is None or cap >= 2:
+                    out["last"] = {"required": False, "max": 1}
+            refs = inputs.get("referenceImages")
+            if isinstance(refs, dict):
+                out["reference"] = {"required": bool(refs.get("required")), "max": _max_items(refs)}
+        elif not caps:
+            for role in MODE_ROLES["video"]:
+                out[role] = {"required": False, "max": 1 if role != "reference" else None}
+        elif "io:image-to-video" in caps:
+            out["first"] = {"required": needs_first_frame(caps, c), "max": 1}
+            out["last"] = {"required": False, "max": 1}
+        return out
+    if inputs:
+        seed = inputs.get("seedImage")
+        if isinstance(seed, dict):
+            out["seed"] = {"required": bool(seed.get("required")), "max": 1}
+        refs = inputs.get("referenceImages")
+        if isinstance(refs, dict):
+            out["reference"] = {"required": bool(refs.get("required")), "max": _max_items(refs)}
+    elif not caps:
+        for role in MODE_ROLES["image"]:
+            out[role] = {"required": False, "max": 1 if role != "reference" else None}
+    elif "io:image-to-image" in caps:
+        if family == "instruction":
+            out["reference"] = {"required": False, "max": None}
+        else:
+            out["seed"] = {"required": False, "max": 1}
+            out["reference"] = {"required": False, "max": None}
+    return {r: out[r] for r in ROLE_ORDER if r in out}
+
+
+def accepts_summary(roles: dict[str, dict]) -> str:
+    """One line for the Models page: ``first frame, last frame, up to 9 reference
+    images`` / ``seed image (required)`` / ``text only``."""
+    if not roles:
+        return "text only"
+    parts = []
+    for role, spec in roles.items():
+        label = ROLE_LABELS[role]
+        if role == "reference":
+            cap = spec.get("max")
+            label = f"up to {cap} reference images" if cap and cap > 1 else "reference images"
+        if spec.get("required"):
+            label += " (required)"
+        parts.append(label)
+    return ", ".join(parts)
 
 
 def is_generate_capable(kind: str, capabilities: list[str], c: dict | None) -> bool:

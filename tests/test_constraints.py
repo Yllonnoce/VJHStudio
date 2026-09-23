@@ -210,3 +210,69 @@ def test_docs_dims_do_not_replace_older_api_dims_when_this_probe_learned_nothing
     out = C.merge_sources(existing, docs=docs, api=api, now="t2")
     assert out["dims"]["mode"] == "list" and out["dims"]["list"] == [[3840, 2160]]
     assert out["sources"]["api"] == "t2" and out["sources"]["docs"] == "t2"
+
+
+SEEDANCE_INPUTS = {
+    "inputs": {
+        "referenceImages": {"required": False, "min_items": 1, "max_items": 9},
+        "frameImages": {"required": False, "min_items": 1, "max_items": 2},
+        "frameImages.image": {"required": True},
+        "referenceVideos": {"required": False, "min_items": 1, "max_items": 3},
+    }
+}
+FIRST_ONLY = {"inputs": {"frameImages": {"required": True, "min_items": 1, "max_items": 1}}}
+FLUX_INPUTS = {"inputs": {"seedImage": {"required": False}, "maskImage": {"required": False}}}
+GPT_INPUTS = {"inputs": {"referenceImages": {"required": False, "min_items": 1, "max_items": 16}}}
+EDIT_ONLY = {"inputs": {"referenceImages": {"required": True, "min_items": 1}}}
+
+
+def test_needs_first_frame_honours_a_required_frame_input():
+    assert C.needs_first_frame(["io:text-to-video", "io:image-to-video"], FIRST_ONLY) is True
+
+
+def test_accepted_roles_video_from_harvested_inputs():
+    roles = C.accepted_roles("video", ["io:text-to-video", "io:image-to-video"], SEEDANCE_INPUTS)
+    assert list(roles) == ["first", "last", "reference"]
+    assert roles["first"] == {"required": False, "max": 1}
+    assert roles["reference"] == {"required": False, "max": 9}
+    # one frame at most: no last-frame slot, and the frame is required
+    roles = C.accepted_roles("video", ["io:image-to-video"], FIRST_ONLY)
+    assert roles == {"first": {"required": True, "max": 1}}
+    # an inputs block that names no image input at all: text only
+    assert C.accepted_roles("video", ["io:text-to-video"], {"inputs": {"audio": {}}}) == {}
+
+
+def test_accepted_roles_video_falls_back_to_capability_tags():
+    assert C.accepted_roles("video", ["io:text-to-video"], None) == {}
+    roles = C.accepted_roles("video", ["io:image-to-video"], None)
+    assert list(roles) == ["first", "last"] and roles["first"]["required"] is True
+    # no tags at all (search-added row): every role of the mode stays open
+    assert list(C.accepted_roles("video", [], None)) == ["first", "last", "reference"]
+
+
+def test_accepted_roles_image_from_inputs_and_family():
+    assert list(C.accepted_roles("image", ["io:image-to-image"], FLUX_INPUTS)) == ["seed"]
+    roles = C.accepted_roles("image", ["io:image-to-image"], GPT_INPUTS, "instruction")
+    assert roles == {"reference": {"required": False, "max": 16}}
+    assert C.accepted_roles("image", ["io:image-to-image"], EDIT_ONLY)["reference"]["required"]
+    assert C.accepted_roles("image", ["io:text-to-image"], None) == {}
+    assert list(C.accepted_roles("image", ["io:image-to-image"], None, "diffusion")) == [
+        "seed",
+        "reference",
+    ]
+    assert list(C.accepted_roles("image", ["io:image-to-image"], None, "instruction")) == [
+        "reference"
+    ]
+    assert list(C.accepted_roles("image", [], None)) == ["seed", "reference"]
+
+
+def test_accepts_summary_wording():
+    assert C.accepts_summary({}) == "text only"
+    roles = C.accepted_roles("video", ["io:text-to-video", "io:image-to-video"], SEEDANCE_INPUTS)
+    assert C.accepts_summary(roles) == "first frame, last frame, up to 9 reference images"
+    assert C.accepts_summary(C.accepted_roles("video", ["io:image-to-video"], FIRST_ONLY)) == (
+        "first frame (required)"
+    )
+    assert C.accepts_summary(C.accepted_roles("image", [], EDIT_ONLY)) == (
+        "reference images (required)"
+    )
