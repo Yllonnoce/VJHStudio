@@ -71,6 +71,9 @@ window.generateForm = function (initial) {
     // data-ref-accepts rather than rebuilt here
     acceptsSummary: '',
     refNotice: '',
+    // the last role triple this panel carried, so an unrelated swap (the estimate, the
+    // queue poll) is not mistaken for a model change -- see _syncRefRoles()
+    _refRolesKey: null,
     uploading: '',
     // the prompt library: the row this form was loaded from (posted back so the job
     // links it instead of creating a second one) and the polish blob to store on it
@@ -160,8 +163,13 @@ window.generateForm = function (initial) {
     // ── reference chips ─────────────────────────────────────────────────────
     roleLabel(role) { return VJH_ROLE_LABELS[role] || role; },
 
+    // What the model accepts, narrowed to what this mode can post: `mode` flips the
+    // instant the tab is clicked while `allowedRoles` only catches up when the panel
+    // swap lands, so the mode has to stay in the filter or the old mode's slots show
+    // through (and stay clickable) until the round trip finishes.
     openRoles() {
-      return this.allowedRoles.filter((role) => (
+      const modeRoles = VJH_MODE_ROLES[this.mode];
+      return this.allowedRoles.filter((role) => modeRoles.indexOf(role) >= 0 && (
         VJH_MULTI_ROLES.indexOf(role) >= 0 || !this.refs.some((r) => r.role === role)
       ));
     },
@@ -175,6 +183,7 @@ window.generateForm = function (initial) {
       if (!detail || !detail.id) return;
       const role = detail.role || 'reference';
       if (this.allowedRoles.indexOf(role) < 0) return;
+      if (VJH_MODE_ROLES[this.mode].indexOf(role) < 0) return;  // same reason as openRoles()
       this.refNotice = '';
       const ref = {
         id: String(detail.id), role, name: detail.name || String(detail.id), thumb: detail.thumb || '',
@@ -247,6 +256,15 @@ window.generateForm = function (initial) {
     // section says so instead of losing it silently.
     _syncRefRoles() {
       const panel = document.getElementById('model-params');
+      // This runs on every htmx swap on the page (the estimate refresh 400ms after a
+      // change, the 2s queue poll), not just this panel's. Those swaps must leave
+      // refNotice alone, or the line explaining a dropped chip is gone before it can
+      // be read -- so an unchanged role triple is a no-op.
+      const key = panel
+        ? [panel.dataset.refRoles, panel.dataset.requiredRoles, panel.dataset.refAccepts].join('|')
+        : '';
+      if (key === this._refRolesKey) return;
+      this._refRolesKey = key;
       const list = (raw) => String(raw || '').split(',').map((x) => x.trim()).filter(Boolean);
       const allowed = panel ? list(panel.dataset.refRoles) : VJH_MODE_ROLES[this.mode].slice();
       this.allowedRoles = allowed;

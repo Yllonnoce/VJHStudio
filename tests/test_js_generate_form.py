@@ -241,7 +241,7 @@ def test_allowed_roles_are_read_off_the_swapped_params_panel():
     for is dropped rather than posted."""
     src = _app_js()
     idx = src.index("_syncRefRoles() {")
-    window = src[idx : idx + 1000]
+    window = src[idx : idx + 1800]
     assert "document.getElementById('model-params')" in window
     assert "panel.dataset.refRoles" in window
     assert "panel.dataset.requiredRoles" in window
@@ -254,12 +254,30 @@ def test_allowed_roles_are_read_off_the_swapped_params_panel():
     assert "document.addEventListener('htmx:afterSwap', () => this._syncRefRoles());" in src
 
 
+def test_an_unrelated_swap_leaves_the_dropped_chip_notice_alone():
+    """The listener is delegated on document, so the estimate refresh (400ms after the
+    same change event) and the 2s queue poll run it too. Only a changed role triple may
+    touch refNotice, or the line is wiped before it can be read."""
+    src = _app_js()
+    idx = src.index("_syncRefRoles() {")
+    window = src[idx : idx + 1400]
+    assert "panel.dataset.refRoles, panel.dataset.requiredRoles, panel.dataset.refAccepts" in window
+    assert "if (key === this._refRolesKey) return;" in window
+    assert "this._refRolesKey = key;" in window
+    assert "_refRolesKey: null," in src  # declared as state
+
+
 def test_open_roles_and_add_ref_go_through_the_allowed_list():
     src = _app_js()
     idx = src.index("openRoles() {")
-    window = src[idx : idx + 700]
+    window = src[idx : idx + 900]
     assert "return this.allowedRoles.filter(" in window
     assert "if (this.allowedRoles.indexOf(role) < 0) return;" in window  # addRef refuses
+    # ... and the mode stays in the filter: `mode` flips on the tab click, allowedRoles
+    # only on the panel swap, so the old mode's slots must not show through meanwhile
+    assert "const modeRoles = VJH_MODE_ROLES[this.mode];" in window
+    assert "modeRoles.indexOf(role) >= 0 &&" in window
+    assert "if (VJH_MODE_ROLES[this.mode].indexOf(role) < 0) return;" in window
     # the wording itself comes from the server (constraints.accepts_summary)
     assert "'Accepts: ' + this.acceptsSummary" in window
     assert "'This model works from text only.'" in window
