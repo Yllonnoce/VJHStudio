@@ -6,6 +6,7 @@ A refusal arrives as ``is_error`` with the sentence inside
 "Error executing tool <name>: ...", so the assertions look for a substring.
 """
 
+import asyncio
 import json
 
 import pytest
@@ -38,8 +39,28 @@ async def ctx(app, client):
 
 @pytest.fixture
 async def mcp(ctx):
-    async with Client(build_server(ctx)) as c:
-        yield c
+    """The client is opened and closed inside one task of its own.
+
+    pytest-asyncio runs a fixture's setup and its teardown in two different tasks, and
+    the SDK's client holds an anyio task group, which refuses to be left from a task
+    other than the one that entered it."""
+    ready: asyncio.Future = asyncio.get_running_loop().create_future()
+    done = asyncio.Event()
+
+    async def hold():
+        try:
+            async with Client(build_server(ctx)) as c:
+                ready.set_result(c)
+                await done.wait()
+        except BaseException as e:  # noqa: BLE001 - the waiter must never hang
+            if not ready.done():
+                ready.set_exception(e)
+            raise
+
+    task = asyncio.create_task(hold())
+    yield await ready
+    done.set()
+    await task
 
 
 def _data(result):
