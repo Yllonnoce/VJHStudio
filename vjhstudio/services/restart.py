@@ -69,7 +69,10 @@ def request_restart(delay: float = 1.5) -> str:
 
         _schedule(delay, _go)
         return "windows-helper"
-    argv = [sys.executable, *sys.argv]
+    # Always come back through `python -m vjhstudio.main`. sys.argv[0] is whatever
+    # started us -- the console script, or the path of main.py under `-m` and the VS
+    # Code debugger -- and main.py run as a plain script dies on its relative imports.
+    argv = [sys.executable, "-m", "vjhstudio.main", *sys.argv[1:]]
     if "--open" in argv:
         argv[argv.index("--open")] = "--no-browser"
     _schedule(delay, lambda: _execv(argv))
