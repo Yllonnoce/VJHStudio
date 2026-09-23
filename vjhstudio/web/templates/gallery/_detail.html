@@ -18,7 +18,7 @@
       {% if o.kind == 'video' %}<tr><th>Duration</th><td>{% if o.duration_s %}{{ '%g'|format(o.duration_s) }}s{% else %}—{% endif %}</td></tr>{% endif %}
       <tr><th>Seed</th><td>{{ o.seed if o.seed is not none else '—' }}</td></tr>
       <tr><th>Cost</th><td>{% if o.cost %}${{ '%.4f'|format(o.cost) }}{% else %}n/a{% endif %}</td></tr>
-      <tr><th>Job</th><td><a href="/api/jobs/{{ o.job_id }}" target="_blank" rel="noopener">{{ o.job_id }}</a></td></tr>
+      <tr><th>Job</th><td><a href="/api/jobs/{{ o.job_id }}" target="_blank" rel="noopener">{{ o.job_id }}</a>{% if job_source == 'mcp' %} <small class="chip" title="An AI agent queued this job">via agent</small>{% endif %}</td></tr>
       <tr><th>Path</th><td><code id="output-path-{{ o.id }}">{{ o.rel_path }}</code></td></tr>
     </tbody>
   </table>

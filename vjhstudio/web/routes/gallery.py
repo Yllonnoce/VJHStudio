@@ -10,7 +10,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 
 from ... import db
-from ...models import Output, Project
+from ...models import Job, Output, Project
 from ...services import assets as assets_svc
 from ...services import catalog, projects
 from ...services import outputs as outputs_svc
@@ -127,6 +127,7 @@ def hx_gallery(request: Request, page: int = 1):
 
 def _detail_ctx(session, output: Output, *, note: str = "", error: str = "") -> dict:
     project = session.get(Project, output.project_id)
+    job = session.get(Job, output.job_id)
     model = catalog.get_by_air(session, output.model_air)
     active = projects.list_active(session)
     # a still-open lightbox on an archived project must keep naming it, or the dropdown
@@ -139,6 +140,7 @@ def _detail_ctx(session, output: Output, *, note: str = "", error: str = "") -> 
         "thumb": thumb_url(output.thumb_rel_path),
         "poster": thumb_url(output.poster_rel_path),
         "model_name": catalog.label(model) if model else output.model_air,
+        "job_source": job.source if job else "web",
         "project_name": project.name if project else "—",
         "move_projects": active,
         "move_note": note,

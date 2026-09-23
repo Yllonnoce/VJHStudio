@@ -86,6 +86,7 @@ def job_view(job: Job, snap: dict, outputs: list, model_name: str) -> dict:
         "kind": job.kind,
         "status": job.status,
         "title": job.title or "Untitled",
+        "source": job.source,
         "model_air": job.model_air,
         "model_name": model_name or job.model_air,
         "progress": progress,
