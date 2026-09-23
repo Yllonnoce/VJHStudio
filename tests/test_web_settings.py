@@ -162,3 +162,89 @@ async def test_the_polled_balance_chip_does_not_rearm_its_load_trigger(client):
     poll = await client.get("/hx/header/balance")
     assert "load delay" not in poll.text
     assert 'hx-trigger="every 60s, job-finished from:body"' in poll.text
+
+
+# ── Automation (MCP) card ───────────────────────────────────────────────────────
+
+
+async def test_settings_shows_the_automation_card_with_snippets(client):
+    r = await client.get("/settings")
+    assert 'id="automation"' in r.text and "streamable_http" in r.text
+    assert "claude mcp add" in r.text
+    assert "vjhstudio mcp" in r.text  # stdio block
+    assert "vjhstudio.exe" in r.text  # the Windows path variant
+
+
+async def test_the_mcp_settings_live_only_in_the_automation_card(client):
+    r = await client.get("/settings")
+    general = r.text.split('id="general-form"', 1)[1].split("</form>", 1)[0]
+    card = r.text.split('id="automation"', 1)[1].split("</article>", 1)[0]
+    assert "mcp.daily_cap_usd" not in general and "mcp.enabled" not in general
+    assert "mcp.daily_cap_usd" in card
+    assert 'name="mcp_daily_cap_usd"' in card
+
+
+async def test_saving_automation_settings(client, app):
+    from vjhstudio import db
+    from vjhstudio.services import settings
+
+    r = await client.post(
+        "/settings/automation",
+        data={"mcp_enabled": "on", "mcp_daily_cap_usd": "3.5", "mcp_max_jobs_per_day": "7"},
+    )
+    assert r.status_code == 200 and "restart" in r.text.lower()
+    with db.session_scope(app.state.boot.session_factory) as s:
+        assert settings.get(s, "mcp.enabled") is True
+        assert settings.get(s, "mcp.daily_cap_usd") == 3.5
+        assert settings.get(s, "mcp.max_jobs_per_day") == 7
+
+
+async def test_saving_automation_settings_rejects_nonsense(client):
+    r = await client.post(
+        "/settings/automation",
+        data={"mcp_daily_cap_usd": "lots", "mcp_max_jobs_per_day": "7"},
+    )
+    assert r.status_code == 422 and "number" in r.text and 'aria-invalid="true"' in r.text
+
+
+async def test_unchecking_enabled_turns_it_off(client, app):
+    from vjhstudio import db
+    from vjhstudio.services import settings
+
+    await client.post(
+        "/settings/automation",
+        data={"mcp_enabled": "on", "mcp_daily_cap_usd": "2", "mcp_max_jobs_per_day": "20"},
+    )
+    await client.post(
+        "/settings/automation", data={"mcp_daily_cap_usd": "2", "mcp_max_jobs_per_day": "20"}
+    )
+    with db.session_scope(app.state.boot.session_factory) as s:
+        assert settings.get(s, "mcp.enabled") is False
+
+
+async def test_regenerating_the_token_reveals_it_once_and_never_logs_it(client, app, caplog):
+    r = await client.post("/settings/automation/token")
+    tok = secrets.read_mcp_token(app.state.paths)
+    assert tok and tok in r.text
+    assert tok not in caplog.text
+    r = await client.get("/settings")
+    assert tok not in r.text and "••••" in r.text
+
+
+async def test_revealing_the_token_puts_it_back_on_the_card(client, app):
+    await client.post("/settings/automation/token")
+    tok = secrets.read_mcp_token(app.state.paths)
+    r = await client.post("/settings/automation/reveal")
+    assert r.status_code == 200 and tok in r.text
+
+
+async def test_revealing_without_a_token_asks_for_one(client):
+    r = await client.post("/settings/automation/reveal")
+    assert r.status_code == 422 and "Regenerate" in r.text
+
+
+async def test_the_env_token_cannot_be_regenerated(client, app, paths):
+    app.state.env = {"VJHSTUDIO_MCP_TOKEN": "from-the-environment"}
+    r = await client.post("/settings/automation/token")
+    assert r.status_code == 422 and "VJHSTUDIO_MCP_TOKEN" in r.text
+    assert secrets.read_mcp_token(paths) is None

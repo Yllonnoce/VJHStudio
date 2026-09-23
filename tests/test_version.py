@@ -9,8 +9,8 @@ def test_version_is_semver():
     assert re.fullmatch(r"\d+\.\d+\.\d+", vjhstudio.__version__)
 
 
-def test_version_is_0_4_0():
-    assert __version__ == "0.4.0"
+def test_version_is_0_5_0():
+    assert __version__ == "0.5.0"
 
 
 async def test_health_reports_the_version(client):
@@ -57,3 +57,27 @@ def test_readme_mentions_idea_chips_and_the_home_dashboard_cards():
     text = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     assert "idea" in text.lower()
     assert "Create an image" in text
+
+
+def test_changelog_has_a_0_5_0_section_mentioning_mcp_and_the_spend_cap():
+    text = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert "## 0.5.0" in text
+    section = text.split("## 0.5.0", 1)[1].split("\n## ", 1)[0].lower()
+    assert "mcp" in section
+    assert "cap" in section
+
+
+def test_readme_explains_using_vjhstudio_from_an_agent():
+    text = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    assert "Use VJHStudio from an agent (MCP)" in text
+    assert "streamable_http" in text
+    assert "claude mcp add" in text
+    assert "vjhstudio mcp" in text
+
+
+def test_the_goose_recipe_ships_with_placeholders():
+    text = (REPO_ROOT / "docs" / "goose" / "vjhstudio-recipe.yaml").read_text(encoding="utf-8")
+    for key in ("title:", "description:", "instructions:", "extensions:"):
+        assert key in text
+    assert "streamable_http" in text
+    assert "YOUR-TOKEN" in text
