@@ -589,3 +589,31 @@ async def test_every_call_is_traced_with_its_arguments(mcp, ctx):
     assert calls[0]["tool"] == "list_models" and calls[0]["ok"] is False
     assert '"kind": "audio"' in calls[0]["arguments"] and "image" in calls[0]["error"]
     assert calls[1]["tool"] == "list_projects" and calls[1]["ok"] is True
+
+
+async def test_examples_ride_in_descriptions_and_schemas(mcp):
+    tools = {t.name: t for t in (await mcp.list_tools()).tools}
+    gen = tools["generate_image"]
+    assert "Example arguments:" in gen.description and '"prompt"' in gen.description
+    assert gen.input_schema.get("examples") == [
+        {"prompt": "a red fox in snow, golden hour", "project": "Default"}
+    ]
+
+
+async def test_a_malformed_call_is_taught_the_right_shape(mcp):
+    res = await mcp.call_tool("generate_image", {"prompt": ["a", "fox"], "width": "big"})
+    text = res.content[0].text
+    assert res.is_error
+    assert "prompt: Input should be a valid string" in text
+    assert "width: Input should be a valid integer" in text
+    assert 'You sent {"prompt": ["a", "fox"], "width": "big"}' in text
+    assert 'A correct call looks like {"prompt": "a red fox in snow, golden hour"' in text
+
+
+async def test_wrapped_and_stringified_arguments_are_straightened(mcp):
+    r = _data(await mcp.call_tool("list_projects", {"input": {}}))
+    assert isinstance(r, list) and r[0]["slug"] == "default"
+    r = _data(await mcp.call_tool("model_details", {"arguments": '{"air": "runware:101@1"}'}))
+    assert r["air"] == FLUX
+    r = _data(await mcp.call_tool("model_details", {"params": {"air": "runware:101@1"}}))
+    assert r["air"] == FLUX

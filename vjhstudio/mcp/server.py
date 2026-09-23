@@ -55,7 +55,8 @@ INSTRUCTIONS = (
     "models, so pass a search word or keep the limit small, and do not read the whole list back "
     "to the user. Jobs cost money: respect the daily cap returned in every reply. Every argument "
     "except the prompt has a sensible default: leave out (or send null for) anything you do not "
-    "know."
+    "know. Arguments are always one JSON object, never a string; each tool's description ends "
+    "with an example call."
 )
 LIST_LIMIT = 20
 LIST_LIMIT_MAX = 200
@@ -469,31 +470,129 @@ def job_summary(session, job: Job, paths, base_url: str, live: dict | None = Non
 
 
 # Every tool is a closure over ``ctx``, so the server is one object with no globals.
-def _traced(server: MCPServer, trace: CallTrace) -> None:
-    """Record every tool call -- including the ones the SDK rejects before any tool
-    runs, which is where a host's malformed arguments show up."""
+# One worked call per tool. They ride in the description and the schema's ``examples``
+# so a host sees the shape before its first call, and they come back in the sentence a
+# malformed call gets, so a host that got it wrong is shown the right thing to send.
+EXAMPLES: dict[str, dict] = {
+    "list_models": {"kind": "image", "search": "flux", "limit": 10},
+    "model_details": {"air": "runware:101@1"},
+    "estimate": {"kind": "video", "air": "lightricks:ltx@2.3", "duration": 5, "resolution": "720p"},
+    "generate_image": {"prompt": "a red fox in snow, golden hour", "project": "Default"},
+    "generate_video": {"prompt": "slow dolly in on a red fox in snow", "duration": 5},
+    "job_status": {"job_id": "the job_id from generate_image"},
+    "wait_for_job": {"job_id": "the job_id from generate_image", "timeout_s": 300},
+    "cancel_job": {"job_id": "the job_id from generate_image"},
+    "list_jobs": {"status": "succeeded", "limit": 10},
+    "list_outputs": {"project": "Default", "kind": "image", "limit": 12},
+    "output_details": {"output_id": 42},
+    "move_output": {"output_id": 42, "project": "Campaign"},
+    "list_projects": {},
+    "create_project": {"name": "Campaign"},
+    "list_assets": {"kind": "image", "search": "logo"},
+    "account": {},
+}
+WRAPPER_KEYS = ("input", "arguments", "args", "params", "parameters", "properties")
+
+
+def _unwrap(arguments: Any) -> Any:
+    """The shapes hosts get wrong most often, put right: a JSON string where an object
+    was meant, and an object wrapped one level too deep under ``input`` or the like."""
+    for _ in range(2):
+        if isinstance(arguments, str):
+            try:
+                arguments = json.loads(arguments)
+            except ValueError:
+                return arguments
+        if isinstance(arguments, dict) and len(arguments) == 1:
+            key, value = next(iter(arguments.items()))
+            if key in WRAPPER_KEYS and isinstance(value, (dict, str)):
+                arguments = value
+                continue
+        break
+    return arguments
+
+
+def _problems(message: str) -> list[str]:
+    """``field: what was wrong`` lines out of a pydantic validation message."""
+    lines = [ln.rstrip() for ln in message.splitlines()]
+    out, i = [], 0
+    while i < len(lines) - 1:
+        name, detail = lines[i].strip(), lines[i + 1].strip()
+        if name and " " not in name and detail and not detail.startswith("For further"):
+            out.append(f"{name}: {detail.split(' [type=')[0]}")
+            i += 2
+        else:
+            i += 1
+    return out
+
+
+def _teaching(name: str, arguments: Any, message: str) -> str:
+    example = json.dumps(EXAMPLES.get(name, {}), ensure_ascii=False)
+    sent = json.dumps(arguments, ensure_ascii=False, default=str)
+    if len(sent) > 300:
+        sent = sent[:300] + "…"
+    problems = "; ".join(_problems(message)) or message.splitlines()[0]
+    return (
+        f"{name} needs its arguments as one JSON object with these fields fixed: {problems}. "
+        f"You sent {sent}. A correct call looks like {example}. Leave out any field you do "
+        "not know; every field except the prompt has a default."
+    )
+
+
+def _teach_and_trace(server: MCPServer, trace: CallTrace) -> None:
+    """Around the SDK's own call: straighten the argument shapes hosts get wrong, turn a
+    validation failure into a sentence that shows the right call, and record every call
+    -- including the ones rejected before any tool ran."""
     original = server.call_tool
 
     async def call_tool(name: str, arguments: dict | None, context=None):
         t0 = time.monotonic()
+        sent = arguments
+        arguments = _unwrap(arguments)
+        if not isinstance(arguments, dict):
+            arguments = {}
         try:
-            result = await original(name, arguments or {}, context)
+            result = await original(name, arguments, context)
+        except ToolError as e:
+            ms = (time.monotonic() - t0) * 1000
+            text = str(e)
+            if "validation error" in text:
+                text = _teaching(name, sent, text)
+            trace.record(name, sent, False, text, ms)
+            log.info("mcp %s refused: %s", name, text.splitlines()[0][:200])
+            raise ToolError(text) from e
         except Exception as e:
             ms = (time.monotonic() - t0) * 1000
-            trace.record(name, arguments, False, str(e), ms)
-            log.info("mcp %s refused: %s", name, str(e).splitlines()[0][:200])
+            trace.record(name, sent, False, str(e), ms)
+            log.info("mcp %s failed: %s", name, str(e).splitlines()[0][:200])
             raise
         ms = (time.monotonic() - t0) * 1000
-        trace.record(name, arguments, True, "", ms)
+        trace.record(name, sent, True, "", ms)
         log.info("mcp %s ok (%d ms)", name, ms)
         return result
 
     server.call_tool = call_tool  # type: ignore[method-assign]
 
 
+def _show_examples(server: MCPServer) -> None:
+    """Put each tool's example into its description and its schema, where every host
+    reads before calling. Reaches into the tool manager: the SDK offers no public way to
+    amend a registered tool, and a missing attribute simply means no examples."""
+    manager = getattr(server, "_tool_manager", None)
+    tools = manager.list_tools() if manager is not None and hasattr(manager, "list_tools") else []
+    for tool in tools:
+        example = EXAMPLES.get(tool.name)
+        if example is None:
+            continue
+        shown = json.dumps(example, ensure_ascii=False)
+        tool.description = f"{(tool.description or '').rstrip()}\nExample arguments: {shown}"
+        if isinstance(tool.parameters, dict):
+            tool.parameters["examples"] = [example]
+
+
 def build_server(ctx: MCPContext) -> MCPServer:
     server = MCPServer(SERVER_NAME, instructions=INSTRUCTIONS)
-    _traced(server, ctx.trace)
+    _teach_and_trace(server, ctx.trace)
     sf, paths = ctx.session_factory, ctx.paths
 
     def runner():
@@ -1006,6 +1105,7 @@ def build_server(ctx: MCPContext) -> MCPServer:
             "Ask before spending more than one dollar."
         )
 
+    _show_examples(server)
     return server
 
 
