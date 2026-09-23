@@ -1,4 +1,11 @@
-"""Outputs: record what was saved, browse the gallery, favourite, delete, remix."""
+"""Outputs: record what was saved, browse the gallery, favourite, move, delete, remix.
+
+Moving an output to another project takes its file and its sidecar along. The job behind
+it, and that job's usage rows, only follow once no *other* output of the same job is left
+outside the target project: RunWare bills per task, not per returned image, so a job with
+several outputs keeps its whole cost where it is until the last of them has moved, rather
+than teleporting the spend away from images that are still sitting in the old project.
+"""
 
 from __future__ import annotations
 
@@ -410,10 +417,23 @@ def _relocate(src: Path, dest: Path) -> None:
         shutil.move(str(src), str(dest))
 
 
+def _undo(moved: list[tuple[Path, Path]]) -> None:
+    """Put files back where they came from after a later step of the move failed."""
+    for now, before in reversed(moved):
+        try:
+            _relocate(now, before)
+        except OSError:
+            log.warning("could not put %s back to %s", now, before)
+
+
 def _retag_sidecar(path: Path, slug: str) -> None:
     """Keep the sidecar's own ``project`` field honest after a move. Best effort: a
     sidecar that is missing, or is not readable JSON, is left as it is -- the move
     itself has already succeeded and must not be undone over a metadata nicety."""
+    if path.with_suffix("").with_suffix(".json") != path:
+        # write_sidecar names the file itself, from the media path; only call it when
+        # that name is provably the very file we just moved
+        return
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
@@ -423,9 +443,27 @@ def _retag_sidecar(path: Path, slug: str) -> None:
         return
     data["project"] = slug
     try:
-        path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+        # the same .part + os.replace write every other sidecar gets, so an interrupted
+        # re-tag cannot leave a truncated sidecar next to the file it describes
+        write_sidecar(path.with_suffix(""), data)
     except OSError as e:
         log.warning("could not re-tag sidecar %s: %s", path, e)
+
+
+def _job_follows(session: Session, output: Output, project_id: int) -> bool:
+    """True when no *other* output of this output's job is left outside ``project_id``.
+
+    A task's cost is one charge for everything it returned, so it cannot be split over
+    the images; it therefore only moves when the whole job has moved. Read before the row
+    is touched -- the row itself is excluded either way, but this keeps it a plain read."""
+    stray = session.execute(
+        select(Output.id).where(
+            Output.job_id == output.job_id,
+            Output.id != output.id,
+            Output.project_id != project_id,
+        )
+    ).first()
+    return stray is None
 
 
 def move(session: Session, paths: Paths, output_id: int, project_id: int) -> Output:
@@ -434,14 +472,13 @@ def move(session: Session, paths: Paths, output_id: int, project_id: int) -> Out
     The thumbnail (and a video's poster) live in the shared ``thumbs/`` folder, which is
     project-independent, so they stay exactly where they are.
 
-    Cost follows the *job*: the output's job and that job's usage rows are re-pointed too,
-    which is what the project totals are built from. A job with several outputs therefore
-    takes its whole spend along with the first one moved -- spend is charged per task, and
-    splitting it over the images a task returned would invent numbers nobody was billed.
+    Cost follows the *job*, and only once ``_job_follows`` agrees the job has nothing left
+    in the old project -- see the module docstring.
 
-    The disk is done first and the row second, so a failed move leaves the row describing
-    a file that is still there. ``is_missing`` rows (and rows whose file has gone without
-    the flag being set yet) move as a row only.
+    The disk is done first and the row second. A file that will not move leaves the row
+    untouched; a row update that then fails puts the files back where they were and rolls
+    the session back, so neither half of a failed move survives. A file that is already
+    gone moves as a row only, and the sidecar still moves if it is there on its own.
     """
     o = session.get(Output, output_id)
     if o is None:
@@ -454,16 +491,28 @@ def move(session: Session, paths: Paths, output_id: int, project_id: int) -> Out
     if o.project_id == target.id:
         return o
 
+    # read before any of the disk work: nothing about it depends on the files, and a
+    # query between the move and the row write would be one more way to fail with files
+    # already in their new home
+    job_follows = _job_follows(session, o, target.id)
+
     root = projects.root_for(session, paths)
     src = contained(root, o.rel_path)
     if src is None:
         # a row pointing outside the outputs root is never followed onto the filesystem
         raise OutputMoveError("this output's path lies outside the outputs folder")
     src_sidecar = contained(root, o.sidecar_rel_path)
-    on_disk = src.is_file()
+    if o.sidecar_rel_path and src_sidecar is None:
+        log.warning("not moving sidecar %r: outside the outputs root", o.sidecar_rel_path)
 
+    # settled before anything touches the disk: no mkdir, no probing, for a folder the
+    # move would not be allowed to write to anyway
+    if contained(root, target.slug) is None:
+        raise OutputMoveError("that project's folder lies outside the outputs folder")
     dest_dir = projects.dir_for(paths, target.slug, projects.root_override(session))
-    if on_disk:
+    has_media = src.is_file()
+    has_sidecar = src_sidecar is not None and src_sidecar.is_file()
+    if has_media or has_sidecar:
         try:
             dest_dir.mkdir(parents=True, exist_ok=True)
         except OSError as e:
@@ -476,35 +525,43 @@ def move(session: Session, paths: Paths, output_id: int, project_id: int) -> Out
     if dest is None or dest_sidecar is None:
         raise OutputMoveError("that project's folder lies outside the outputs folder")
 
-    if on_disk:
+    moved: list[tuple[Path, Path]] = []  # (where it is now, where it came from)
+    if has_media:
         try:
             _relocate(src, dest)
         except OSError as e:
             raise OutputMoveError(f"could not move {o.filename}: {e}") from e
-        if src_sidecar is not None and src_sidecar.is_file():
-            try:
-                _relocate(src_sidecar, dest_sidecar)
-            except OSError as e:
-                # put the media file back, so the untouched row still describes the disk
-                try:
-                    _relocate(dest, src)
-                except OSError:
-                    log.warning("could not undo the move of %s back to %s", dest, src)
-                raise OutputMoveError(f"could not move the sidecar for {o.filename}: {e}") from e
+        moved.append((dest, src))
+    if has_sidecar:
+        try:
+            _relocate(src_sidecar, dest_sidecar)
+        except OSError as e:
+            _undo(moved)
+            raise OutputMoveError(f"could not move the sidecar for {o.filename}: {e}") from e
+        moved.append((dest_sidecar, src_sidecar))
         _retag_sidecar(dest_sidecar, target.slug)
 
-    o.filename = filename
-    o.rel_path = rel_path
-    o.sidecar_rel_path = sidecar_rel_path
-    o.project_id = target.id
-    o.is_missing = not on_disk
-    job = session.get(Job, o.job_id)
-    if job is not None:
-        job.project_id = target.id
-    session.execute(
-        update(UsageEntry).where(UsageEntry.job_id == o.job_id).values(project_id=target.id)
-    )
-    session.flush()
+    try:
+        o.filename = filename
+        o.rel_path = rel_path
+        o.sidecar_rel_path = sidecar_rel_path
+        o.project_id = target.id
+        o.is_missing = not has_media
+        if job_follows:
+            job = session.get(Job, o.job_id)
+            if job is not None:
+                job.project_id = target.id
+            session.execute(
+                update(UsageEntry).where(UsageEntry.job_id == o.job_id).values(project_id=target.id)
+            )
+        session.flush()
+    except Exception as e:
+        # the files are already in the new folder and the row now disagrees with them:
+        # put both halves back, and roll the session back so a caller that swallows this
+        # error cannot commit a half-applied move
+        _undo(moved)
+        session.rollback()
+        raise OutputMoveError(f"could not record the move of {filename}: {e}") from e
     return o
 
 

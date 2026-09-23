@@ -327,15 +327,50 @@ def _sidecar_for(paths, row, project="default"):
     return side
 
 
+def _solo_output(s, paths, pid, name="20260921-090000-dddddd.png", job_id="jsolo"):
+    """An output that is the only one its job produced, with a real file on disk.
+
+    The ``env`` rows all share job j1, and a job's cost only follows once its *last*
+    output has moved -- so a test about the cost following needs a job of its own."""
+    s.add(
+        models.Job(
+            id=job_id,
+            project_id=pid,
+            kind="image",
+            status="succeeded",
+            model_air="m1",
+            request_json={"model": "m1"},
+        )
+    )
+    path = paths.outputs / "default" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"solo")
+    row = models.Output(
+        job_id=job_id,
+        project_id=pid,
+        kind="image",
+        filename=name,
+        rel_path=f"default/{name}",
+        sidecar_rel_path=f"default/{Path(name).stem}.json",
+        model_air="m1",
+        prompt_text="a solo fox",
+        params_json={},
+        seed=9,
+    )
+    s.add(row)
+    s.flush()
+    return row
+
+
 def test_move_takes_the_file_its_sidecar_and_its_cost_along(env):
     paths, f, pid = env
     with db.session_scope(f) as s:
         other = projects_svc.create(s, paths, "Book covers")
-        row = outputs.gallery(s)[0][0]
+        row = _solo_output(s, paths, pid)
         old_media, old_side = _png_path(paths, row), _sidecar_for(paths, row)
         row.thumb_rel_path = "thumbs/keepme.jpg"
         costs.record_usage(
-            s, job=s.get(models.Job, "j1"), task_type="imageInference", cost=0.5, model_air="m1"
+            s, job=s.get(models.Job, "jsolo"), task_type="imageInference", cost=0.5, model_air="m1"
         )
         s.flush()
 
@@ -351,11 +386,11 @@ def test_move_takes_the_file_its_sidecar_and_its_cost_along(env):
         assert json.loads(side.read_text())["project"] == other.slug
         # thumbs are shared and project-independent: the path is untouched
         assert moved.thumb_rel_path == "thumbs/keepme.jpg"
-        # the cost follows, via the job and its usage rows
-        assert s.get(models.Job, "j1").project_id == other.id
+        # the cost follows, via the job and its usage rows: this job made nothing else
+        assert s.get(models.Job, "jsolo").project_id == other.id
         totals = costs.totals_by_project(s)
         assert totals[other.id] == {"outputs": 1, "cost": 0.5}
-        assert totals[pid]["outputs"] == 2 and totals[pid]["cost"] == 0.0
+        assert totals[pid]["outputs"] == 3 and totals[pid]["cost"] == 0.0
 
 
 def test_move_suffixes_a_name_that_is_already_taken(env):
@@ -376,18 +411,24 @@ def test_move_suffixes_a_name_that_is_already_taken(env):
         assert (paths.outputs / moved.rel_path).read_bytes() == b"mine"
 
 
-def test_move_of_a_missing_file_moves_the_row_only(env):
+def test_move_of_a_missing_file_still_takes_the_sidecar(env):
+    """The media file can be gone while its sidecar -- the only record of how it was
+    made -- is still there. That must travel with the row, not be orphaned."""
     paths, f, pid = env
     with db.session_scope(f) as s:
         other = projects_svc.create(s, paths, "Book covers")
         row = outputs.gallery(s)[0][0]
+        old_side = _sidecar_for(paths, row)
         _png_path(paths, row).unlink()
 
         moved = outputs.move(s, paths, row.id, other.id)
 
         assert moved.project_id == other.id and moved.is_missing is True
         assert moved.rel_path == f"{other.slug}/{moved.filename}"
-        assert not (paths.outputs / moved.rel_path).exists()  # nothing was invented
+        assert not (paths.outputs / moved.rel_path).exists()  # no media file was invented
+        side = paths.outputs / moved.sidecar_rel_path
+        assert side.is_file() and not old_side.exists()
+        assert json.loads(side.read_text())["project"] == other.slug
 
 
 def test_move_to_the_same_project_changes_nothing(env):
@@ -429,3 +470,62 @@ def test_move_never_follows_a_path_out_of_the_outputs_root(env):
         assert s.get(models.Output, row.id).project_id == pid
         assert s.get(models.Output, row.id).rel_path == "../vjh.db"
     assert paths.db.exists()
+
+
+def test_a_jobs_cost_follows_only_once_its_last_output_has(env):
+    """A task is billed once for everything it returned, so the spend cannot be split
+    over the images. It therefore stays put until the whole job has moved."""
+    paths, f, pid = env
+    with db.session_scope(f) as s:
+        other = projects_svc.create(s, paths, "Book covers")
+        costs.record_usage(
+            s, job=s.get(models.Job, "j1"), task_type="imageInference", cost=0.6, model_air="m1"
+        )
+        rows = outputs.gallery(s)[0]  # all three came out of job j1
+        s.flush()
+
+        for row in rows[:-1]:
+            outputs.move(s, paths, row.id, other.id)
+            # a sibling is still in the old project: the job and its spend stay behind
+            assert s.get(models.Job, "j1").project_id == pid
+            assert costs.totals_by_project(s)[pid]["cost"] == 0.6
+            assert costs.totals_by_project(s)[other.id]["cost"] == 0.0
+
+        outputs.move(s, paths, rows[-1].id, other.id)
+        assert s.get(models.Job, "j1").project_id == other.id
+        totals = costs.totals_by_project(s)
+        assert totals[other.id] == {"outputs": 3, "cost": 0.6}
+        assert totals.get(pid, {"outputs": 0, "cost": 0.0})["cost"] == 0.0
+
+
+def test_a_failed_row_update_puts_the_files_back(env, monkeypatch):
+    """The files move first. If the row that describes them then cannot be written, the
+    files come home again -- and the session is rolled back, so a caller that catches the
+    error cannot commit half a move."""
+    paths, f, pid = env
+    with db.session_scope(f) as s:
+        other = projects_svc.create(s, paths, "Book covers")
+        row = _solo_output(s, paths, pid)
+        media, side = _png_path(paths, row), _sidecar_for(paths, row)
+        s.commit()  # the rollback inside move() must not take the fixture with it
+
+        real_flush = s.flush
+
+        def boom(*args, **kwargs):
+            """Fail exactly the flush that would write the moved row."""
+            if any(isinstance(x, models.Output) for x in s.dirty):
+                raise RuntimeError("the database went away")
+            return real_flush(*args, **kwargs)
+
+        monkeypatch.setattr(s, "flush", boom)
+        with pytest.raises(outputs.OutputMoveError, match="could not record the move"):
+            outputs.move(s, paths, row.id, other.id)
+        monkeypatch.undo()
+
+        assert media.is_file() and side.is_file()
+        assert not (paths.outputs / other.slug / media.name).exists()
+        assert not (paths.outputs / other.slug / side.name).exists()
+        again = s.get(models.Output, row.id)
+        assert again.project_id == pid and again.rel_path == f"default/{media.name}"
+        assert again.filename == media.name and again.sidecar_rel_path == f"default/{side.name}"
+        assert s.get(models.Job, "jsolo").project_id == pid
