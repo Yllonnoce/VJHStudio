@@ -139,6 +139,27 @@
   // Grow a textarea to fit its content, capped at 12 rows. `field-sizing: content` does
   // this in CSS where it is supported; this is the fallback for everywhere else, and it
   // is a no-op off a textarea (and under node, where there is no DOM at all).
+
+  // Model dropdown sorting. items: [{value, name, price, selected}] -> a new array.
+  // "price": dearest first, unknown prices last, ties by name; "name": A-Z, case-insensitive.
+  function vjhSortOptions(items, key) {
+    var list = (items || []).slice();
+    var byName = function (a, b) {
+      var x = String(a.name || '').toLowerCase(), y = String(b.name || '').toLowerCase();
+      return x < y ? -1 : x > y ? 1 : 0;
+    };
+    if (key === 'name') return list.sort(byName);
+    return list.sort(function (a, b) {
+      var pa = a.price === '' || a.price == null || isNaN(Number(a.price)) ? null : Number(a.price);
+      var pb = b.price === '' || b.price == null || isNaN(Number(b.price)) ? null : Number(b.price);
+      if (pa === null && pb === null) return byName(a, b);
+      if (pa === null) return 1;
+      if (pb === null) return -1;
+      if (pa !== pb) return pb - pa;
+      return byName(a, b);
+    });
+  }
+
   function vjhAutosize(el) {
     if (!el || el.tagName !== 'TEXTAREA') return;
     el.style.height = 'auto';
@@ -156,6 +177,7 @@
     vjhHasIdea: vjhHasIdea,
     vjhToggleIdea: vjhToggleIdea,
     vjhAutosize: vjhAutosize,
+    vjhSortOptions: vjhSortOptions,
   };
 
   if (typeof module !== 'undefined' && module.exports) {
@@ -171,5 +193,6 @@
     global.vjhHasIdea = vjhHasIdea;
     global.vjhToggleIdea = vjhToggleIdea;
     global.vjhAutosize = vjhAutosize;
+    global.vjhSortOptions = vjhSortOptions;
   }
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -778,3 +778,41 @@ window.vjhMarkCurrentNav = function () {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', settle);
   else settle();
 })();
+
+// ── Model dropdown sort (Price / Name) ───────────────────────────────────────
+// Reorders <option>s in place so the select (and the htmx/Alpine listeners bound to
+// it) is never replaced. Options without data-name (the "(not in catalog)" sentinel or
+// the empty promptEnhance choice) keep their place at the top. The choice persists.
+var VJH_SORT_KEY = 'vjh.model-sort';
+function vjhSortSelect(select, key) {
+  if (!select || !window.vjhSortOptions) return;
+  var opts = Array.prototype.slice.call(select.options);
+  var pinned = opts.filter(function (o) { return !o.hasAttribute('data-name'); });
+  var items = opts.filter(function (o) { return o.hasAttribute('data-name'); }).map(function (o) {
+    return { value: o.value, name: o.dataset.name, price: o.dataset.price, el: o };
+  });
+  var current = select.value;
+  var sorted = window.vjhSortOptions(items, key);
+  pinned.forEach(function (o) { select.appendChild(o); });
+  sorted.forEach(function (it) { select.appendChild(it.el); });
+  select.value = current;
+  document.querySelectorAll('[data-sort-select="' + select.id + '"]').forEach(function (b) {
+    b.setAttribute('aria-pressed', b.dataset.sort === key ? 'true' : 'false');
+  });
+}
+function vjhApplySavedSort(root) {
+  var key = 'price';
+  try { key = localStorage.getItem(VJH_SORT_KEY) || 'price'; } catch (e) { /* storage may be blocked */ }
+  (root || document).querySelectorAll('select[data-sortable]').forEach(function (s) { vjhSortSelect(s, key); });
+}
+document.addEventListener('click', function (e) {
+  var btn = e.target.closest('[data-sort-select]');
+  if (!btn) return;
+  var key = btn.dataset.sort === 'name' ? 'name' : 'price';
+  try { localStorage.setItem(VJH_SORT_KEY, key); } catch (err) { /* same as above */ }
+  vjhApplySavedSort(document);
+});
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { vjhApplySavedSort(document); });
+else vjhApplySavedSort(document);
+document.addEventListener('htmx:afterSettle', function (e) { vjhApplySavedSort(e.target || document); });
+document.addEventListener('htmx:historyRestore', function () { vjhApplySavedSort(document); });

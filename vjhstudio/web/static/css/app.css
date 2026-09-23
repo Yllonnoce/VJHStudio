@@ -649,3 +649,7 @@ body > header.container > nav{border-radius:0 0 var(--sp-radius) var(--sp-radius
   #save-prompt .sheet-body > label{display:block;width:100%}
   #save-prompt #save-prompt-submit{width:100%;margin-top:.25rem}
 }
+
+/* ── Model dropdown sort buttons ── */
+.select-tools{display:flex;align-items:center;gap:.35rem;margin:-.5rem 0 .9rem}
+.select-tools [aria-pressed="true"]{background:var(--sp-accent);color:var(--sp-on-accent);border-color:var(--sp-accent)}

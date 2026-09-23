@@ -1,4 +1,5 @@
 import json
+import re
 
 from runware import RunwareError
 
@@ -156,11 +157,14 @@ async def test_refresh_prices_total_failure_returns_422_and_does_not_stamp(
 async def test_settings_default_models_are_selects(client):
     r = await client.get("/settings")
     assert (
-        '<select name="defaults.image_model">' in r.text
-        and '<select name="defaults.video_model">' in r.text
+        '<select name="defaults.image_model" data-sortable="1">' in r.text
+        and '<select name="defaults.video_model" data-sortable="1">' in r.text
     )
-    assert '<select name="defaults.polish_model">' in r.text and "(use promptEnhance)" in r.text
-    assert 'value="runware:101@1" selected' in r.text
+    assert (
+        '<select name="defaults.polish_model" data-sortable="1">' in r.text
+        and "(use promptEnhance)" in r.text
+    )
+    assert re.search(r'value="runware:101@1"[^>]*\bselected', r.text)
     # a saved value that is not in the catalog is preserved
     await client.post("/settings", data={"defaults.image_model": "runware:101@1"})
     r = await client.post("/settings", data={"defaults.video_model": "someone:custom@1"})

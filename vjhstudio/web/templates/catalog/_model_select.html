@@ -1,6 +1,15 @@
-<select {% if select_id %}id="{{ select_id }}" {% endif %}name="{{ name }}">
+<select {% if select_id %}id="{{ select_id }}" {% endif %}name="{{ name }}" data-sortable="1">
   {% if allow_empty %}<option value="" {% if not selected %}selected{% endif %}>(use promptEnhance)</option>{% endif %}
   {% set airs = options|map(attribute='air')|list %}
   {% if selected and selected not in airs %}<option value="{{ selected }}" selected>{{ selected }} {{ "(not supported for this mode)" if selected_unsupported else "(not in catalog)" }}</option>{% endif %}
-  {% for m in options %}<option value="{{ m.air }}" {% if m.air == selected %}selected{% endif %}>{{ labels[m.air] }}</option>{% endfor %}
+  {% for m in options %}<option value="{{ m.air }}" data-name="{{ m.name }}" data-price="{{ m.price_primary if m.price_primary is not none else '' }}" {% if m.air == selected %}selected{% endif %}>{{ labels[m.air] }}</option>{% endfor %}
 </select>
+{% if select_id %}
+{# Sorting is client-side: the options carry data-name/data-price and app.js reorders
+   them, so the select element (and everything listening to it) is never replaced. #}
+<div class="select-tools" role="group" aria-label="Sort models">
+  <small class="muted">Sort by</small>
+  <button type="button" class="btn-sm secondary outline" data-sort-select="{{ select_id }}" data-sort="price" aria-pressed="true">Cost</button>
+  <button type="button" class="btn-sm secondary outline" data-sort-select="{{ select_id }}" data-sort="name" aria-pressed="false">A–Z</button>
+</div>
+{% endif %}
