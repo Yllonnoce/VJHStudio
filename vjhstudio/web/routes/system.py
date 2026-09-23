@@ -45,6 +45,7 @@ async def health(request: Request):
         "started_at": b.started_at.isoformat(),
         "pid": os.getpid(),
         "port": request.app.state.port,
+        "mcp": {"enabled": request.app.state.mcp_server is not None},
     }
 
 

@@ -1,4 +1,4 @@
-"""CLI entry point: serve | migrate | update | backup | restore | thumbs | probe | version | doctor."""
+"""CLI entry point: serve | migrate | update | backup | restore | thumbs | probe | mcp | version | doctor."""
 
 from __future__ import annotations
 
@@ -368,6 +368,66 @@ def cmd_probe(args: argparse.Namespace) -> int:
     return 1 if state.message.startswith("STOPPED") else 0
 
 
+def cmd_mcp(_args: argparse.Namespace) -> int:
+    """Serve the MCP tools over stdio, for a host that launches us itself.
+
+    stdout is the protocol channel: nothing here may write to it. Logging is
+    pinned to stderr and the boot path is print-free, so the only bytes on stdout
+    are the SDK's JSON-RPC frames. `mcp.enabled` is not consulted -- the host
+    starting this process is the consent.
+    """
+    import asyncio
+
+    from . import boot, db
+    from .mcp.server import MCPContext, build_server
+    from .runware.client import open_client
+    from .services import jobs as jobs_svc
+    from .services import settings as settings_svc
+
+    logging.basicConfig(level=log_level(), stream=sys.stderr, force=True)
+    paths = config.resolve_paths()
+    try:
+        info = boot.boot(paths)
+    except migrate.MigrationFailed as e:
+        print(str(e), file=sys.stderr)
+        return config.MIGRATION_FAIL_EXIT_CODE
+
+    def setting(key: str):
+        with db.session_scope(info.session_factory) as s:
+            return settings_svc.get(s, key, os.environ)
+
+    async def serve() -> None:
+        runner = jobs_svc.JobRunner(
+            info.session_factory,
+            paths,
+            client_factory=open_client,
+            api_key_getter=lambda: secrets.effective_api_key(paths, os.environ),
+            transport_getter=lambda: setting("runware.transport"),
+            concurrency=setting("jobs.concurrency"),
+        )
+        await runner.start(requeue=info.requeued_jobs)
+        ctx = MCPContext(
+            session_factory=info.session_factory,
+            paths=paths,
+            runner=lambda: runner,
+            env=os.environ,
+            setting=setting,
+            # A local host reads the files off disk; the URLs are for the browser.
+            base_url=f"http://{config.DEFAULT_HOST}:"
+            f"{config.env_int(os.environ, 'VJHSTUDIO_PORT', config.DEFAULT_PORT)}",
+        )
+        try:
+            await build_server(ctx).run_stdio_async()
+        finally:
+            await runner.stop()
+
+    try:
+        asyncio.run(serve())
+    finally:
+        info.engine.dispose()
+    return 0
+
+
 def cmd_version(_args: argparse.Namespace) -> int:
     c = gitinfo.current_commit()
     print(f"VJHStudio {__version__}" + (f" ({c.short} {c.subject})" if c else ""))
@@ -453,13 +513,17 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--no-api", dest="api", action="store_false", help="skip the API probes")
     pr.add_argument("--force", action="store_true", help="probe models that were already probed")
     pr.set_defaults(docs=True, api=True, force=False, func=cmd_probe)
+    sub.add_parser(
+        "mcp", help="serve the MCP tools over stdio (for Goose, Claude Desktop ...)"
+    ).set_defaults(func=cmd_mcp)
     sub.add_parser("version", help="print version").set_defaults(func=cmd_version)
     sub.add_parser("doctor", help="print environment diagnostics").set_defaults(func=cmd_doctor)
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
-    logging.basicConfig(level=log_level())
+    # stderr, always: `vjhstudio mcp` hands stdout to the protocol.
+    logging.basicConfig(level=log_level(), stream=sys.stderr)
     args = build_parser().parse_args(argv)
     return int(args.func(args))
 

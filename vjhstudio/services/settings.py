@@ -79,16 +79,30 @@ def _cast(key: str, raw: str) -> Any:
     return raw
 
 
-def get(session: Session, key: str, env: Mapping[str, str] | None = None) -> Any:
+def from_env(key: str, env: Mapping[str, str] | None = None) -> Any | None:
+    """The env override for a key, already cast -- or None when unset or unusable.
+
+    ``get`` needs a session. Callers that run before the database is open (the MCP
+    mount is built while the app is being constructed) ask this instead.
+    """
     spec = SPEC[key]
     env = os.environ if env is None else env
     raw = env.get(spec.env) if spec.env else None
-    if raw:
-        try:
-            return _cast(key, raw)
-        except ValueError as e:
-            # A typo in an env var must not turn the settings page into a 500.
-            log.warning("Ignoring %s=%r: %s. Using the saved value instead.", spec.env, raw, e)
+    if not raw:
+        return None
+    try:
+        return _cast(key, raw)
+    except ValueError as e:
+        # A typo in an env var must not turn the settings page into a 500.
+        log.warning("Ignoring %s=%r: %s. Using the saved value instead.", spec.env, raw, e)
+        return None
+
+
+def get(session: Session, key: str, env: Mapping[str, str] | None = None) -> Any:
+    spec = SPEC[key]
+    override = from_env(key, env)
+    if override is not None:
+        return override
     row = session.get(Setting, key)
     return _cast(key, row.value) if row else spec.default
 
