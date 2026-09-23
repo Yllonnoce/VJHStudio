@@ -264,6 +264,8 @@ your projects and your gallery, exactly as if you had clicked the buttons yourse
 It cannot run up a bill behind your back. VJHStudio keeps a **daily spend cap** (default $2) and a
 **limit on how many jobs a day** an agent may queue; a job that would go past either is refused
 before it is sent, and jobs an agent queued are marked **via agent** in the queue and the gallery.
+Two agents submitting at the same instant can each pass the cap once; the overshoot is at most one
+job.
 
 **Turn it on:** open **Settings**, scroll to **Automation (MCP)**, tick **Let agents connect**, set
 the cap you are comfortable with, click **Save**, then click **Regenerate** to make a token.
