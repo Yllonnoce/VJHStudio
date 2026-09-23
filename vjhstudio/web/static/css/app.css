@@ -676,3 +676,5 @@ input[type="number"]::-webkit-outer-spin-button,input[type="number"]::-webkit-in
 .stepper-btn:last-child{border-radius:0 var(--sp-radius-sm) var(--sp-radius-sm) 0;border-left:0}
 .stepper-btn:hover{background:var(--sp-btn-tint-hover)}
 .stepper-btn:focus-visible{outline:2px solid var(--sp-accent);outline-offset:1px}
+
+.mcp-trace td{vertical-align:top;font-size:.85rem}.mcp-trace code.wrap{white-space:pre-wrap;word-break:break-word}

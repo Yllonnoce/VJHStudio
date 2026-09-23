@@ -162,4 +162,11 @@
             @click="note = copy($refs.stdio.innerText, $refs.stdio)">Copy</button>
     <small x-show="!shown" class="muted">Reveal the token first — otherwise you would copy the mask.</small>
   </details>
+
+  <h4>Recent agent calls</h4>
+  <p><small class="muted">What the agent actually sent, and what it got back. If an agent keeps
+    stalling, the error column says which argument it got wrong.</small></p>
+  <div id="mcp-trace" hx-get="/settings/automation/trace" hx-trigger="load" hx-target="this" hx-swap="outerHTML">
+    <p><small class="muted">Loading…</small></p>
+  </div>
 </article>

@@ -299,3 +299,10 @@ async def test_the_snippet_copy_buttons_wait_for_the_reveal(client):
     card = r.text.split('id="automation"', 1)[1].split("</article>", 1)[0]
     assert card.count(':disabled="!shown"') == 3  # Goose, Claude Code, stdio
     assert "Ctrl+C" in card  # the fallback for a page with no clipboard API
+
+
+async def test_recent_agent_calls_section_and_trace_route(client):
+    r = await client.get("/settings")
+    assert "Recent agent calls" in r.text and 'hx-get="/settings/automation/trace"' in r.text
+    r = await client.get("/settings/automation/trace")
+    assert r.status_code == 200 and "cannot connect until" in r.text  # mcp off in tests

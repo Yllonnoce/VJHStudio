@@ -231,6 +231,7 @@ def create_app(
     app.state.stop_posters = threading.Event()  # shutdown's only handle on that worker
     app.state.harvest_task = None  # set by services.constraints.start_harvest
     app.state.mcp_server = None  # set below when mcp.enabled is on
+    app.state.mcp_trace = None
     app.state.mcp_base_url = mcp_base_url(env, port, host)
     app.state.api_key = lambda: secrets.effective_api_key(paths, env)
     app.state.key_source = lambda: secrets.key_source(paths, env)
@@ -299,15 +300,15 @@ def create_app(
         if not token:
             token = secrets.rotate_mcp_token(paths)
             log.info("MCP token created; see Settings")  # never the value itself
-        app.state.mcp_server = build_server(
-            MCPContext(
-                session_factory=mcp_session_factory,
-                paths=paths,
-                runner=lambda: app.state.runner,
-                env=env,
-                setting=setting,
-                base_url=app.state.mcp_base_url,
-            )
+        mcp_ctx = MCPContext(
+            session_factory=mcp_session_factory,
+            paths=paths,
+            runner=lambda: app.state.runner,
+            env=env,
+            setting=setting,
+            base_url=app.state.mcp_base_url,
         )
+        app.state.mcp_server = build_server(mcp_ctx)
+        app.state.mcp_trace = mcp_ctx.trace
         mount_mcp(app, app.state.mcp_server, token)
     return app

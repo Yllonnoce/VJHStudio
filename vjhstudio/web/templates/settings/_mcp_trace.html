@@ -1,0 +1,26 @@
+{# The last agent calls, newest first. Swapped whole by the Refresh button. #}
+<div id="mcp-trace">
+  {% if not mcp_on %}
+  <p><small class="muted">Agents cannot connect until "Let agents connect" is on and the app has been restarted.</small></p>
+  {% elif not calls %}
+  <p><small class="muted">No agent calls yet this run. Ask your agent for something, then Refresh.</small></p>
+  {% else %}
+  <div class="table-scroll">
+  <table class="mcp-trace">
+    <thead><tr><th>When (UTC)</th><th>Tool</th><th>Arguments sent</th><th>Result</th></tr></thead>
+    <tbody>
+    {% for c in calls %}
+    <tr>
+      <td><small>{{ c.at[11:] }}</small></td>
+      <td><code>{{ c.tool }}</code></td>
+      <td><code class="wrap">{{ c.arguments }}</code></td>
+      <td>{% if c.ok %}<small class="ok">ok · {{ c.ms }} ms</small>{% else %}<small class="error">{{ c.error }}</small>{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+  <button type="button" class="secondary outline btn-sm" hx-get="/settings/automation/trace"
+          hx-target="#mcp-trace" hx-swap="outerHTML">Refresh</button>
+</div>

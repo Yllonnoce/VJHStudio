@@ -14,8 +14,11 @@ import asyncio
 import functools
 import inspect
 import json
+import logging
+import time
+from collections import deque
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from mcp.server.mcpserver import Context, MCPServer
@@ -39,6 +42,8 @@ from ..web.routes.generate import (
     video_estimate_ctx,
     with_portrait,
 )
+
+log = logging.getLogger("vjhstudio.mcp")
 
 SERVER_NAME = "vjhstudio"
 INSTRUCTIONS = (
@@ -69,6 +74,42 @@ SIZED_MODES = ("list", "rule")
 
 
 @dataclass
+class CallTrace:
+    """The last few tool calls, exactly as the host sent them, with what came back.
+
+    This is the one place to look when an agent "keeps getting challenged by the
+    endpoint": the arguments it really posted and the validation sentence it got.
+    Kept in memory only, newest first when read, and never written to disk."""
+
+    LIMIT = 50
+    ARGS_MAX = 600
+
+    def __init__(self) -> None:
+        self.calls: deque[dict] = deque(maxlen=self.LIMIT)
+
+    def record(self, name: str, arguments: Any, ok: bool, error: str, ms: float) -> None:
+        try:
+            args = json.dumps(arguments, ensure_ascii=False, default=str)
+        except Exception:  # noqa: BLE001 - a trace must never break a call
+            args = repr(arguments)
+        if len(args) > self.ARGS_MAX:
+            args = args[: self.ARGS_MAX] + "…"
+        self.calls.append(
+            {
+                "at": utcnow().isoformat(timespec="seconds"),
+                "tool": name,
+                "arguments": args,
+                "ok": ok,
+                "error": error[:600],
+                "ms": round(ms),
+            }
+        )
+
+    def recent(self, limit: int = 20) -> list[dict]:
+        return list(reversed(self.calls))[: max(1, limit)]
+
+
+@dataclass
 class MCPContext:
     """Everything the tools need from the app. ``runner`` is a zero-argument callable
     because the server is built at app construction, before the runner exists."""
@@ -79,6 +120,7 @@ class MCPContext:
     env: Any
     setting: Callable[[str], Any]
     base_url: str = ""
+    trace: CallTrace = field(default_factory=CallTrace)
 
 
 def _guard(fn):
@@ -427,8 +469,31 @@ def job_summary(session, job: Job, paths, base_url: str, live: dict | None = Non
 
 
 # Every tool is a closure over ``ctx``, so the server is one object with no globals.
+def _traced(server: MCPServer, trace: CallTrace) -> None:
+    """Record every tool call -- including the ones the SDK rejects before any tool
+    runs, which is where a host's malformed arguments show up."""
+    original = server.call_tool
+
+    async def call_tool(name: str, arguments: dict | None, context=None):
+        t0 = time.monotonic()
+        try:
+            result = await original(name, arguments or {}, context)
+        except Exception as e:
+            ms = (time.monotonic() - t0) * 1000
+            trace.record(name, arguments, False, str(e), ms)
+            log.info("mcp %s refused: %s", name, str(e).splitlines()[0][:200])
+            raise
+        ms = (time.monotonic() - t0) * 1000
+        trace.record(name, arguments, True, "", ms)
+        log.info("mcp %s ok (%d ms)", name, ms)
+        return result
+
+    server.call_tool = call_tool  # type: ignore[method-assign]
+
+
 def build_server(ctx: MCPContext) -> MCPServer:
     server = MCPServer(SERVER_NAME, instructions=INSTRUCTIONS)
+    _traced(server, ctx.trace)
     sf, paths = ctx.session_factory, ctx.paths
 
     def runner():

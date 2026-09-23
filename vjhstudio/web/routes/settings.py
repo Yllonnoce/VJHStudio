@@ -402,3 +402,19 @@ async def header_balance(request: Request):
         "partials/_balance_chip.html",
         {"balance": bal, "stale": stale, "polled": True},
     )
+
+
+def _trace_ctx(request: Request) -> dict:
+    trace = getattr(request.app.state, "mcp_trace", None)
+    return {
+        "calls": trace.recent(20) if trace is not None else [],
+        "mcp_on": request.app.state.mcp_server is not None,
+    }
+
+
+@router.get("/settings/automation/trace")
+def mcp_trace(request: Request):
+    """The last agent calls, exactly as the host sent them. Arguments can carry a
+    prompt, so - like the token routes - this answers nobody but this computer."""
+    _local_only(request)
+    return deps.render(request, "settings/_mcp_trace.html", _trace_ctx(request))

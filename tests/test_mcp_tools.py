@@ -579,3 +579,13 @@ async def test_the_default_tier_is_the_models_own(mcp):
     assert e["resolution"].startswith("4K")
     e = _data(await mcp.call_tool("estimate", {"air": LTX}))
     assert e["resolution"] == "720p"
+
+
+async def test_every_call_is_traced_with_its_arguments(mcp, ctx):
+    await mcp.call_tool("list_projects", {})
+    res = await mcp.call_tool("list_models", {"kind": "audio"})
+    assert res.is_error
+    calls = ctx.trace.recent(5)
+    assert calls[0]["tool"] == "list_models" and calls[0]["ok"] is False
+    assert '"kind": "audio"' in calls[0]["arguments"] and "image" in calls[0]["error"]
+    assert calls[1]["tool"] == "list_projects" and calls[1]["ok"] is True
