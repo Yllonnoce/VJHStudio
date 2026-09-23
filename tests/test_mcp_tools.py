@@ -461,3 +461,77 @@ async def test_a_list_model_with_no_size_still_gets_one_it_offers(quoted, app):
         job = s.get(Job, r["job_id"])
         assert (job.request_json["width"], job.request_json["height"]) == (3840, 2160)
         assert job.request_json["resolution"] == "4K"
+
+
+# ---- every argument but the prompt has a default; nulls are tolerated ------
+async def test_no_tool_but_the_prompt_requires_an_argument(mcp):
+    """Local models call tools with whatever they remember; a missing or null
+    argument must fall back to something sensible, not a validation error."""
+    tools = {t.name: t for t in (await mcp.list_tools()).tools}
+    for name, tool in tools.items():
+        required = set(tool.input_schema.get("required", []))
+        if name in ("generate_image", "generate_video"):
+            assert required == {"prompt"}, (name, required)
+        elif name == "create_project":
+            assert required == {"name"}, (name, required)
+        elif name == "move_output":
+            assert required == {"project"}, (name, required)
+        else:
+            assert not required, (name, required)
+
+
+async def test_list_models_without_a_kind_lists_both(mcp):
+    rows = _data(await mcp.call_tool("list_models", {}))
+    kinds = {r["kind"] for r in rows}
+    assert kinds == {"image", "video"}
+    rows = _data(await mcp.call_tool("list_models", {"kind": None, "sort": None}))
+    assert {r["kind"] for r in rows} == {"image", "video"}
+
+
+async def test_estimate_and_details_default_to_the_configured_models(mcp):
+    e = _data(await mcp.call_tool("estimate", {}))
+    assert e["air"] == FLUX and e["estimate_usd"] > 0
+    e = _data(await mcp.call_tool("estimate", {"air": LTX}))  # kind inferred
+    assert e["air"] == LTX and e["resolution"]
+    e = _data(await mcp.call_tool("estimate", {"kind": "video"}))
+    assert e["air"] == LTX
+    d = _data(await mcp.call_tool("model_details", {}))
+    assert d["air"] == FLUX
+
+
+async def test_generate_image_defaults_everything_but_the_prompt(mcp, fake):
+    fake.script["run"] = [IMAGE_REPLY]
+    r = _data(
+        await mcp.call_tool(
+            "generate_image",
+            {"prompt": "a red fox", "project": None, "negative_prompt": None, "width": None},
+        )
+    )
+    assert r["job_id"]
+    done = _data(await mcp.call_tool("wait_for_job", {}))  # no id: the latest agent job
+    assert done["id"] == r["job_id"] and done["status"] == "succeeded", done
+    assert done["model"] == FLUX
+    status = _data(await mcp.call_tool("job_status", {"job_id": None}))
+    assert status["id"] == r["job_id"]
+    latest = _data(await mcp.call_tool("output_details", {}))
+    assert latest["id"] == done["outputs"][0]["id"]
+    res = await mcp.call_tool("generate_image", {})
+    assert res.is_error and "prompt" in res.content[0].text.lower()
+
+
+async def test_null_filters_are_ignored(mcp):
+    rows = _data(await mcp.call_tool("list_jobs", {"status": None, "limit": None}))
+    assert isinstance(rows, list)
+    rows = _data(
+        await mcp.call_tool("list_outputs", {"project": None, "kind": None, "search": None})
+    )
+    assert isinstance(rows, list)
+    rows = _data(await mcp.call_tool("list_assets", {"kind": None, "search": None, "limit": "5"}))
+    assert isinstance(rows, list)
+    p = _data(await mcp.call_tool("create_project", {"name": "Nulls", "description": None}))
+    assert p["slug"] == "nulls"
+
+
+async def test_job_tools_without_any_job_say_so(mcp):
+    res = await mcp.call_tool("job_status", {})
+    assert res.is_error and "no agent job" in res.content[0].text.lower()

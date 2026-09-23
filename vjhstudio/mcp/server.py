@@ -44,7 +44,9 @@ SERVER_NAME = "vjhstudio"
 INSTRUCTIONS = (
     "VJHStudio makes images and videos through RunWare. Call list_models first, then estimate, "
     "then generate_image or generate_video; poll with wait_for_job. Jobs cost money: respect the "
-    "daily cap returned in every reply and put results in a named project."
+    "daily cap returned in every reply and put results in a named project. Every argument "
+    "except the prompt has a sensible default: leave out (or send null for) anything you do "
+    "not know, and the studio's own defaults are used."
 )
 TERMINAL = (JobStatus.succeeded.value, JobStatus.failed.value, JobStatus.cancelled.value)
 KINDS = ("image", "video")
@@ -97,11 +99,68 @@ def _guard(fn):
 
 
 # ---- lookups -------------------------------------------------------------
-def _kind(kind: str) -> str:
+def _kind(kind: str | None) -> str:
     k = str(kind or "").strip().lower()
     if k not in KINDS:
         raise ValueError(f"kind must be 'image' or 'video', not {kind!r}.")
     return k
+
+
+def _text(value: object) -> str:
+    """A string argument as the agent meant it: ``None`` and ``"null"`` are empty."""
+    text = "" if value is None else str(value).strip()
+    return "" if text.lower() in ("null", "none") else text
+
+
+def _num(value: object, default: float) -> float:
+    if value is None or _text(value) == "":
+        return default
+    return float(value)
+
+
+def _default_air(ctx: MCPContext, kind: str) -> str:
+    """The model the Generate page would start with, for agents that name none."""
+    key = "defaults.video_model" if kind == "video" else "defaults.image_model"
+    air = _text(ctx.setting(key))
+    if not air:
+        raise ValueError(f"No default {kind} model is set; name a model (call list_models).")
+    return air
+
+
+def _latest_job(session) -> Job:
+    """The newest job an agent started, for the job tools called with no id."""
+    job = (
+        session.query(Job)
+        .filter(Job.source == automation.MCP)
+        .order_by(Job.created_at.desc(), Job.id.desc())
+        .first()
+    )
+    if job is None:
+        raise ValueError("No agent job yet; pass a job_id or call generate_image first.")
+    return job
+
+
+def _job_ref(session, job_id: str | None) -> Job:
+    ref = _text(job_id)
+    if not ref:
+        return _latest_job(session)
+    job = session.get(Job, ref)
+    if job is None:
+        raise ValueError(f"No job {ref!r}; call list_jobs.")
+    return job
+
+
+def _output_ref(session, output_id: int | str | None) -> Output:
+    ref = _text(output_id)
+    if not ref:
+        o = session.query(Output).order_by(Output.created_at.desc(), Output.id.desc()).first()
+        if o is None:
+            raise ValueError("No outputs yet; call generate_image first.")
+        return o
+    o = outputs.get(session, int(ref))
+    if o is None:
+        raise ValueError(f"No output {ref}; call list_outputs.")
+    return o
 
 
 def _model(session, air: str, kind: str | None = None) -> CatalogModel:
@@ -358,14 +417,19 @@ def build_server(ctx: MCPContext) -> MCPServer:
     # ---- catalog ---------------------------------------------------------
     @server.tool()
     @_guard
-    def list_models(kind: str, sort: str = "price", favourites_only: bool = False) -> list[dict]:
-        """List the image or video models the studio can run, dearest first, with price
-        and accepted inputs. Only models this studio can actually drive are listed."""
-        k = _kind(kind)
+    def list_models(
+        kind: str | None = None, sort: str | None = "price", favourites_only: bool | None = False
+    ) -> list[dict]:
+        """List the models the studio can run, dearest first, with price and accepted
+        inputs. ``kind`` is "image" or "video"; leave it out for both. Only models this
+        studio can actually drive are listed."""
+        wanted = _text(kind).lower()
+        kinds = KINDS if wanted in ("", "all", "both") else (_kind(wanted),)
         order = sort if sort in catalog.SORTS else "price"
         with db.session_scope(sf) as s:
             rows = [
                 m
+                for k in kinds
                 for m in catalog.list_models(s, k, sort=order)
                 if constraints.is_generate_capable(k, m.capabilities_json or [], m.constraints_json)
                 and (not favourites_only or m.is_favourite)
@@ -374,11 +438,11 @@ def build_server(ctx: MCPContext) -> MCPServer:
 
     @server.tool()
     @_guard
-    def model_details(air: str) -> dict:
+    def model_details(air: str | None = None) -> dict:
         """Everything one model accepts: reference roles, sizes, durations, resolutions
-        and its provider settings schema."""
+        and its provider settings schema. With no ``air``, the default image model."""
         with db.session_scope(sf) as s:
-            m = _model(s, air)
+            m = _model(s, _text(air) or _default_air(ctx, "image"))
             c = m.constraints_json
             fallback = list(SIZE_PRESETS) if m.kind == "image" else []
             dims = _dims_block(m)
@@ -397,22 +461,38 @@ def build_server(ctx: MCPContext) -> MCPServer:
     @server.tool()
     @_guard
     def estimate(
-        kind: str,
-        air: str,
+        kind: str | None = None,
+        air: str | None = None,
         width: int | None = None,
         height: int | None = None,
-        number_results: int = 1,
+        number_results: int | None = 1,
         duration: float | None = None,
-        resolution: str = "",
+        resolution: str | None = "",
         audio: bool | None = None,
     ) -> dict:
         """What one run would cost, in US dollars -- the same number the cap is checked
         against, for the size, duration and settings the job would really use.
         ``estimate_usd`` is null when the model has no known price; those cannot run under
-        a spend cap. Leave ``audio`` unset to price the model's own default."""
-        k = _kind(kind)
+        a spend cap. Leave ``audio`` unset to price the model's own default. With no
+        ``air`` the default model of ``kind`` (image unless said) is priced; with an
+        ``air`` and no ``kind``, the model's own kind is used."""
+        air_ref, kind_ref = _text(air), _text(kind)
+        resolution = _text(resolution)
+        number_results = int(_num(number_results, 1))
         with db.session_scope(sf) as s:
-            m = _model(s, air, k)
+            if not air_ref:
+                k = _kind(kind_ref or "image")
+                air_ref = _default_air(ctx, k)
+                m = _model(s, air_ref, k)
+            elif kind_ref:
+                k = _kind(kind_ref)
+                m = _model(s, air_ref, k)
+            else:
+                m = _model(s, air_ref)
+                k = m.kind
+            air = air_ref
+            if k == "video" and not resolution:
+                resolution = "720p"
             if k == "image":
                 asked = (
                     int(width or m.default_width or 1024),
@@ -421,6 +501,8 @@ def build_server(ctx: MCPContext) -> MCPServer:
                 used = _require_image_size(m, constraints.nearest_size(m.constraints_json, *asked))
                 data = estimate_ctx(s, air, used[0], used[1], number_results)
                 return {
+                    "air": air,
+                    "kind": k,
                     "estimate_usd": data["total"],
                     "rate": m.price_primary,
                     "note": _snap_note(asked, used),
@@ -439,6 +521,8 @@ def build_server(ctx: MCPContext) -> MCPServer:
             if tier != resolution:
                 notes.append(f"priced at the {tier} rate")
             return {
+                "air": air,
+                "kind": k,
                 "estimate_usd": data["total"],
                 "rate": data["rate"],
                 "note": "; ".join(notes),
@@ -451,25 +535,34 @@ def build_server(ctx: MCPContext) -> MCPServer:
     @server.tool()
     @_guard
     def generate_image(
-        air: str,
         prompt: str,
-        project: str | int = "default",
-        width: int = 1024,
-        height: int = 1024,
-        number_results: int = 1,
-        negative_prompt: str = "",
+        air: str | None = None,
+        project: str | int | None = "default",
+        width: int | None = 1024,
+        height: int | None = 1024,
+        number_results: int | None = 1,
+        negative_prompt: str | None = "",
         seed: int | None = None,
         seed_image_asset_id: int | None = None,
         reference_asset_ids: list[int] | None = None,
         title: str | None = None,
     ) -> dict:
-        """Queue an image job. Refuses, before anything is queued or billed, when
-        today's agent spend would pass the cap."""
+        """Queue an image job. Only ``prompt`` is needed: the default image model, the
+        Default project and a 1024x1024 size fill in the rest. Refuses, before anything is
+        queued or billed, when today's agent spend would pass the cap."""
+        if not _text(prompt):
+            raise ValueError("A prompt is required: say what the image should show.")
+        negative_prompt = _text(negative_prompt)
+        number_results = max(1, int(_num(number_results, 1)))
         runner()  # before the row exists: a refusal must leave nothing to requeue
         with db.session_scope(sf) as s:
-            p = _project(s, project)
+            p = _project(s, _text(project) or "default")
+            air = _text(air) or _default_air(ctx, "image")
             m = _model(s, air, "image")
-            asked = (int(width), int(height))
+            asked = (
+                int(_num(width, m.default_width or 1024)),
+                int(_num(height, m.default_height or 1024)),
+            )
             used = _require_image_size(m, constraints.nearest_size(m.constraints_json, *asked))
             est = estimate_ctx(s, air, used[0], used[1], number_results)["total"]
             project_id = p.id
@@ -511,11 +604,11 @@ def build_server(ctx: MCPContext) -> MCPServer:
     @server.tool()
     @_guard
     def generate_video(
-        air: str,
         prompt: str,
-        project: str | int = "default",
-        duration: float = DEFAULT_DURATION,
-        resolution: str = "720p",
+        air: str | None = None,
+        project: str | int | None = "default",
+        duration: float | None = DEFAULT_DURATION,
+        resolution: str | None = "720p",
         width: int | None = None,
         height: int | None = None,
         first_frame_asset_id: int | None = None,
@@ -524,14 +617,21 @@ def build_server(ctx: MCPContext) -> MCPServer:
         provider_settings: dict | None = None,
         title: str | None = None,
     ) -> dict:
-        """Queue a video job. Same cap, and the same refusal-before-billing rule.
+        """Queue a video job. Only ``prompt`` is needed: the default video model, the
+        Default project, 5 seconds at 720p fill in the rest. Same cap, and the same
+        refusal-before-billing rule.
 
         Everything that moves the price is resolved here -- the settings the provider will
         really see, the duration the task builder will really send, the size and its rate
         tier -- so the number the cap is checked against is the number that gets billed."""
+        if not _text(prompt):
+            raise ValueError("A prompt is required: say what the clip should show.")
+        resolution = _text(resolution) or "720p"
+        duration = _num(duration, DEFAULT_DURATION)
         runner()  # before the row exists: a refusal must leave nothing to requeue
         with db.session_scope(sf) as s:
-            p = _project(s, project)
+            p = _project(s, _text(project) or "default")
+            air = _text(air) or _default_air(ctx, "video")
             m = _model(s, air, "video")
             seconds = _duration_for(m, duration)
             settings_sent = _provider_settings(m, provider_settings)
@@ -586,24 +686,26 @@ def build_server(ctx: MCPContext) -> MCPServer:
     # ---- queue -----------------------------------------------------------
     @server.tool()
     @_guard
-    def job_status(job_id: str) -> dict:
-        """One job with its outputs, progress and error, if any."""
+    def job_status(job_id: str | None = None) -> dict:
+        """One job with its outputs, progress and error, if any. With no ``job_id``,
+        the newest job an agent started."""
         with db.session_scope(sf) as s:
-            job = s.get(Job, job_id)
-            if job is None:
-                raise ValueError(f"No job {job_id!r}; call list_jobs.")
-            return job_summary(s, job, paths, ctx.base_url, live_for(job_id))
+            job = _job_ref(s, job_id)
+            return job_summary(s, job, paths, ctx.base_url, live_for(job.id))
 
     @server.tool()
     @_guard
     async def wait_for_job(
-        job_id: str, timeout_s: int = 300, mcp_ctx: Context | None = None
+        job_id: str | None = None, timeout_s: int | None = 300, mcp_ctx: Context | None = None
     ) -> dict:
         """Wait until the job finishes (or ``timeout_s``, at most 900) and return its
-        outputs. A reply carrying ``timed_out`` means the job is still running."""
+        outputs. A reply carrying ``timed_out`` means the job is still running. With no
+        ``job_id``, the newest job an agent started."""
         loop = asyncio.get_running_loop()
-        deadline = loop.time() + max(1, min(int(timeout_s), TIMEOUT_MAX))
+        deadline = loop.time() + max(1, min(int(_num(timeout_s, 300)), TIMEOUT_MAX))
         delay = POLL_FIRST
+        with db.session_scope(sf) as s:
+            job_id = _job_ref(s, job_id).id
         while True:
             with db.session_scope(sf) as s:
                 job = s.get(Job, job_id)
@@ -622,18 +724,19 @@ def build_server(ctx: MCPContext) -> MCPServer:
 
     @server.tool()
     @_guard
-    def cancel_job(job_id: str) -> dict:
-        """Ask the queue to drop or abort a job. False means it had already finished."""
+    def cancel_job(job_id: str | None = None) -> dict:
+        """Ask the queue to drop or abort a job (the newest agent job when no id is
+        given). False means it had already finished."""
         with db.session_scope(sf) as s:
-            if s.get(Job, job_id) is None:
-                raise ValueError(f"No job {job_id!r}; call list_jobs.")
+            job_id = _job_ref(s, job_id).id
         return {"cancelled": bool(runner().cancel(job_id))}
 
     @server.tool()
     @_guard
-    def list_jobs(status: str = "", limit: int = 20) -> list[dict]:
+    def list_jobs(status: str | None = "", limit: int | None = 20) -> list[dict]:
         """Recent jobs, newest first, optionally filtered by status."""
-        n = max(1, min(int(limit), 100))
+        n = max(1, min(int(_num(limit, 20)), 100))
+        status = _text(status)
         with db.session_scope(sf) as s:
             q = s.query(Job)
             if status:
@@ -645,30 +748,31 @@ def build_server(ctx: MCPContext) -> MCPServer:
     @server.tool()
     @_guard
     def list_outputs(
-        project: str | int = "", kind: str = "", search: str = "", limit: int = 24
+        project: str | int | None = "",
+        kind: str | None = "",
+        search: str | None = "",
+        limit: int | None = 24,
     ) -> list[dict]:
         """Finished files, newest first, with a URL and an absolute path for each."""
-        n = max(1, min(int(limit), 100))
+        n = max(1, min(int(_num(limit, 24)), 100))
         with db.session_scope(sf) as s:
-            project_id = _project(s, project).id if str(project).strip() else None
+            project_id = _project(s, project).id if _text(project) else None
             rows, _ = outputs.gallery(
                 s,
                 project_id=project_id,
-                kind=kind or None,
-                q=search or None,
+                kind=_text(kind) or None,
+                q=_text(search) or None,
                 per_page=n,
             )
             return [output_summary(s, o, paths, ctx.base_url) for o in rows]
 
     @server.tool()
     @_guard
-    def output_details(output_id: int) -> dict:
+    def output_details(output_id: int | None = None) -> dict:
         """One output with the prompt, the negative, the parameters actually sent, and
-        where the file is."""
+        where the file is. With no ``output_id``, the newest output."""
         with db.session_scope(sf) as s:
-            o = outputs.get(s, int(output_id))
-            if o is None:
-                raise ValueError(f"No output {output_id}; call list_outputs.")
+            o = _output_ref(s, output_id)
             return output_summary(s, o, paths, ctx.base_url) | {
                 "prompt": o.prompt_text,
                 "negative": o.negative_prompt,
@@ -680,10 +784,12 @@ def build_server(ctx: MCPContext) -> MCPServer:
 
     @server.tool()
     @_guard
-    def move_output(output_id: int, project: str | int) -> dict:
-        """File an output under another project; the media file moves with the row."""
+    def move_output(project: str | int, output_id: int | None = None) -> dict:
+        """File an output (the newest one when no id is given) under another project;
+        the media file moves with the row."""
         with db.session_scope(sf) as s:
             target = _project(s, project)
+            output_id = _output_ref(s, output_id).id
             try:
                 o = outputs.move(s, paths, int(output_id), target.id)
             except LookupError as e:
@@ -712,21 +818,25 @@ def build_server(ctx: MCPContext) -> MCPServer:
 
     @server.tool()
     @_guard
-    def create_project(name: str, description: str = "") -> dict:
+    def create_project(name: str, description: str | None = "") -> dict:
         """Make a project. The slug is derived from the name and is stable afterwards."""
-        if not str(name).strip():
+        if not _text(name):
             raise ValueError("A project needs a name.")
         with db.session_scope(sf) as s:
-            p = projects.create(s, paths, name, description or None)
+            p = projects.create(s, paths, _text(name), _text(description) or None)
             return {"id": p.id, "name": p.name, "slug": p.slug}
 
     @server.tool()
     @_guard
-    def list_assets(kind: str = "", search: str = "", limit: int = 50) -> list[dict]:
+    def list_assets(
+        kind: str | None = "", search: str | None = "", limit: int | None = 50
+    ) -> list[dict]:
         """Uploaded images and videos, by id, for the seed/first-frame/reference slots."""
-        n = max(1, min(int(limit), 200))
+        n = max(1, min(int(_num(limit, 50)), 200))
         with db.session_scope(sf) as s:
-            rows, _ = assets_svc.list_assets(s, kind=kind or None, q=search or None, per_page=n)
+            rows, _ = assets_svc.list_assets(
+                s, kind=_text(kind) or None, q=_text(search) or None, per_page=n
+            )
             return [
                 {
                     "id": a.id,
