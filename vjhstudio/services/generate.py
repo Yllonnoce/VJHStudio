@@ -38,7 +38,60 @@ def _preflight_video(m: CatalogModel, req: VideoRequest) -> None:
         constraints.needs_first_frame(m.capabilities_json or [], m.constraints_json)
         and req.first_frame_asset_id is None
     ):
-        raise ValueError("This model needs a first-frame image. Add one under References.")
+        raise ValueError(NEEDS_FIRST_FRAME)
+
+
+# The single-slot reference roles and the request field each one fills; ``reference`` is
+# many-to-one and lives in ``reference_asset_ids``, so it is not in this map. (The same
+# map, for the form side, is in web/routes/generate.py.)
+ROLE_FIELDS = {
+    "first": "first_frame_asset_id",
+    "last": "last_frame_asset_id",
+    "seed": "seed_image_asset_id",
+}
+NEEDS_FIRST_FRAME = "This model needs a first-frame image. Add one under References."
+
+
+def _filled_roles(req: ImageRequest | VideoRequest) -> dict[str, list]:
+    """The asset ids this request actually carries, per reference role."""
+    filled = {
+        role: [getattr(req, field)]
+        for role, field in ROLE_FIELDS.items()
+        if getattr(req, field, None) is not None
+    }
+    refs = list(getattr(req, "reference_asset_ids", None) or [])
+    if refs:
+        filled["reference"] = refs
+    return filled
+
+
+def _preflight_roles(m: CatalogModel, req: ImageRequest | VideoRequest, kind: str) -> None:
+    """Refuse a reference the model does not take -- and ask for one it insists on --
+    before a Job row exists. The Generate page hides the slots this model has no use
+    for; this is the same rule enforced where it cannot be bypassed, because a posted
+    input the provider rejects is a billed failure."""
+    family = catalog.family(m) if kind == "image" else "video"
+    roles = constraints.accepted_roles(kind, m.capabilities_json or [], m.constraints_json, family)
+    filled = _filled_roles(req)
+    for role in constraints.ROLE_ORDER:
+        ids = filled.get(role) or []
+        spec = roles.get(role)
+        label = constraints.ROLE_LABELS[role]
+        if spec is None:
+            if ids:
+                raise ValueError(
+                    f"This model does not accept a {label}. Remove it under References."
+                )
+            continue
+        if spec.get("required") and not ids:
+            # the first-frame wording predates the other roles and is pinned by its own
+            # test (and by the notice the References section shows)
+            if role == "first":
+                raise ValueError(NEEDS_FIRST_FRAME)
+            raise ValueError(f"This model needs a {label}. Add one under References.")
+        cap = spec.get("max")
+        if role == "reference" and cap and len(ids) > cap:
+            raise ValueError(f"This model takes at most {cap} reference images.")
 
 
 def _require_project(session: Session, project_id: int) -> Project:
@@ -57,7 +110,7 @@ def enqueue_image(
     polish_json: dict | None = None,
 ) -> Job:
     with db.session_scope(session_factory) as s:
-        _require_kind(s, req.model, "image")
+        _preflight_roles(_require_kind(s, req.model, "image"), req, "image")
         project = _require_project(s, req.project_id)
         # the same helper the Save-prompt route uses, so a saved prompt and this submit
         # hash identically and dedupe onto one row
@@ -100,7 +153,9 @@ def enqueue_video(
     and the prompt row records an empty negative for the same reason, which is what its
     content hash is built from."""
     with db.session_scope(session_factory) as s:
-        _preflight_video(_require_kind(s, req.model, "video"), req)
+        m = _require_kind(s, req.model, "video")
+        _preflight_video(m, req)
+        _preflight_roles(m, req, "video")
         project = _require_project(s, req.project_id)
         _, _, negative = prompts.saved_texts("video", req.form, req.final_prompt or "")
         prompt = prompts.for_request(

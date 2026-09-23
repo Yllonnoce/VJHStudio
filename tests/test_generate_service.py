@@ -119,3 +119,125 @@ def test_enqueue_video_links_a_video_prompt_row(env):
         prompt = s.query(models.Prompt).one()
         assert prompt.kind == "video" and prompt.negative_prompt == ""
         assert s.get(models.Job, job.id).prompt_id == prompt.id
+
+
+# ---- reference-role pre-flight -------------------------------------------
+#
+# Nothing here reaches the network: the point is that a request carrying an input the
+# model does not take never becomes a Job row at all, so it can never be billed.
+
+REFS_2 = {"inputs": {"referenceImages": {"required": False, "min_items": 1, "max_items": 2}}}
+REFS_REQUIRED = {"inputs": {"referenceImages": {"required": True, "min_items": 1}}}
+FRAMES_ONLY = {"inputs": {"frameImages": {"required": False, "min_items": 1, "max_items": 2}}}
+
+
+def _catalog_row(f, air: str, kind: str, caps: list[str], c: dict | None = None):
+    with db.session_scope(f) as s:
+        s.add(
+            models.CatalogModel(
+                air=air,
+                name=air,
+                kind=kind,
+                source="curated",
+                capabilities_json=list(caps),
+                constraints_json=c,
+            )
+        )
+
+
+def _pid(f) -> int:
+    with db.session_scope(f) as s:
+        return s.query(models.Project).filter_by(slug="default").one().id
+
+
+def _jobs(f) -> int:
+    with db.session_scope(f) as s:
+        return s.query(models.Job).count()
+
+
+def test_preflight_refuses_a_seed_image_a_text_only_model_cannot_take(env):
+    paths, f = env
+    pid = _pid(f)
+    req = ImageRequest(
+        project_id=pid,
+        model="runware:100@1",  # io:text-to-image only
+        form=PromptForm(subject="a fox"),
+        seed_image_asset_id=7,
+    )
+    with pytest.raises(ValueError, match="does not accept a seed image"):
+        generate.enqueue_image(f, paths, req, default_negative="")
+    assert _jobs(f) == 0
+
+
+def test_preflight_lets_an_accepted_seed_image_through(env):
+    paths, f = env
+    req = ImageRequest(
+        project_id=_pid(f),
+        model="runware:101@1",  # io:image-to-image, diffusion family
+        form=PromptForm(subject="a fox"),
+        seed_image_asset_id=7,
+    )
+    generate.enqueue_image(f, paths, req, default_negative="")
+    assert _jobs(f) == 1
+
+
+def test_preflight_caps_the_number_of_reference_images(env):
+    paths, f = env
+    _catalog_row(f, "vjh:refs-2@1", "image", ["io:image-to-image"], REFS_2)
+    req = ImageRequest(
+        project_id=_pid(f),
+        model="vjh:refs-2@1",
+        form=PromptForm(subject="a fox"),
+        reference_asset_ids=[1, 2, 3],
+    )
+    with pytest.raises(ValueError, match="at most 2 reference images"):
+        generate.enqueue_image(f, paths, req, default_negative="")
+    assert _jobs(f) == 0
+    req.reference_asset_ids = [1, 2]
+    generate.enqueue_image(f, paths, req, default_negative="")
+    assert _jobs(f) == 1
+
+
+def test_preflight_asks_for_a_required_reference_image(env):
+    paths, f = env
+    _catalog_row(f, "vjh:edit-only@1", "image", ["io:image-to-image"], REFS_REQUIRED)
+    req = ImageRequest(
+        project_id=_pid(f), model="vjh:edit-only@1", form=PromptForm(subject="a fox")
+    )
+    with pytest.raises(ValueError, match="needs a reference image. Add one under References."):
+        generate.enqueue_image(f, paths, req, default_negative="")
+    assert _jobs(f) == 0
+
+
+def test_preflight_refuses_a_reference_image_a_frames_only_video_model_cannot_take(env):
+    from vjhstudio.schemas.video import VideoRequest
+
+    paths, f = env
+    _catalog_row(
+        f, "vjh:frames-only@1", "video", ["io:text-to-video", "io:image-to-video"], FRAMES_ONLY
+    )
+    req = VideoRequest(
+        project_id=_pid(f),
+        model="vjh:frames-only@1",
+        form=PromptForm(subject="a fox"),
+        reference_asset_ids=[3],
+    )
+    with pytest.raises(ValueError, match="does not accept a reference image"):
+        generate.enqueue_video(f, paths, req)
+    assert _jobs(f) == 0
+    req.reference_asset_ids = []
+    req.first_frame_asset_id = 3
+    generate.enqueue_video(f, paths, req)
+    assert _jobs(f) == 1
+
+
+def test_preflight_keeps_the_first_frame_sentence_verbatim(env):
+    from vjhstudio.schemas.video import VideoRequest
+
+    paths, f = env
+    _catalog_row(f, "vjh:i2v-only@1", "video", ["io:image-to-video"], None)
+    req = VideoRequest(project_id=_pid(f), model="vjh:i2v-only@1", form=PromptForm(subject="a fox"))
+    with pytest.raises(ValueError) as e:
+        generate.enqueue_video(f, paths, req)
+    assert str(e.value) == "This model needs a first-frame image. Add one under References."
+    assert _jobs(f) == 0
