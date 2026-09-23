@@ -15,7 +15,7 @@ from mcp.client.streamable_http import streamable_http_client
 
 from tests.fakes.fake_runware import fake_factory
 from vjhstudio import secrets
-from vjhstudio.mcp.http import token_ok
+from vjhstudio.mcp.http import token_matches
 from vjhstudio.web.app import create_app, mcp_base_url
 
 TOKEN = "t0ken"
@@ -117,17 +117,14 @@ async def test_files_serve_a_remote_agent_carrying_the_token(mcp_app, paths):
             assert r.content == b"png"
 
 
-def test_token_ok_compares_the_whole_bearer_token():
-    def req(value):
-        return httpx.Request(
-            "GET", "http://test", headers={"Authorization": value} if value else {}
-        )
-
-    assert token_ok(req(f"Bearer {TOKEN}"), TOKEN)
-    assert token_ok(req(f"bearer {TOKEN}"), TOKEN)
-    assert not token_ok(req("Bearer t0"), TOKEN)
-    assert not token_ok(req(""), TOKEN)
-    assert not token_ok(req(f"Bearer {TOKEN}"), None)
+def test_token_matches_is_exact_and_never_raises():
+    assert token_matches(TOKEN, TOKEN)
+    assert not token_matches("t0", TOKEN)
+    assert not token_matches("", TOKEN)
+    assert not token_matches(TOKEN, None)
+    assert not token_matches(TOKEN, "")
+    # a stray high byte in the header (latin-1 decoded) is a wrong token, not a 500
+    assert not token_matches("t\xff0ken", TOKEN)
 
 
 def test_mcp_base_url_prefers_a_real_bound_host():
@@ -147,3 +144,20 @@ async def test_the_server_gets_the_computed_base_url(paths, fake, download_trans
         VJHSTUDIO_MCP_TOKEN=TOKEN,
     )
     assert app.state.mcp_base_url == "http://127.0.0.1:8080"
+
+
+async def test_cross_site_origin_does_not_block_a_tokened_mcp_post(mcp_app):
+    """Agent hosts may send an Origin the browser rule would reject; /mcp is
+    guarded by the bearer token instead, so the request reaches the SDK."""
+    async with (
+        mcp_app.router.lifespan_context(mcp_app),
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=mcp_app), base_url="http://test") as c,
+    ):
+        r = await c.post(
+            "/mcp",
+            json={},
+            headers={"Authorization": f"Bearer {TOKEN}", "Origin": "http://elsewhere:9"},
+        )
+        assert r.status_code not in (401, 403)
+        r = await c.post("/settings", data={}, headers={"Origin": "http://elsewhere:9"})
+        assert r.status_code == 403  # the browser rule still holds everywhere else

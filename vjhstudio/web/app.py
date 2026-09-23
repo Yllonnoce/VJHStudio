@@ -168,7 +168,9 @@ def create_app(
             download_transport=app.state.download_transport,
         )
         await app.state.runner.start(requeue=app.state.boot.requeued_jobs)
-        task = asyncio.create_task(_maybe_refresh()) if app.state.auto_refresh else None
+        app.state.refresh_task = (
+            asyncio.create_task(_maybe_refresh()) if app.state.auto_refresh else None
+        )
         app.state.poster_task = (
             asyncio.create_task(_backfill_posters()) if app.state.auto_refresh else None
         )
@@ -178,18 +180,23 @@ def create_app(
             and gitinfo.is_git_install()
         )
         app.state.update_task = asyncio.create_task(_update_watch()) if watch_updates else None
-        async with AsyncExitStack() as mcp_stack:
-            # The SDK's session manager owns the streams of every live MCP session:
-            # it runs between the runner starting and the runner stopping, so a tool
-            # that is mid-flight always has a runner under it.
-            if app.state.mcp_server is not None:
-                await mcp_stack.enter_async_context(app.state.mcp_server.session_manager.run())
-            yield
+        try:
+            async with AsyncExitStack() as mcp_stack:
+                # The SDK's session manager owns the streams of every live MCP session:
+                # it runs between the runner starting and the runner stopping, so a
+                # tool that is mid-flight always has a runner under it.
+                if app.state.mcp_server is not None:
+                    await mcp_stack.enter_async_context(app.state.mcp_server.session_manager.run())
+                yield
+        finally:
+            await _shutdown()
+
+    async def _shutdown() -> None:
         # Ask the poster worker to stop *before* anything is awaited or disposed: the
         # thread it runs in only notices between rows.
         app.state.stop_posters.set()
         for background in (
-            task,
+            app.state.refresh_task,
             app.state.update_task,
             app.state.harvest_task,
             app.state.poster_task,
@@ -213,6 +220,7 @@ def create_app(
     app.state.auto_refresh = auto_refresh
     app.state.download_transport = download_transport
     app.state.runner = None
+    app.state.refresh_task = None
     app.state.update_task = None
     app.state.poster_task = None
     app.state.stop_posters = threading.Event()  # shutdown's only handle on that worker

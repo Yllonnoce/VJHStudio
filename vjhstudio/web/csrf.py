@@ -23,6 +23,8 @@ from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from ..mcp.http import is_mcp_path
+
 UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 BLOCKED_MESSAGE = "cross-site request blocked"
 
@@ -48,7 +50,13 @@ class CrossSiteBlockMiddleware:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] == "http" and is_cross_site(scope["method"], Headers(scope=scope)):
+        # /mcp is guarded by its bearer token (mcp.http.BearerMiddleware, outermost),
+        # and an agent host may legitimately send an Origin the browser rule rejects.
+        if (
+            scope["type"] == "http"
+            and not is_mcp_path(scope.get("path", ""))
+            and is_cross_site(scope["method"], Headers(scope=scope))
+        ):
             response = JSONResponse({"error": BLOCKED_MESSAGE}, status_code=403)
             await response(scope, receive, send)
             return

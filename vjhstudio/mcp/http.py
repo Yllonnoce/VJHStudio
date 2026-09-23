@@ -28,12 +28,16 @@ def bearer(headers) -> str:
     return value[7:].strip() if value[:7].lower() == "bearer " else ""
 
 
-def token_ok(request, token: str | None) -> bool:
-    """True when the request carries exactly the MCP token.
+def token_matches(given: str, token: str | None) -> bool:
+    """True when ``given`` is exactly the configured token.
 
-    Constant-time: a wrong guess must not be distinguishable by how long it took.
+    Constant-time, and compared as bytes: ``hmac.compare_digest`` refuses non-ASCII
+    ``str`` with a TypeError, and a stray high byte in a header must be a plain 401,
+    never a 500.
     """
-    return bool(token) and hmac.compare_digest(bearer(request.headers), token)
+    if not token or not given:
+        return False
+    return hmac.compare_digest(given.encode("utf-8"), token.encode("utf-8"))
 
 
 def is_mcp_path(path: str) -> bool:
@@ -50,7 +54,7 @@ class BearerMiddleware:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "http" and is_mcp_path(scope.get("path", "")):
             given = bearer(Headers(scope=scope))
-            if not (self.token and hmac.compare_digest(given, self.token)):
+            if not token_matches(given, self.token):
                 response = JSONResponse(
                     {"error": UNAUTHORIZED},
                     status_code=401,
