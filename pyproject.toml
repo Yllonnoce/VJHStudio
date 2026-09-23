@@ -17,6 +17,7 @@ dependencies = [
   "pillow>=10",
   "python-slugify>=8",
   "imageio-ffmpeg>=0.6.0",
+  "mcp>=2,<3",
 ]
 
 [project.scripts]
