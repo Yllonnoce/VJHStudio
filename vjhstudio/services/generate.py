@@ -11,7 +11,7 @@ from ..config import Paths
 from ..models import CatalogModel, Job, JobStatus, Project
 from ..schemas.image import ImageRequest
 from ..schemas.video import VideoRequest
-from . import catalog, constraints, costs, projects, prompts
+from . import automation, catalog, constraints, costs, projects, prompts
 
 TITLE_MAX = 80
 
@@ -108,10 +108,15 @@ def enqueue_image(
     *,
     default_negative: str,
     polish_json: dict | None = None,
+    source: str = automation.WEB,
+    estimate_usd: float | None = None,
 ) -> Job:
     with db.session_scope(session_factory) as s:
         _preflight_roles(_require_kind(s, req.model, "image"), req, "image")
         project = _require_project(s, req.project_id)
+        if source == automation.MCP:
+            # before the prompt row and the job row, so a refusal leaves nothing behind
+            automation.check(s, estimate_usd)
         # the same helper the Save-prompt route uses, so a saved prompt and this submit
         # hash identically and dedupe onto one row
         _, _, negative = prompts.saved_texts(
@@ -135,6 +140,8 @@ def enqueue_image(
             status_text="queued",
         )
         s.add(job)
+        if source == automation.MCP:
+            automation.tag(job, estimate_usd)
         s.flush()
         projects.dir_for(paths, project.slug, projects.root_override(s)).mkdir(
             parents=True, exist_ok=True
@@ -148,6 +155,8 @@ def enqueue_video(
     req: VideoRequest,
     *,
     polish_json: dict | None = None,
+    source: str = automation.WEB,
+    estimate_usd: float | None = None,
 ) -> Job:
     """Video models take no negative prompt, so ``request_json`` is the request alone --
     and the prompt row records an empty negative for the same reason, which is what its
@@ -157,6 +166,8 @@ def enqueue_video(
         _preflight_video(m, req)
         _preflight_roles(m, req, "video")
         project = _require_project(s, req.project_id)
+        if source == automation.MCP:
+            automation.check(s, estimate_usd)
         _, _, negative = prompts.saved_texts("video", req.form, req.final_prompt or "")
         prompt = prompts.for_request(
             s, req, kind="video", negative=negative, polish_json=polish_json
@@ -174,6 +185,8 @@ def enqueue_video(
             status_text="queued",
         )
         s.add(job)
+        if source == automation.MCP:
+            automation.tag(job, estimate_usd)
         s.flush()
         projects.dir_for(paths, project.slug, projects.root_override(s)).mkdir(
             parents=True, exist_ok=True

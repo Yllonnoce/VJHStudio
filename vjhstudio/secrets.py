@@ -1,39 +1,51 @@
-"""Plain-file API key stash with owner-only permissions. Env var wins."""
+"""Plain-file API key and MCP token stash with owner-only permissions. Env var wins."""
 
 from __future__ import annotations
 
 import os
+import secrets as _pysecrets
 import sys
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Literal
 
 from .config import Paths
 
 ENV_KEY = "RUNWARE_API_KEY"
+ENV_MCP_TOKEN = "VJHSTUDIO_MCP_TOKEN"  # noqa: S105 - a variable name, not a secret
+MCP_TOKEN_FILE = "mcp_token"  # noqa: S105 - a file name, not a secret
+
+
+def _write_secret(paths: Paths, path: Path, value: str) -> None:
+    paths.secrets.mkdir(parents=True, exist_ok=True)
+    if sys.platform != "win32":
+        # This can run before ensure_dirs(), which is the other place the 0700
+        # is applied. On Windows the mode is a no-op: the dir ACL is inherited.
+        os.chmod(paths.secrets, 0o700)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(value + "\n")
+    if sys.platform != "win32":
+        os.chmod(path, 0o600)
+
+
+def _read_secret(path: Path) -> str | None:
+    try:
+        v = path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return None
+    return v or None
 
 
 def write_api_key(paths: Paths, key: str) -> None:
     key = (key or "").strip()
     if not key:
         raise ValueError("API key is empty")
-    paths.secrets.mkdir(parents=True, exist_ok=True)
-    if sys.platform != "win32":
-        # This can run before ensure_dirs(), which is the other place the 0700
-        # is applied. On Windows the mode is a no-op: the dir ACL is inherited.
-        os.chmod(paths.secrets, 0o700)
-    fd = os.open(paths.api_key_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        f.write(key + "\n")
-    if sys.platform != "win32":
-        os.chmod(paths.api_key_file, 0o600)
+    _write_secret(paths, paths.api_key_file, key)
 
 
 def read_api_key(paths: Paths) -> str | None:
-    try:
-        v = paths.api_key_file.read_text(encoding="utf-8").strip()
-    except FileNotFoundError:
-        return None
-    return v or None
+    return _read_secret(paths.api_key_file)
 
 
 def clear_api_key(paths: Paths) -> None:
@@ -60,3 +72,43 @@ def mask(key: str | None) -> str:
         return ""
     tail = key[-4:] if len(key) >= 8 else ""
     return "••••••••" + tail
+
+
+def mcp_token_file(paths: Paths) -> Path:
+    return paths.secrets / MCP_TOKEN_FILE
+
+
+def write_mcp_token(paths: Paths, token: str) -> None:
+    token = (token or "").strip()
+    if not token:
+        raise ValueError("MCP token is empty")
+    _write_secret(paths, mcp_token_file(paths), token)
+
+
+def read_mcp_token(paths: Paths) -> str | None:
+    return _read_secret(mcp_token_file(paths))
+
+
+def clear_mcp_token(paths: Paths) -> None:
+    mcp_token_file(paths).unlink(missing_ok=True)
+
+
+def rotate_mcp_token(paths: Paths) -> str:
+    """A fresh 32-byte url-safe token, written and returned. Never logged."""
+    token = _pysecrets.token_urlsafe(32)
+    write_mcp_token(paths, token)
+    return token
+
+
+def effective_mcp_token(paths: Paths, env: Mapping[str, str] | None = None) -> str | None:
+    env = os.environ if env is None else env
+    return (env.get(ENV_MCP_TOKEN) or "").strip() or read_mcp_token(paths)
+
+
+def mcp_token_source(
+    paths: Paths, env: Mapping[str, str] | None = None
+) -> Literal["env", "file", "none"]:
+    env = os.environ if env is None else env
+    if (env.get(ENV_MCP_TOKEN) or "").strip():
+        return "env"
+    return "file" if read_mcp_token(paths) else "none"

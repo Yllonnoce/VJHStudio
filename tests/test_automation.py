@@ -1,9 +1,10 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import pytest
 
 from vjhstudio import boot as _boot
 from vjhstudio import db, secrets
+from vjhstudio.models.base import utcnow
 from vjhstudio.models.job import Job, JobStatus
 from vjhstudio.schemas.image import ImageRequest, PromptForm
 from vjhstudio.services import automation, generate, settings
@@ -26,7 +27,7 @@ def _job(session, cost=None, estimate=None, source="mcp", days_ago=0):
         request_json={"_estimate": estimate} if estimate is not None else {},
         source=source,
         cost=cost,
-        created_at=datetime.utcnow() - timedelta(days=days_ago),
+        created_at=utcnow() - timedelta(days=days_ago),
     )
     session.add(job)
     session.flush()

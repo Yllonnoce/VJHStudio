@@ -54,6 +54,9 @@ SPEC: dict[str, Spec] = {
     ),
     "ui.notify_desktop": Spec(bool, False),
     "uploads.max_mb": Spec(int, 200),
+    "mcp.enabled": Spec(bool, False, None, "VJHSTUDIO_MCP_ENABLED"),
+    "mcp.daily_cap_usd": Spec(float, 2.0, None, "VJHSTUDIO_MCP_DAILY_CAP_USD"),
+    "mcp.max_jobs_per_day": Spec(int, 20, None, "VJHSTUDIO_MCP_MAX_JOBS_PER_DAY"),
 }
 
 
@@ -64,6 +67,11 @@ def _cast(key: str, raw: str) -> Any:
             return int(raw)
         except ValueError as e:
             raise ValueError(f"{key} must be an integer") from e
+    if spec.type is float:
+        try:
+            return float(raw)
+        except ValueError as e:
+            raise ValueError(f"{key} must be a number") from e
     if spec.type is bool:
         return raw.lower() in ("1", "true", "yes", "on")
     if spec.choices and raw not in spec.choices:

@@ -39,6 +39,9 @@ class Job(Base):
     expected_ms: Mapped[int | None] = mapped_column(Integer)
     seen_at: Mapped[datetime | None] = mapped_column(DateTime)
     title: Mapped[str | None] = mapped_column(String(120))
+    source: Mapped[str] = mapped_column(
+        String(8), default="web", server_default="web", nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime)
