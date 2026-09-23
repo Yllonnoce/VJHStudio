@@ -45,27 +45,65 @@ def is_mcp_path(path: str) -> bool:
 
 
 class BearerMiddleware:
-    """401 every ``/mcp`` request that does not carry the token. Nothing else."""
+    """401 every ``/mcp`` request that does not carry the token. Nothing else.
 
-    def __init__(self, app: ASGIApp, token: str | None) -> None:
+    With a ``trace`` it also records every ``/mcp`` request that did not end well --
+    a wrong token, a session the server no longer knows, a body it could not read --
+    so the Settings card can show why a host never got as far as a tool call."""
+
+    def __init__(self, app: ASGIApp, token: str | None, trace=None) -> None:
         self.app = app
         self.token = token
+        self.trace = trace
+
+    def _note(self, scope: Scope, status: int, detail: str) -> None:
+        if self.trace is None:
+            return
+        peer = (scope.get("client") or ("?", 0))[0]
+        self.trace.record(
+            f"HTTP {scope.get('method', '?')} /mcp",
+            {"from": peer},
+            False,
+            f"{status}: {detail}",
+            0.0,
+        )
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] == "http" and is_mcp_path(scope.get("path", "")):
-            given = bearer(Headers(scope=scope))
-            if not token_matches(given, self.token):
-                response = JSONResponse(
-                    {"error": UNAUTHORIZED},
-                    status_code=401,
-                    headers={"WWW-Authenticate": REALM},
-                )
-                await response(scope, receive, send)
-                return
-        await self.app(scope, receive, send)
+        if scope["type"] != "http" or not is_mcp_path(scope.get("path", "")):
+            await self.app(scope, receive, send)
+            return
+        given = bearer(Headers(scope=scope))
+        if not token_matches(given, self.token):
+            self._note(scope, 401, "no or wrong bearer token" if given else "no bearer token")
+            response = JSONResponse(
+                {"error": UNAUTHORIZED},
+                status_code=401,
+                headers={"WWW-Authenticate": REALM},
+            )
+            await response(scope, receive, send)
+            return
+
+        status = {"code": 0}
+
+        async def watch(message) -> None:
+            if message["type"] == "http.response.start":
+                status["code"] = int(message.get("status", 0))
+                if status["code"] >= 400:
+                    self._note(
+                        scope,
+                        status["code"],
+                        {
+                            404: "unknown session: the app restarted, reconnect the agent",
+                            400: "bad request (malformed body or headers)",
+                            406: "client did not accept JSON and event-stream replies",
+                        }.get(status["code"], "rejected by the MCP transport"),
+                    )
+            await send(message)
+
+        await self.app(scope, receive, watch)
 
 
-def mount_mcp(app, server, token: str | None) -> None:
+def mount_mcp(app, server, token: str | None, trace=None) -> None:
     """Serve ``server`` at ``/mcp`` on ``app``, guarded by ``token``.
 
     DNS-rebinding protection is off: it checks ``Host`` against a fixed allow-list,
@@ -77,4 +115,4 @@ def mount_mcp(app, server, token: str | None) -> None:
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     )
     app.router.routes.extend(sub.routes)
-    app.add_middleware(BearerMiddleware, token=token)
+    app.add_middleware(BearerMiddleware, token=token, trace=trace)

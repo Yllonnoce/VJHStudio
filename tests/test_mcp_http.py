@@ -209,3 +209,20 @@ async def test_cross_site_origin_does_not_block_a_tokened_mcp_post(mcp_app):
         assert r.status_code not in (401, 403)
         r = await c.post("/settings", data={}, headers={"Origin": "http://elsewhere:9"})
         assert r.status_code == 403  # the browser rule still holds everywhere else
+
+
+async def test_connection_failures_are_traced(mcp_app):
+    async with mcp_app.router.lifespan_context(mcp_app), httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=mcp_app, client=("10.0.0.5", 1234)),
+        base_url="http://test",
+    ) as c:
+        await c.post("/mcp", json={}, headers={"Authorization": "Bearer wrong"})
+        await c.post(
+            "/mcp",
+            json={},
+            headers={"Authorization": f"Bearer {TOKEN}", "Mcp-Session-Id": "stale"},
+        )
+    calls = mcp_app.state.mcp_trace.recent(5)
+    assert calls[-1]["tool"] == "HTTP POST /mcp" and calls[-1]["error"].startswith("401")
+    assert "10.0.0.5" in calls[-1]["arguments"]
+    assert calls[0]["error"][:3] in ("400", "404", "406")

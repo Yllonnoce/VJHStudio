@@ -310,5 +310,5 @@ def create_app(
         )
         app.state.mcp_server = build_server(mcp_ctx)
         app.state.mcp_trace = mcp_ctx.trace
-        mount_mcp(app, app.state.mcp_server, token)
+        mount_mcp(app, app.state.mcp_server, token, trace=mcp_ctx.trace)
     return app
