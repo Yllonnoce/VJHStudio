@@ -9,7 +9,7 @@ from ... import config, db, secrets
 from ...services import account, automation, catalog, maintenance
 from ...services import settings as settings_svc
 from .. import deps
-from .system import backups_context, updates_context
+from .system import _local_only, backups_context, updates_context
 
 router = APIRouter()
 
@@ -47,6 +47,24 @@ def _negative(raw: str) -> bool:
 
 def general_spec() -> dict[str, settings_svc.Spec]:
     return {k: sp for k, sp in settings_svc.SPEC.items() if not k.startswith(MCP_PREFIX)}
+
+
+LOOPBACK = ("127.0.0.1", "::1", "localhost", "testclient")
+
+
+def _browser_host(request: Request) -> tuple[str, int, bool]:
+    """The address the browser actually reached this page on, and whether it is a
+    loopback one.
+
+    Not the bind address: the setup this card documents is VJHSTUDIO_HOST=0.0.0.0,
+    and `http://0.0.0.0:8080/mcp` is a wildcard to listen on, not one an agent can
+    dial. Whatever is in the URL bar worked, by definition - for a phone on the LAN
+    that is the computer's real address, and for the owner it is 127.0.0.1.
+    """
+    host = request.url.hostname or config.DEFAULT_HOST
+    port = request.url.port or request.app.state.port
+    # a bare IPv6 address needs its brackets back before it goes into a URL
+    return (f"[{host}]" if ":" in host else host), port, host in LOOPBACK
 
 
 def _venv_bin() -> tuple[str, str]:
@@ -104,20 +122,28 @@ def _automation_ctx(
     error_field: str | None = None,
     message: str | None = None,
     token: str | None = None,
+    typed: dict | None = None,
 ) -> dict:
     """The Automation card. ``token`` is the one and only way the real token reaches
-    the page: a plain /settings render passes None and the card shows the mask."""
+    the page: a plain /settings render passes None and the card shows the mask.
+    ``typed`` puts the rejected form back the way the user left it, so a 422 does not
+    quietly throw away the field they got right."""
     app = request.app
     paths, env = app.state.paths, app.state.env
     with db.session_scope(app.state.boot.session_factory) as s:
         values = settings_svc.all_values(s, env)
         cap = automation.status(s)
-    host = env.get("VJHSTUDIO_HOST") or config.DEFAULT_HOST
+    shown = {
+        "mcp.enabled": values["mcp.enabled"],
+        "mcp.daily_cap_usd": values["mcp.daily_cap_usd"],
+        "mcp.max_jobs_per_day": values["mcp.max_jobs_per_day"],
+    } | (typed or {})
+    host, port, host_is_local = _browser_host(request)
     venv_bin, venv_bin_win = _venv_bin()
     return {
-        "mcp_enabled": values["mcp.enabled"],
-        "mcp_daily_cap_usd": values["mcp.daily_cap_usd"],
-        "mcp_max_jobs_per_day": values["mcp.max_jobs_per_day"],
+        "mcp_enabled": shown["mcp.enabled"],
+        "mcp_daily_cap_usd": shown["mcp.daily_cap_usd"],
+        "mcp_max_jobs_per_day": shown["mcp.max_jobs_per_day"],
         "mcp_saved": saved,
         "mcp_error": error,
         "mcp_error_field": error_field,
@@ -127,7 +153,8 @@ def _automation_ctx(
         "mcp_token_source": secrets.mcp_token_source(paths, env),
         "mcp_token_file": secrets.mcp_token_file(paths),
         "mcp_host": host,
-        "mcp_url": f"http://{host}:{app.state.port}/mcp",
+        "mcp_host_is_local": host_is_local,
+        "mcp_url": f"http://{host}:{port}/mcp",
         "mcp_venv_bin": venv_bin,
         "mcp_venv_bin_win": venv_bin_win,
         "mcp_cap_usd": cap.cap_usd,
@@ -187,6 +214,7 @@ def save_settings(request: Request, form: deps.Form):
 @router.post("/settings/automation")
 def save_automation(request: Request, form: deps.Form):
     """The three mcp.* values. An unchecked box posts nothing, which is "off"."""
+    _local_only(request)
     values = {
         "mcp.enabled": "on" if "on" in form.getlist("mcp_enabled") else "off",
         "mcp.daily_cap_usd": str(form.get("mcp_daily_cap_usd", "")).strip(),
@@ -208,6 +236,7 @@ def save_automation(request: Request, form: deps.Form):
                 request,
                 error=error.replace(key, MCP_LABELS.get(key, key), 1) + ".",
                 error_field=MCP_FIELD_OF.get(key),
+                typed={**values, "mcp.enabled": values["mcp.enabled"] == "on"},
             ),
             422,
         )
@@ -217,7 +246,10 @@ def save_automation(request: Request, form: deps.Form):
 @router.post("/settings/automation/reveal")
 def reveal_mcp_token(request: Request):
     """Puts the real token back on the card. It is deliberately not part of the page
-    itself, so seeing it always takes this one deliberate click."""
+    itself, so seeing it always takes this one deliberate click. This is the only
+    route in the app that reads a stored credential back out, so - like /api/restart -
+    it answers nobody but this computer."""
+    _local_only(request)
     token = secrets.effective_mcp_token(request.app.state.paths, request.app.state.env)
     if not token:
         return deps.render(
@@ -231,6 +263,7 @@ def reveal_mcp_token(request: Request):
 
 @router.post("/settings/automation/token")
 def regenerate_mcp_token(request: Request):
+    _local_only(request)
     if secrets.mcp_token_source(request.app.state.paths, request.app.state.env) == "env":
         return deps.render(
             request,

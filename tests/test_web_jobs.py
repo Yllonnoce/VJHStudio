@@ -210,5 +210,6 @@ async def test_browser_jobs_have_no_chip(client, fake, app):
     await client.post("/settings/api-key", data={"api_key": "abcdefgh1234"})
     await client.post("/generate/image", data=FORM)
     r = await client.get("/queue")
+    assert 'id="job-' in r.text  # the job really is on the page
     assert "via agent" not in r.text
     await app.state.runner.wait_idle()

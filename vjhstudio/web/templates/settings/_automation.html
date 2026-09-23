@@ -5,6 +5,9 @@
    the real value arrives just in the response to Reveal or Regenerate. `shown`
    (Alpine) drives the token row and the three copy-paste blocks together, so Hide
    puts the mask back everywhere and a screenshot of a hidden card leaks nothing.
+   Hide is cosmetic on purpose: the revealed token stays in this element's x-data, so
+   view-source still has it. The threat it answers is a shoulder or a screenshot, not
+   somebody already reading the DOM.
    No load-time script: Alpine initialises the swapped-in node itself, which a
    load-time initialiser would miss after a boosted navigation. #}
 <article id="automation"
@@ -12,7 +15,23 @@
            "shown": {{ (mcp_token is not none)|tojson }},
            "token": {{ (mcp_token or "")|tojson }},
            "mask": {{ mcp_masked|tojson }},
-           "copy": function (text) { try { navigator.clipboard.writeText(text); } catch (e) {} }
+           "note": "",
+           "copy": function (text, el) {
+             try {
+               if (!navigator.clipboard) throw new Error("no clipboard");
+               navigator.clipboard.writeText(text);
+               return "Copied.";
+             } catch (e) {
+               if (el && window.getSelection) {
+                 var range = document.createRange();
+                 range.selectNodeContents(el);
+                 var sel = window.getSelection();
+                 sel.removeAllRanges();
+                 sel.addRange(range);
+               }
+               return "This page cannot reach the clipboard (it is not a secure origin). The text is selected — press Ctrl+C, or Cmd+C on a Mac.";
+             }
+           }
          }'>
   <header>
     <strong>Let an AI agent use VJHStudio</strong>
@@ -64,11 +83,12 @@
 
   <h4>Token</h4>
   <p>
-    <code x-text="shown ? token : mask">{{ mcp_masked }}</code>
+    <code x-ref="tokenCode" x-text="shown ? token : mask">{{ mcp_masked }}</code>
     {% if mcp_token %}
       <button type="button" class="secondary outline" @click="shown = !shown"
               x-text="shown ? 'Hide' : 'Reveal'">Hide</button>
-      <button type="button" class="secondary outline" @click="copy(token)">Copy</button>
+      <button type="button" class="secondary outline"
+              @click="shown = true; note = copy(token, $refs.tokenCode)">Copy</button>
     {% else %}
       <button type="button" class="secondary outline" hx-post="/settings/automation/reveal"
               hx-target="#automation" hx-swap="outerHTML">Reveal</button>
@@ -91,8 +111,13 @@
   </small></p>
 
   <h4>Connect an agent</h4>
-  <p>Address: <code>{{ mcp_url }}</code> — from another computer on your network, swap
-    <code>{{ mcp_host }}</code> for this computer's address.</p>
+  <p>Address: <code>{{ mcp_url }}</code> —
+    {% if mcp_host_is_local %}this works for an agent on this computer; from another
+      computer on your network, swap <code>{{ mcp_host }}</code> for this computer's
+      address (open VJHStudio from that computer once and this line will show it).
+    {% else %}this is the address you opened VJHStudio on, so an agent on another
+      computer can use it as it stands.{% endif %}</p>
+  <p x-show="note" x-text="note" class="muted" role="status"></p>
 
   <details open>
     <summary>Goose (over the network)</summary>
@@ -104,13 +129,17 @@
     uri: "{{ mcp_url }}"
     headers: { "Authorization": "Bearer <span x-text="shown ? token : mask">{{ mcp_masked }}</span>" }
     timeout: 900</code></pre>
-    <button type="button" class="secondary outline" @click="copy($refs.goose.innerText)">Copy</button>
+    <button type="button" class="secondary outline" :disabled="!shown"
+            @click="note = copy($refs.goose.innerText, $refs.goose)">Copy</button>
+    <small x-show="!shown" class="muted">Reveal the token first — otherwise you would copy the mask.</small>
   </details>
 
   <details>
     <summary>Claude Code (over the network)</summary>
     <pre><code x-ref="claude">claude mcp add --transport http vjhstudio {{ mcp_url }} --header "Authorization: Bearer <span x-text="shown ? token : mask">{{ mcp_masked }}</span>"</code></pre>
-    <button type="button" class="secondary outline" @click="copy($refs.claude.innerText)">Copy</button>
+    <button type="button" class="secondary outline" :disabled="!shown"
+            @click="note = copy($refs.claude.innerText, $refs.claude)">Copy</button>
+    <small x-show="!shown" class="muted">Reveal the token first — otherwise you would copy the mask.</small>
   </details>
 
   <details>
@@ -127,6 +156,8 @@
     timeout: 900</code></pre>
     <p><small>On Windows the command is <code>{{ mcp_venv_bin_win }}\vjhstudio.exe</code>
       with the same <code>args: [mcp]</code>.</small></p>
-    <button type="button" class="secondary outline" @click="copy($refs.stdio.innerText)">Copy</button>
+    <button type="button" class="secondary outline" :disabled="!shown"
+            @click="note = copy($refs.stdio.innerText, $refs.stdio)">Copy</button>
+    <small x-show="!shown" class="muted">Reveal the token first — otherwise you would copy the mask.</small>
   </details>
 </article>

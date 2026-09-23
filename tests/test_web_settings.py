@@ -1,3 +1,4 @@
+import httpx
 from runware import RunwareError
 
 from vjhstudio import secrets
@@ -248,3 +249,53 @@ async def test_the_env_token_cannot_be_regenerated(client, app, paths):
     r = await client.post("/settings/automation/token")
     assert r.status_code == 422 and "VJHSTUDIO_MCP_TOKEN" in r.text
     assert secrets.read_mcp_token(paths) is None
+
+
+async def _remote(app, client=("10.0.0.5", 1234), base_url="http://192.168.1.20:8080"):
+    """A client that reaches the app from another machine on the network."""
+    transport = httpx.ASGITransport(app=app, client=client)
+    return httpx.AsyncClient(transport=transport, base_url=base_url)
+
+
+async def test_the_automation_routes_refuse_a_remote_peer(app, paths):
+    """The reveal hands back a stored credential, so it is loopback-only like
+    /api/restart. Nothing on the LAN may read or rotate the token."""
+    secrets.rotate_mcp_token(paths)
+    tok = secrets.read_mcp_token(paths)
+    async with app.router.lifespan_context(app), await _remote(app) as c:
+        for path in (
+            "/settings/automation/reveal",
+            "/settings/automation/token",
+            "/settings/automation",
+        ):
+            r = await c.post(path)
+            assert r.status_code == 403, path
+            assert tok not in r.text, path
+    assert secrets.read_mcp_token(paths) == tok  # and nothing was rotated
+
+
+async def test_the_card_uses_the_address_the_browser_reached_it_on(app):
+    """Bound to 0.0.0.0, the bind address is no use to an agent; the address the
+    page was opened with is the one that works."""
+    app.state.env = {"VJHSTUDIO_HOST": "0.0.0.0"}
+    async with app.router.lifespan_context(app), await _remote(app, client=("127.0.0.1", 9)) as c:
+        r = await c.get("/settings")
+    assert "http://192.168.1.20:8080/mcp" in r.text
+    assert "0.0.0.0" not in r.text
+
+
+async def test_a_rejected_save_keeps_what_was_typed(client):
+    r = await client.post(
+        "/settings/automation",
+        data={"mcp_enabled": "on", "mcp_daily_cap_usd": "lots", "mcp_max_jobs_per_day": "7"},
+    )
+    assert r.status_code == 422
+    assert 'value="lots"' in r.text and 'value="7"' in r.text
+    assert 'value="2.0"' not in r.text and "checked" in r.text  # not the saved values
+
+
+async def test_the_snippet_copy_buttons_wait_for_the_reveal(client):
+    r = await client.get("/settings")
+    card = r.text.split('id="automation"', 1)[1].split("</article>", 1)[0]
+    assert card.count(':disabled="!shown"') == 3  # Goose, Claude Code, stdio
+    assert "Ctrl+C" in card  # the fallback for a page with no clipboard API
