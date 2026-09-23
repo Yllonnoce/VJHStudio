@@ -46,6 +46,15 @@ def test_status_counts_estimates_until_a_cost_is_known(app):
         assert st.cap_usd == 2.0 and st.max_jobs == 20
 
 
+def test_a_zero_cost_is_not_a_real_cost_and_keeps_its_estimate(app):
+    """``results.py`` types ``cost`` as ``float | None`` and ``jobs.py`` folds a missing
+    one to ``0.0``, so a model that reports no per-output cost would otherwise make every
+    agent job free as far as the cap is concerned."""
+    with db.session_scope(app.state.boot.session_factory) as s:
+        _job(s, cost=0.0, estimate=0.5)
+        assert automation.status(s).spent_usd == pytest.approx(0.5)
+
+
 def test_check_refuses_past_the_cap_and_unknown_estimates(app):
     with db.session_scope(app.state.boot.session_factory) as s:
         _job(s, estimate=1.9)

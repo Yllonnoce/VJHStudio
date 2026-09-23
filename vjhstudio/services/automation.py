@@ -49,7 +49,11 @@ def status(session: Session) -> CapStatus:
     ).all()
     spent = 0.0
     for job in rows:
-        if job.cost is not None:
+        # A recorded 0 is not a real cost: ``results.py`` types the API's ``cost`` as
+        # ``float | None`` and ``jobs.py`` folds a missing one to ``0.0``, so a model
+        # that reports none would otherwise release its estimate and make every agent
+        # job free as far as the cap is concerned. A real, positive cost replaces it.
+        if job.cost:
             spent += float(job.cost)
         else:
             est = (job.request_json or {}).get(ESTIMATE_KEY)
