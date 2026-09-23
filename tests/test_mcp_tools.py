@@ -16,7 +16,7 @@ from mcp.client import Client
 from vjhstudio import db
 from vjhstudio.mcp.server import MCPContext, build_server
 from vjhstudio.models import CatalogModel, Job
-from vjhstudio.services import settings
+from vjhstudio.services import catalog, settings
 
 FLUX = "runware:101@1"
 LTX = "lightricks:ltx@2.3"
@@ -145,15 +145,40 @@ async def test_wait_for_job_hides_the_injected_context(mcp):
 
 
 async def test_list_models_shape(mcp):
-    rows = _data(await mcp.call_tool("list_models", {"kind": "image"}))
-    flux = next(r for r in rows if r["air"] == FLUX)
+    reply = _data(await mcp.call_tool("list_models", {"kind": "image"}))
+    rows = reply["models"]
+    assert rows[0]["air"] == FLUX and rows[0]["default"] is True  # the default model leads
+    flux = rows[0]
     assert flux["accepts"] == "seed image" and flux["price_usd"] > 0
     assert flux["unit"] == "per_image" and flux["needs_first_frame"] is False
     assert flux["sizes_known"] is True  # rule mode: the model told us its grid
-    by_name = _data(await mcp.call_tool("list_models", {"kind": "image", "sort": "name"}))
-    assert [r["name"].lower() for r in by_name] == sorted(r["name"].lower() for r in by_name)
+    by_name = _data(await mcp.call_tool("list_models", {"kind": "image", "sort": "name"}))["models"]
+    rest = [r["name"].lower() for r in by_name[1:]]  # after the default model
+    assert rest == sorted(rest)
     res = await mcp.call_tool("list_models", {"kind": "audio"})
     assert res.is_error and "image" in res.content[0].text
+
+
+async def test_list_models_is_short_by_default_and_searchable(mcp, app):
+    with db.session_scope(app.state.boot.session_factory) as s:
+        for i in range(30):  # a catalog bigger than one reply should carry
+            catalog.upsert_row(
+                s,
+                {
+                    "air": f"test:model@{i}",
+                    "name": f"Test Model {i}",
+                    "kind": "image",
+                    "capabilities": ["io:text-to-image"],
+                    "price": {"unit": "per_image", "primary": 0.001 * (i + 1), "tiers": {}},
+                },
+                source="curated",
+            )
+    reply = _data(await mcp.call_tool("list_models", {"kind": "image"}))
+    assert reply["shown"] == 20 and reply["total"] > 20 and "showing 20 of" in reply["note"]
+    reply = _data(await mcp.call_tool("list_models", {"kind": "image", "limit": 3}))
+    assert reply["shown"] == 3 and reply["models"][0]["default"] is True
+    reply = _data(await mcp.call_tool("list_models", {"search": "test model 7"}))
+    assert [m["air"] for m in reply["models"]] == ["test:model@7"] and reply["note"] == ""
 
 
 async def test_model_details_and_estimates(mcp):
@@ -407,7 +432,9 @@ async def test_a_model_with_no_known_sizes_keeps_the_preset(quoted, app):
                 source="curated",
             )
         )
-    rows = _data(await quoted.call_tool("list_models", {"kind": "video"}))
+    rows = _data(await quoted.call_tool("list_models", {"kind": "video", "search": LOOSE}))[
+        "models"
+    ]
     assert next(r for r in rows if r["air"] == LOOSE)["sizes_known"] is False
 
     r = _data(
@@ -488,11 +515,11 @@ async def test_no_tool_but_the_prompt_requires_an_argument(mcp):
 
 
 async def test_list_models_without_a_kind_lists_both(mcp):
-    rows = _data(await mcp.call_tool("list_models", {}))
+    rows = _data(await mcp.call_tool("list_models", {"limit": 200}))["models"]
     kinds = {r["kind"] for r in rows}
     assert kinds == {"image", "video"}
-    rows = _data(await mcp.call_tool("list_models", {"kind": None, "sort": None}))
-    assert {r["kind"] for r in rows} == {"image", "video"}
+    rows = _data(await mcp.call_tool("list_models", {"kind": None, "sort": None, "limit": 200}))
+    assert {r["kind"] for r in rows["models"]} == {"image", "video"}
 
 
 async def test_estimate_and_details_default_to_the_configured_models(mcp):

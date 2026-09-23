@@ -42,12 +42,18 @@ from ..web.routes.generate import (
 
 SERVER_NAME = "vjhstudio"
 INSTRUCTIONS = (
-    "VJHStudio makes images and videos through RunWare. Call list_models first, then estimate, "
-    "then generate_image or generate_video; poll with wait_for_job. Jobs cost money: respect the "
-    "daily cap returned in every reply and put results in a named project. Every argument "
-    "except the prompt has a sensible default: leave out (or send null for) anything you do "
-    "not know, and the studio's own defaults are used."
+    "VJHStudio makes images and videos through RunWare. The quickest way to make something is "
+    "generate_image or generate_video with just a prompt: the default model, project, size and "
+    "resolution tier are filled in, and the reply's estimate and cap say what it costs. Then "
+    "wait_for_job with no arguments returns the finished files. Only call list_models when the "
+    "user asks for a particular model, style or price; the catalog holds well over a hundred "
+    "models, so pass a search word or keep the limit small, and do not read the whole list back "
+    "to the user. Jobs cost money: respect the daily cap returned in every reply. Every argument "
+    "except the prompt has a sensible default: leave out (or send null for) anything you do not "
+    "know."
 )
+LIST_LIMIT = 20
+LIST_LIMIT_MAX = 200
 TERMINAL = (JobStatus.succeeded.value, JobStatus.failed.value, JobStatus.cancelled.value)
 KINDS = ("image", "video")
 TIMEOUT_MAX = 900
@@ -439,14 +445,23 @@ def build_server(ctx: MCPContext) -> MCPServer:
     @server.tool()
     @_guard
     def list_models(
-        kind: str | None = None, sort: str | None = "price", favourites_only: bool | None = False
-    ) -> list[dict]:
-        """List the models the studio can run, dearest first, with price and accepted
-        inputs. ``kind`` is "image" or "video"; leave it out for both. Only models this
-        studio can actually drive are listed."""
+        kind: str | None = None,
+        sort: str | None = "price",
+        favourites_only: bool | None = False,
+        search: str | None = "",
+        limit: int | None = LIST_LIMIT,
+    ) -> dict:
+        """A short list of models the studio can run, with price and accepted inputs.
+        The default model comes first, then favourites, then the rest dearest first (or
+        by name with ``sort="name"``). ``kind`` is "image" or "video"; leave it out for
+        both. ``search`` matches the name, maker or air; ``limit`` defaults to 20 and
+        ``total`` says how many matched. Only models this studio can drive are listed."""
         wanted = _text(kind).lower()
         kinds = KINDS if wanted in ("", "all", "both") else (_kind(wanted),)
         order = sort if sort in catalog.SORTS else "price"
+        needle = _text(search).lower()
+        n = max(1, min(int(_num(limit, LIST_LIMIT)), LIST_LIMIT_MAX))
+        defaults = {k: _text(ctx.setting(f"defaults.{k}_model")).lower() for k in kinds}
         with db.session_scope(sf) as s:
             rows = [
                 m
@@ -454,8 +469,21 @@ def build_server(ctx: MCPContext) -> MCPServer:
                 for m in catalog.list_models(s, k, sort=order)
                 if constraints.is_generate_capable(k, m.capabilities_json or [], m.constraints_json)
                 and (not favourites_only or m.is_favourite)
+                and (
+                    not needle
+                    or needle in " ".join((m.name, m.creator or "", m.air, m.slug or "")).lower()
+                )
             ]
-            return [model_summary(m) for m in rows]
+            # the default model first, then favourites, then the requested order
+            rows.sort(key=lambda m: (m.air.lower() != defaults.get(m.kind), not m.is_favourite))
+            shown = [
+                model_summary(m) | {"default": m.air.lower() == defaults.get(m.kind)}
+                for m in rows[:n]
+            ]
+        note = ""
+        if len(rows) > n:
+            note = f"showing {n} of {len(rows)}; pass a search word or a larger limit for more"
+        return {"models": shown, "shown": len(shown), "total": len(rows), "note": note}
 
     @server.tool()
     @_guard
@@ -573,7 +601,7 @@ def build_server(ctx: MCPContext) -> MCPServer:
         reference_asset_ids: list[int] | None = None,
         title: str | None = None,
     ) -> dict:
-        """Queue an image job. Only ``prompt`` is needed: the default image model, the
+        """Make an image: the usual first call, with just a prompt. The default image model, the
         Default project and a 1024x1024 size fill in the rest. Refuses, before anything is
         queued or billed, when today's agent spend would pass the cap."""
         if not _text(prompt):
@@ -644,7 +672,7 @@ def build_server(ctx: MCPContext) -> MCPServer:
         provider_settings: dict | None = None,
         title: str | None = None,
     ) -> dict:
-        """Queue a video job. Only ``prompt`` is needed: the default video model, the
+        """Make a video clip: the usual first call, with just a prompt. The default video model, the
         Default project, the model's own duration and resolution tier fill in the rest. Same cap, and the same
         refusal-before-billing rule.
 
