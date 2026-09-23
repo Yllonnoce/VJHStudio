@@ -7,6 +7,8 @@ from another one. The SDK talks to `httpx2`, not the app's `httpx`, so the ASGI
 transport handed to `streamable_http_client` comes from that package.
 """
 
+import json
+
 import httpx
 import httpx2
 import pytest
@@ -14,7 +16,7 @@ from mcp.client import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 from tests.fakes.fake_runware import fake_factory
-from vjhstudio import secrets
+from vjhstudio import config, secrets
 from vjhstudio.mcp.http import token_matches
 from vjhstudio.web.app import create_app, mcp_base_url
 
@@ -22,11 +24,12 @@ TOKEN = "t0ken"
 REMOTE = ("10.0.0.5", 1234)
 
 
-def _app(paths, fake, download_transport, **env):
+def _app(paths, fake, download_transport, host=config.DEFAULT_HOST, **env):
     return create_app(
         paths,
         client_factory=fake_factory(fake),
         env={"VJHSTUDIO_OFFLINE": "1", **env},
+        host=host,
         auto_refresh=False,
         download_transport=download_transport,
     )
@@ -125,6 +128,51 @@ def test_token_matches_is_exact_and_never_raises():
     assert not token_matches(TOKEN, "")
     # a stray high byte in the header (latin-1 decoded) is a wrong token, not a 500
     assert not token_matches("t\xff0ken", TOKEN)
+
+
+def test_mcp_base_url_follows_the_host_the_server_was_given():
+    """`serve --host` never reached here: the tools handed a LAN agent 127.0.0.1 while
+    the Settings card printed the address it had actually connected on."""
+    assert mcp_base_url({}, 8080, "192.168.1.20") == "http://192.168.1.20:8080"
+    # the wildcard is still not an address a client can dial
+    assert not mcp_base_url({}, 80, "0.0.0.0").startswith("http://0.0.0.0")
+    assert mcp_base_url({}, 80, "::").startswith("http://")
+
+
+async def test_a_tool_url_uses_the_host_the_app_was_served_on(paths, fake, download_transport):
+    app = _app(
+        paths,
+        fake,
+        download_transport,
+        host="192.168.1.20",
+        VJHSTUDIO_MCP_ENABLED="1",
+        VJHSTUDIO_MCP_TOKEN=TOKEN,
+    )
+    assert app.state.mcp_base_url == "http://192.168.1.20:8080"
+    fake.script["run"] = [[{"imageURL": "http://x/1.png", "seed": 5, "cost": 0.004}]]
+    async with app.router.lifespan_context(app):
+        http = httpx2.AsyncClient(
+            transport=httpx2.ASGITransport(app=app),
+            base_url="http://test",
+            headers={"Authorization": f"Bearer {TOKEN}"},
+        )
+        async with (
+            streamable_http_client("http://test/mcp", http_client=http) as streams,
+            ClientSession(streams[0], streams[1]) as s,
+        ):
+            await s.initialize()
+            queued = json.loads(
+                (await s.call_tool("generate_image", {"air": "runware:101@1", "prompt": "x"}))
+                .content[0]
+                .text
+            )
+            done = json.loads(
+                (await s.call_tool("wait_for_job", {"job_id": queued["job_id"], "timeout_s": 30}))
+                .content[0]
+                .text
+            )
+            assert done["status"] == "succeeded", done
+            assert done["outputs"][0]["url"].startswith("http://192.168.1.20:8080/")
 
 
 def test_mcp_base_url_prefers_a_real_bound_host():

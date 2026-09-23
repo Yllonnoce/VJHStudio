@@ -127,7 +127,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
     except migrate.MigrationFailed as e:
         print(str(e), file=sys.stderr)
         return config.MIGRATION_FAIL_EXIT_CODE
-    app = create_app(paths, port=port, boot_info=info)
+    app = create_app(paths, port=port, host=host, boot_info=info)
     if args.open:
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     print(f"VJHStudio {__version__} on {url}  (data: {paths.data})")

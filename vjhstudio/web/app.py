@@ -58,14 +58,18 @@ def _lan_address() -> str:
         return config.DEFAULT_HOST
 
 
-def mcp_base_url(env: Mapping[str, str], port: int) -> str:
+def mcp_base_url(env: Mapping[str, str], port: int, host: str = "") -> str:
     """The base every URL an MCP tool returns is built from.
+
+    ``host`` is the address the server was actually told to serve on -- the one
+    ``serve --host`` resolved -- so the tools and the Settings card name the same
+    machine. The env var is the fallback for a caller that has no resolved host.
 
     One server object serves every request, so this cannot follow the ``Host``
     header of the call that asked: it is fixed when the app is built. An agent
     reaching the studio under another name has to replace the host part itself.
     """
-    host = (env.get("VJHSTUDIO_HOST") or "").strip()
+    host = (host or env.get("VJHSTUDIO_HOST") or "").strip()
     if not host:
         host = config.DEFAULT_HOST
     elif host in WILDCARD_HOSTS:
@@ -96,6 +100,7 @@ def create_app(
     client_factory=open_client,
     env: Mapping[str, str] | None = None,
     port: int = config.DEFAULT_PORT,
+    host: str = config.DEFAULT_HOST,
     boot_info: _boot.BootInfo | None = None,
     auto_refresh: bool = True,
     download_transport=None,
@@ -226,7 +231,7 @@ def create_app(
     app.state.stop_posters = threading.Event()  # shutdown's only handle on that worker
     app.state.harvest_task = None  # set by services.constraints.start_harvest
     app.state.mcp_server = None  # set below when mcp.enabled is on
-    app.state.mcp_base_url = mcp_base_url(env, port)
+    app.state.mcp_base_url = mcp_base_url(env, port, host)
     app.state.api_key = lambda: secrets.effective_api_key(paths, env)
     app.state.key_source = lambda: secrets.key_source(paths, env)
 
