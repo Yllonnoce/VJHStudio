@@ -296,7 +296,9 @@ claude mcp add --transport http vjhstudio http://127.0.0.1:8080/mcp --header "Au
 ```
 
 **On the same computer, without a token** — the agent can start VJHStudio's own `vjhstudio mcp`
-command and talk to it directly, so nothing is exposed on the network:
+command and talk to it directly, so nothing is exposed on the network. This is for when the web app
+is **not** running: the two must never run at once, because both would work the same queue, so close
+VJHStudio first (with the app open, use the Goose or Claude Code block above instead).
 
 ```yaml
 extensions:

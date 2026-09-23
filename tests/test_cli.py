@@ -517,3 +517,27 @@ def test_thumbs_command_backfills_video_posters(tmp_path, monkeypatch, capsys, m
     assert main.main(["thumbs"]) == 0
     assert "1 video thumbnail made" in capsys.readouterr().out
     assert (paths.thumbs / f"{clip.stem}.jpg").is_file()
+
+
+def test_mcp_refuses_to_boot_while_the_web_app_is_running(tmp_path, monkeypatch, capsys):
+    """Two processes on one database is the trap: `boot` fails every running job and
+    hands this process the browser's queue, so a stdio server started next to the open
+    app would take it over. It must point at the HTTP transport and stop."""
+    monkeypatch.setenv("VJHSTUDIO_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("VJHSTUDIO_PORT", "8123")
+    monkeypatch.setattr(main, "web_app_running", lambda port: port == 8123)
+    monkeypatch.setattr(boot_mod, "boot", lambda _paths: pytest.fail("must not boot"))
+
+    assert main.main(["mcp"]) == 2
+    out = capsys.readouterr()
+    assert out.out == ""  # stdout is the protocol channel
+    assert "already running on port 8123" in out.err
+    assert "http://127.0.0.1:8123/mcp" in out.err
+
+
+def test_web_app_running_is_false_when_nothing_answers(monkeypatch):
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    free = s.getsockname()[1]
+    s.close()
+    assert main.web_app_running(free) is False

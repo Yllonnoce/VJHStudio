@@ -21,6 +21,8 @@ from .services import archive, gitinfo, migrate, update
 log = logging.getLogger("vjhstudio")
 
 LOG_LEVELS = ("CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG")
+# `vjhstudio mcp` found the web app already serving: nothing was booted.
+MCP_ALREADY_RUNNING_EXIT_CODE = 2
 
 
 def log_level(env=None) -> str:
@@ -41,6 +43,22 @@ def log_level(env=None) -> str:
 def is_ours(host: str, port: int) -> bool:
     try:
         r = httpx.get(f"http://{host}:{port}/api/health", timeout=1.5)
+        return r.status_code == 200 and r.json().get("app") == "VJHStudio"
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def web_app_running(port: int) -> bool:
+    """Is a VJHStudio web app already answering on this port, here on this machine?
+
+    ``vjhstudio mcp`` opens the same database and starts a second JobRunner, and
+    ``boot`` fails every ``running`` job and hands back every ``queued`` one for
+    requeue -- so a stdio server started next to the open app would orphan the
+    browser's in-flight jobs and submit its queue into itself. Asked before boot,
+    with a short timeout: an unanswered port is simply "not running".
+    """
+    try:
+        r = httpx.get(f"http://{config.DEFAULT_HOST}:{port}/api/health", timeout=1.0)
         return r.status_code == 200 and r.json().get("app") == "VJHStudio"
     except Exception:  # noqa: BLE001
         return False
@@ -386,6 +404,19 @@ def cmd_mcp(_args: argparse.Namespace) -> int:
 
     logging.basicConfig(level=log_level(), stream=sys.stderr, force=True)
     paths = config.resolve_paths()
+    port = config.env_int(os.environ, "VJHSTUDIO_PORT", config.DEFAULT_PORT)
+    if web_app_running(port):
+        # An agent host pipes stderr, and a Windows pipe is cp1252, which has no arrow.
+        reconfigure = getattr(sys.stderr, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(errors="replace")
+        print(
+            f"VJHStudio is already running on port {port}. Connect over HTTP at "
+            f"http://{config.DEFAULT_HOST}:{port}/mcp instead (see Settings \u2192 Let an "
+            "AI agent use VJHStudio) \u2014 a second process would take over the queue.",
+            file=sys.stderr,
+        )
+        return MCP_ALREADY_RUNNING_EXIT_CODE
     try:
         info = boot.boot(paths)
     except migrate.MigrationFailed as e:
@@ -413,8 +444,7 @@ def cmd_mcp(_args: argparse.Namespace) -> int:
             env=os.environ,
             setting=setting,
             # A local host reads the files off disk; the URLs are for the browser.
-            base_url=f"http://{config.DEFAULT_HOST}:"
-            f"{config.env_int(os.environ, 'VJHSTUDIO_PORT', config.DEFAULT_PORT)}",
+            base_url=f"http://{config.DEFAULT_HOST}:{port}",
         )
         try:
             await build_server(ctx).run_stdio_async()
