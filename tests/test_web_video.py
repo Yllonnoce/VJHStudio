@@ -389,4 +389,4 @@ async def test_resolution_gets_two_thirds_of_the_parameter_row(client):
     from pathlib import Path
 
     css = (Path(__file__).parents[1] / "vjhstudio/web/static/css/app.css").read_text()
-    assert ".grid-res{grid-template-columns:minmax(0,1fr) minmax(0,2fr)}" in css
+    assert ".grid-res{grid-template-columns:minmax(11rem,1fr) minmax(0,1.6fr)}" in css

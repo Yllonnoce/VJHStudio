@@ -582,7 +582,7 @@ body > header.container > nav{border-radius:0 0 var(--sp-radius) var(--sp-radius
 [id]{scroll-margin-top:calc(var(--vjh-header-h, 4.5rem) + 1rem)}
 
 /* ── Video parameters: Resolution needs the room, Duration does not ── */
-.grid-res{grid-template-columns:minmax(0,1fr) minmax(0,2fr)}
+.grid-res{grid-template-columns:minmax(11rem,1fr) minmax(0,1.6fr)}
 @media (max-width:767px){.grid-res{grid-template-columns:1fr}}
 
 /* ── Phones: every dialog is a full-screen sheet ──────────────────────────
@@ -669,8 +669,8 @@ body > header.container > nav{border-radius:0 0 var(--sp-radius) var(--sp-radius
 input[type="number"]{-moz-appearance:textfield;appearance:textfield}
 input[type="number"]::-webkit-outer-spin-button,input[type="number"]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .stepper{display:flex;align-items:stretch;gap:0;margin-bottom:var(--pico-spacing)}
-.stepper input[type="number"]{flex:1 1 auto;min-width:0;margin:0;border-radius:0;text-align:center}
-.stepper-btn{flex:0 0 2.75rem;width:2.75rem;min-height:42px;margin:0;padding:0;font-size:1.5rem;line-height:1;font-weight:600;background:var(--sp-btn-tint);color:var(--sp-text);border:1px solid var(--sp-border)}
+.stepper input[type="number"]{flex:1 1 auto;min-width:3.5rem;margin:0;border-radius:0;text-align:center;background-image:none!important;padding-right:.5rem!important;padding-left:.5rem!important}
+.stepper-btn{flex:0 0 2.5rem;width:2.5rem;min-height:42px;margin:0;padding:0;font-size:1.5rem;line-height:1;font-weight:600;background:var(--sp-btn-tint);color:var(--sp-text);border:1px solid var(--sp-border)}
 .stepper-btn:first-child{border-radius:var(--sp-radius-sm) 0 0 var(--sp-radius-sm);border-right:0}
 .stepper-btn:last-child{border-radius:0 var(--sp-radius-sm) var(--sp-radius-sm) 0;border-left:0}
 .stepper-btn:hover{background:var(--sp-btn-tint-hover)}

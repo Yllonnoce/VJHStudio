@@ -150,5 +150,5 @@ def test_steppers_are_wired_on_load_and_after_swaps():
     )
     assert "htmx:afterSettle" in body and "vjhEnhanceSteppers(e.target || document)" in body
     css = (REPO_ROOT / "vjhstudio" / "web" / "static" / "css" / "app.css").read_text()
-    assert ".stepper-btn{flex:0 0 2.75rem;width:2.75rem;min-height:42px" in css
+    assert ".stepper-btn{flex:0 0 2.5rem;width:2.5rem;min-height:42px" in css
     assert "::-webkit-inner-spin-button{-webkit-appearance:none" in css
