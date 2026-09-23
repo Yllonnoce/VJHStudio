@@ -254,6 +254,68 @@ uv run vjhstudio restore <zip>
 uv run vjhstudio restore <zip> --merge
 ```
 
+## Use VJHStudio from an agent (MCP)
+
+An AI agent — [Goose](https://block.github.io/goose/), Claude Code, Claude Desktop, anything that
+speaks the Model Context Protocol — can drive VJHStudio for you: look through your models, write
+the prompts, queue the images and videos, and tell you what came back. Everything it makes lands in
+your projects and your gallery, exactly as if you had clicked the buttons yourself.
+
+It cannot run up a bill behind your back. VJHStudio keeps a **daily spend cap** (default $2) and a
+**limit on how many jobs a day** an agent may queue; a job that would go past either is refused
+before it is sent, and jobs an agent queued are marked **via agent** in the queue and the gallery.
+
+**Turn it on:** open **Settings**, scroll to **Automation (MCP)**, tick **Let agents connect**, set
+the cap you are comfortable with, click **Save**, then click **Regenerate** to make a token.
+Restart VJHStudio (stop it and start it again) so the change takes effect.
+
+**Treat the token like a password.** Anyone who has it can spend your RunWare balance through your
+copy of VJHStudio. It is stored on your computer only, in `data/secrets/mcp_token`.
+
+**Goose** — add this to your Goose config (Settings > Automation (MCP) has a Copy button that fills
+in your own address and token):
+
+```yaml
+extensions:
+  vjhstudio:
+    type: streamable_http
+    name: VJHStudio
+    enabled: true
+    uri: "http://127.0.0.1:8080/mcp"
+    headers: { "Authorization": "Bearer YOUR-TOKEN" }
+    timeout: 900
+```
+
+`docs/goose/vjhstudio-recipe.yaml` is a ready-made Goose recipe ("product shots into a project")
+you can copy and edit.
+
+**Claude Code** — one line in a terminal:
+
+```
+claude mcp add --transport http vjhstudio http://127.0.0.1:8080/mcp --header "Authorization: Bearer YOUR-TOKEN"
+```
+
+**On the same computer, without a token** — the agent can start VJHStudio's own `vjhstudio mcp`
+command and talk to it directly, so nothing is exposed on the network:
+
+```yaml
+extensions:
+  vjhstudio:
+    type: stdio
+    name: VJHStudio
+    enabled: true
+    cmd: /path/to/VJHStudio/.venv/bin/vjhstudio
+    args: [mcp]
+    timeout: 900
+```
+
+On Windows the command is `C:\path\to\VJHStudio\.venv\Scripts\vjhstudio.exe`, with the same
+`args: [mcp]`.
+
+**From another computer on your network** — it works the same, with your computer's address instead
+of `127.0.0.1`: `http://<your-pc-ip>:8080/mcp`. Only share the token with people you would trust
+with your RunWare balance.
+
 ## Uninstall
 
 If you installed VJHStudio with the one-line installer above, an uninstaller was placed in the

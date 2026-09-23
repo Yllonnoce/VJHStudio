@@ -1,0 +1,65 @@
+# A Goose recipe for VJHStudio: a shoot planned and rendered into one project.
+#
+# Copy this file, put your own address and token in the extension block below
+# (Settings > Automation (MCP) in VJHStudio has a Copy button that fills both in),
+# and run it with:
+#
+#   goose run --recipe vjhstudio-recipe.yaml
+#
+# On the same computer you can drop the uri/headers lines and use the stdio form
+# instead - type: stdio, cmd: /path/to/VJHStudio/.venv/bin/vjhstudio, args: [mcp]
+# (on Windows: C:\path\to\VJHStudio\.venv\Scripts\vjhstudio.exe) - which needs no token.
+
+version: 1.0.0
+title: Product shots into a project
+description: >-
+  Plans a small set of product shots with VJHStudio, queues them into one project and
+  reports what came back, staying inside the daily spend cap.
+
+instructions: |
+  You are running a photo shoot inside VJHStudio, a local image and video studio.
+
+  Work in this order and do not skip a step:
+
+  1. Ask VJHStudio which projects exist and which models it has. Pick (or create) one
+     project for this shoot so everything lands together.
+  2. Ask for the price and the accepted sizes of the model you mean to use before you
+     queue anything. Never guess a price: VJHStudio refuses a job whose cost it cannot
+     work out.
+  3. Check how much of today's cap is left. Plan a set of shots that fits inside it,
+     and say what you plan to spend before you spend it.
+  4. Write one prompt per shot. Keep the subject, the lighting and the camera language
+     concrete, and reuse the same style words across the set so the shots look related.
+  5. Queue the shots one at a time. After each one, wait for it to finish and look at
+     the result before queuing the next.
+  6. If a job is refused because of the cap or the daily job limit, stop. Report what
+     is left and ask what to do; do not try to work around the limit.
+  7. Finish with a short report: what you queued, what it cost, and where the images
+     are (project and file names).
+
+  Everything you queue is marked "via agent" in VJHStudio's queue and gallery, so the
+  person can see exactly what you did.
+
+prompt: |
+  Plan and shoot six product photographs of {{ subject }} for {{ use }}.
+  Keep the whole set inside today's spend cap, and show me each image as it lands.
+
+parameters:
+  - key: subject
+    input_type: string
+    requirement: required
+    description: what is being photographed, e.g. "a matte black ceramic mug"
+  - key: use
+    input_type: string
+    requirement: optional
+    default: an online shop listing
+    description: what the pictures are for
+
+extensions:
+  - type: streamable_http
+    name: VJHStudio
+    uri: "http://127.0.0.1:8080/mcp"
+    headers:
+      Authorization: "Bearer YOUR-TOKEN"
+    timeout: 900
+    bundled: false
