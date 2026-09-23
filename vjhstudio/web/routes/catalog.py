@@ -28,6 +28,15 @@ def _row_view(m) -> dict:
         m.kind, m.capabilities_json or [], m.constraints_json
     )
     v["dims_mode"] = ((m.constraints_json or {}).get("dims") or {}).get("mode") or "unknown"
+    v["accepts"] = (
+        constraints.accepts_summary(
+            constraints.accepted_roles(
+                m.kind, m.capabilities_json or [], m.constraints_json, catalog.family(m)
+            )
+        )
+        if m.kind in ("image", "video")
+        else ""
+    )
     return v
 
 

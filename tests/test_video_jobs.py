@@ -250,7 +250,8 @@ async def test_a_corrected_size_is_recorded_on_the_catalog_row(env):
     air = "bytedance:seedance@2.0"
     paths, f, _ = env
     with db.session_scope(f) as s:
-        assert catalog.get_by_air(s, air).constraints_json is None
+        # the snapshot names this model's inputs but no sizes: the correction has to add them
+        assert "dims" not in (catalog.get_by_air(s, air).constraints_json or {})
     e = RunwareError("unsupportedParameter", KLING_MSG)
     e.parameter = "width"
     fake = FakeRunware({"run": [e, [{"videoURL": "http://x/v.mp4", "cost": 0.8}]]})

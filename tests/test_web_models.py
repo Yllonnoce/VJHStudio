@@ -3,6 +3,42 @@ import re
 
 from runware import RunwareError
 
+from vjhstudio import db
+from vjhstudio.services import catalog
+from vjhstudio.web.routes.catalog import _row_view
+
+SEEDANCE_INPUTS = {
+    "inputs": {
+        "referenceImages": {"required": False, "min_items": 1, "max_items": 9},
+        "frameImages": {"required": False, "min_items": 1, "max_items": 2},
+        "frameImages.image": {"required": True},
+    }
+}
+
+
+async def test_row_view_accepts_summary(app, client):
+    with db.session_scope(app.state.boot.session_factory) as s:
+        # image diffusion model: the snapshot's harvested inputs name a seed image only
+        flux = catalog.get_by_air(s, "runware:101@1")
+        assert _row_view(flux)["accepts"] == "seed image"
+        # ... and without any harvested inputs the io:image-to-image tag opens both roles
+        flux.constraints_json = None
+        assert _row_view(flux)["accepts"] == "seed image, reference images"
+
+        # video model with harvested inputs
+        veo = catalog.get_by_air(s, "google:3@2")
+        veo.constraints_json = SEEDANCE_INPUTS
+        assert _row_view(veo)["accepts"] == "first frame, last frame, up to 9 reference images"
+
+        # text model: nothing shown
+        claude = catalog.get_by_air(s, "anthropic:claude@sonnet-4.6")
+        assert _row_view(claude)["accepts"] == ""
+
+
+async def test_hx_models_video_shows_accepts(client):
+    r = await client.get("/hx/models?kind=video")
+    assert r.status_code == 200 and "Accepts:" in r.text
+
 
 async def test_models_page_lists_three_kinds_sorted(client):
     r = await client.get("/models")

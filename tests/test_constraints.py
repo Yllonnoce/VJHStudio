@@ -226,8 +226,12 @@ GPT_INPUTS = {"inputs": {"referenceImages": {"required": False, "min_items": 1, 
 EDIT_ONLY = {"inputs": {"referenceImages": {"required": True, "min_items": 1}}}
 
 
-def test_needs_first_frame_honours_a_required_frame_input():
+def test_needs_first_frame_honours_the_harvested_inputs_over_the_tags():
     assert C.needs_first_frame(["io:text-to-video", "io:image-to-video"], FIRST_ONLY) is True
+    # tags alone would demand a frame, but the docs name no frameImages input at all
+    refs_only = {"inputs": {"referenceImages": {"required": False, "min_items": 1}}}
+    assert C.needs_first_frame(["io:image-to-video"], refs_only) is False
+    assert "first" not in C.accepted_roles("video", ["io:image-to-video"], refs_only)
 
 
 def test_accepted_roles_video_from_harvested_inputs():
@@ -245,7 +249,8 @@ def test_accepted_roles_video_from_harvested_inputs():
 def test_accepted_roles_video_falls_back_to_capability_tags():
     assert C.accepted_roles("video", ["io:text-to-video"], None) == {}
     roles = C.accepted_roles("video", ["io:image-to-video"], None)
-    assert list(roles) == ["first", "last"] and roles["first"]["required"] is True
+    assert list(roles) == ["first", "last", "reference"] and roles["first"]["required"] is True
+    assert roles["reference"] == {"required": False, "max": None}
     # no tags at all (search-added row): every role of the mode stays open
     assert list(C.accepted_roles("video", [], None)) == ["first", "last", "reference"]
 

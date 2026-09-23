@@ -93,9 +93,15 @@ def _inputs(c: dict | None) -> dict:
 
 
 def needs_first_frame(capabilities: list[str], c: dict | None) -> bool:
+    """A harvested ``inputs`` block is the authority: a required ``frameImages`` means
+    yes, and a block that names no ``frameImages`` at all means no, whatever the
+    capability tags say (otherwise the tags could demand a frame the page cannot
+    offer). Without a block, image-to-video with no text-to-video path needs one."""
     caps = capabilities or []
-    if _inputs(c).get("frameImages", {}).get("required"):
-        return True
+    inputs = _inputs(c)
+    if inputs:
+        frames = inputs.get("frameImages")
+        return isinstance(frames, dict) and bool(frames.get("required"))
     return "io:image-to-video" in caps and "io:text-to-video" not in caps
 
 
@@ -126,8 +132,9 @@ def accepted_roles(
     in ``ROLE_ORDER``. ``max`` is the item cap for ``reference``; ``None`` = unknown.
 
     The harvested ``inputs`` block is the authority when the model has one. Without it,
-    the capability tags decide (``io:image-to-video`` -> frames, ``io:image-to-image``
-    -> a seed image for diffusion models, reference images for instruction models), and
+    the capability tags decide (``io:image-to-video`` -> frames plus reference images,
+    ``io:image-to-image`` -> a seed image for diffusion models, reference images for
+    instruction models), and
     a row with no tags at all (search-added) keeps every role of its mode, since nothing
     says otherwise and the runner drops what the provider rejects.
     """
@@ -149,8 +156,11 @@ def accepted_roles(
             for role in MODE_ROLES["video"]:
                 out[role] = {"required": False, "max": 1 if role != "reference" else None}
         elif "io:image-to-video" in caps:
+            # tags only: frames for sure; reference images stay open until a harvest
+            # says otherwise (the provider's free validation error drops them if not)
             out["first"] = {"required": needs_first_frame(caps, c), "max": 1}
             out["last"] = {"required": False, "max": 1}
+            out["reference"] = {"required": False, "max": None}
         return out
     if inputs:
         seed = inputs.get("seedImage")
