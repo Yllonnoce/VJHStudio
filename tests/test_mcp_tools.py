@@ -535,3 +535,13 @@ async def test_null_filters_are_ignored(mcp):
 async def test_job_tools_without_any_job_say_so(mcp):
     res = await mcp.call_tool("job_status", {})
     assert res.is_error and "no agent job" in res.content[0].text.lower()
+
+
+async def test_the_default_tier_is_the_models_own(mcp):
+    """A model that only runs at 4K must not be estimated, or queued, at 720p."""
+    d = _data(await mcp.call_tool("model_details", {"air": "klingai:kling-video@3-4k"}))
+    assert d["defaults"]["resolution"].startswith("4K") and d["defaults"]["duration"] > 0
+    e = _data(await mcp.call_tool("estimate", {"air": "klingai:kling-video@3-4k"}))
+    assert e["resolution"].startswith("4K")
+    e = _data(await mcp.call_tool("estimate", {"air": LTX}))
+    assert e["resolution"] == "720p"

@@ -238,6 +238,13 @@ def _resolutions(m: CatalogModel) -> list[str]:
     return with_portrait(named or list(FALLBACK_RESOLUTIONS))
 
 
+def _default_resolution(m: CatalogModel) -> str:
+    """The tier the Generate page opens on for this model: its first named resolution,
+    else 720p. An agent that names no tier gets the model's own, not a global guess --
+    a 4K-only model has no 720p to run at."""
+    return _resolutions(m)[0]
+
+
 def _duration_for(m: CatalogModel, duration: float | None) -> float:
     """The duration this model will actually run for, so the price quoted is the price
     billed: the harvested spec first, then the curated ``tiers.video.durations`` that
@@ -455,7 +462,12 @@ def build_server(ctx: MCPContext) -> MCPServer:
                 "durations": constraints.duration_spec(c),
                 "resolutions": _resolutions(m) if m.kind == "video" else [],
                 "provider_settings": list(m.provider_settings_schema or []),
-                "defaults": {"width": m.default_width, "height": m.default_height},
+                "defaults": {
+                    "width": m.default_width,
+                    "height": m.default_height,
+                    "duration": _duration_for(m, None) if m.kind == "video" else None,
+                    "resolution": _default_resolution(m) if m.kind == "video" else None,
+                },
             }
 
     @server.tool()
@@ -492,7 +504,7 @@ def build_server(ctx: MCPContext) -> MCPServer:
                 k = m.kind
             air = air_ref
             if k == "video" and not resolution:
-                resolution = "720p"
+                resolution = _default_resolution(m)
             if k == "image":
                 asked = (
                     int(width or m.default_width or 1024),
@@ -608,7 +620,7 @@ def build_server(ctx: MCPContext) -> MCPServer:
         air: str | None = None,
         project: str | int | None = "default",
         duration: float | None = DEFAULT_DURATION,
-        resolution: str | None = "720p",
+        resolution: str | None = None,
         width: int | None = None,
         height: int | None = None,
         first_frame_asset_id: int | None = None,
@@ -618,7 +630,7 @@ def build_server(ctx: MCPContext) -> MCPServer:
         title: str | None = None,
     ) -> dict:
         """Queue a video job. Only ``prompt`` is needed: the default video model, the
-        Default project, 5 seconds at 720p fill in the rest. Same cap, and the same
+        Default project, the model's own duration and resolution tier fill in the rest. Same cap, and the same
         refusal-before-billing rule.
 
         Everything that moves the price is resolved here -- the settings the provider will
@@ -626,13 +638,14 @@ def build_server(ctx: MCPContext) -> MCPServer:
         tier -- so the number the cap is checked against is the number that gets billed."""
         if not _text(prompt):
             raise ValueError("A prompt is required: say what the clip should show.")
-        resolution = _text(resolution) or "720p"
+        resolution = _text(resolution)
         duration = _num(duration, DEFAULT_DURATION)
         runner()  # before the row exists: a refusal must leave nothing to requeue
         with db.session_scope(sf) as s:
             p = _project(s, _text(project) or "default")
             air = _text(air) or _default_air(ctx, "video")
             m = _model(s, air, "video")
+            resolution = resolution or _default_resolution(m)
             seconds = _duration_for(m, duration)
             settings_sent = _provider_settings(m, provider_settings)
             size = _video_size(m, width, height, resolution)
