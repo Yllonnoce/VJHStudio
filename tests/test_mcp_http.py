@@ -46,9 +46,7 @@ def mcp_app(paths, fake, download_transport):
 async def test_mcp_requires_the_bearer_token(mcp_app):
     async with (
         mcp_app.router.lifespan_context(mcp_app),
-        httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=mcp_app), base_url="http://test"
-        ) as c,
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=mcp_app), base_url="http://test") as c,
     ):
         r = await c.post("/mcp", json={})
         assert r.status_code == 401
@@ -66,13 +64,15 @@ async def test_mcp_lists_and_calls_tools_over_http(mcp_app):
             base_url="http://test",
             headers={"Authorization": f"Bearer {TOKEN}"},
         )
-        async with streamable_http_client("http://test/mcp", http_client=http) as streams:
-            async with ClientSession(streams[0], streams[1]) as s:
-                await s.initialize()
-                names = {t.name for t in (await s.list_tools()).tools}
-                assert {"generate_image", "list_projects"} <= names
-                result = await s.call_tool("list_projects", {})
-                assert not result.is_error
+        async with (
+            streamable_http_client("http://test/mcp", http_client=http) as streams,
+            ClientSession(streams[0], streams[1]) as s,
+        ):
+            await s.initialize()
+            names = {t.name for t in (await s.list_tools()).tools}
+            assert {"generate_image", "list_projects"} <= names
+            result = await s.call_tool("list_projects", {})
+            assert not result.is_error
 
 
 async def test_mcp_is_absent_when_disabled(client, app):
@@ -87,9 +87,7 @@ async def test_health_reports_whether_mcp_is_on(client, mcp_app):
     assert body["app"] == "VJHStudio"  # the existing keys stay
     async with (
         mcp_app.router.lifespan_context(mcp_app),
-        httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=mcp_app), base_url="http://test"
-        ) as c,
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=mcp_app), base_url="http://test") as c,
     ):
         assert (await c.get("/api/health")).json()["mcp"] == {"enabled": True}
 
@@ -121,7 +119,9 @@ async def test_files_serve_a_remote_agent_carrying_the_token(mcp_app, paths):
 
 def test_token_ok_compares_the_whole_bearer_token():
     def req(value):
-        return httpx.Request("GET", "http://test", headers={"Authorization": value} if value else {})
+        return httpx.Request(
+            "GET", "http://test", headers={"Authorization": value} if value else {}
+        )
 
     assert token_ok(req(f"Bearer {TOKEN}"), TOKEN)
     assert token_ok(req(f"bearer {TOKEN}"), TOKEN)

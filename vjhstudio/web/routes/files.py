@@ -3,6 +3,12 @@
 The filename comes straight from a URL, so it is never joined to the outputs root
 without resolving the result and checking it is still *inside* that root: ``..``
 segments, absolute paths and symlinks all collapse to a 404.
+
+These routes serve any peer, loopback or not: the README's "on your phone or
+tablet" workflow is a LAN browser reading exactly these URLs. That is also what
+lets an MCP agent on another machine download what it made, so the bearer token
+(`mcp.http.token_ok`) is accepted here but is not required -- locking these
+routes down would take the phone with it, and is a decision of its own.
 """
 
 from __future__ import annotations

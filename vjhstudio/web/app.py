@@ -4,9 +4,10 @@ import asyncio
 import logging
 import mimetypes
 import os
+import socket
 import threading
 from collections.abc import Mapping
-from contextlib import asynccontextmanager, suppress
+from contextlib import AsyncExitStack, asynccontextmanager, suppress
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -14,6 +15,8 @@ from sqlalchemy import func, select
 
 from .. import boot as _boot
 from .. import config, db, secrets
+from ..mcp.http import mount_mcp
+from ..mcp.server import MCPContext, build_server
 from ..models import Job, JobStatus
 from ..runware.catalog_api import ContentAPI
 from ..runware.client import open_client
@@ -43,6 +46,49 @@ _FINISHED_STATUSES = (
 )
 UPDATE_CHECK_FIRST = 60
 UPDATE_CHECK_INTERVAL = 6 * 3600
+# Addresses a client cannot dial; the machine's own LAN address stands in for them.
+WILDCARD_HOSTS = ("0.0.0.0", "::", "[::]", "*")  # noqa: S104 - matched, never bound
+
+
+def _lan_address() -> str:
+    """This machine's address on the LAN, or loopback when it cannot be found."""
+    try:
+        return socket.gethostbyname(socket.gethostname()) or config.DEFAULT_HOST
+    except OSError:
+        return config.DEFAULT_HOST
+
+
+def mcp_base_url(env: Mapping[str, str], port: int) -> str:
+    """The base every URL an MCP tool returns is built from.
+
+    One server object serves every request, so this cannot follow the ``Host``
+    header of the call that asked: it is fixed when the app is built. An agent
+    reaching the studio under another name has to replace the host part itself.
+    """
+    host = (env.get("VJHSTUDIO_HOST") or "").strip()
+    if not host:
+        host = config.DEFAULT_HOST
+    elif host in WILDCARD_HOSTS:
+        host = _lan_address()
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"  # a bare IPv6 address needs brackets in a URL
+    return f"http://{host}:{port}"
+
+
+def _mcp_enabled(env: Mapping[str, str], boot_info: _boot.BootInfo | None) -> bool:
+    """Is MCP on? Asked while the app is built, because the mount cannot wait.
+
+    The env override answers without a database. Otherwise the saved setting is
+    read through the boot the caller already did -- ``vjhstudio serve`` always
+    passes one; a caller that does not (the tests) gets the env answer alone.
+    """
+    override = settings_svc.from_env("mcp.enabled", env)
+    if override is not None:
+        return bool(override)
+    if boot_info is None:
+        return False
+    with db.session_scope(boot_info.session_factory) as s:
+        return bool(settings_svc.get(s, "mcp.enabled", env))
 
 
 def create_app(
@@ -132,7 +178,13 @@ def create_app(
             and gitinfo.is_git_install()
         )
         app.state.update_task = asyncio.create_task(_update_watch()) if watch_updates else None
-        yield
+        async with AsyncExitStack() as mcp_stack:
+            # The SDK's session manager owns the streams of every live MCP session:
+            # it runs between the runner starting and the runner stopping, so a tool
+            # that is mid-flight always has a runner under it.
+            if app.state.mcp_server is not None:
+                await mcp_stack.enter_async_context(app.state.mcp_server.session_manager.run())
+            yield
         # Ask the poster worker to stop *before* anything is awaited or disposed: the
         # thread it runs in only notices between rows.
         app.state.stop_posters.set()
@@ -165,6 +217,8 @@ def create_app(
     app.state.poster_task = None
     app.state.stop_posters = threading.Event()  # shutdown's only handle on that worker
     app.state.harvest_task = None  # set by services.constraints.start_harvest
+    app.state.mcp_server = None  # set below when mcp.enabled is on
+    app.state.mcp_base_url = mcp_base_url(env, port)
     app.state.api_key = lambda: secrets.effective_api_key(paths, env)
     app.state.key_source = lambda: secrets.key_source(paths, env)
 
@@ -221,4 +275,26 @@ def create_app(
     app.include_router(projects_routes.router)
     app.include_router(assets_routes.router)
     app.include_router(prompts_routes.router)
+
+    def mcp_session_factory():
+        """The booted factory, looked up per call: the MCP server has to exist
+        before the lifespan runs, and `boot` only happens inside it."""
+        return app.state.boot.session_factory()
+
+    if _mcp_enabled(env, boot_info):
+        token = secrets.effective_mcp_token(paths, env)
+        if not token:
+            token = secrets.rotate_mcp_token(paths)
+            log.info("MCP token created; see Settings")  # never the value itself
+        app.state.mcp_server = build_server(
+            MCPContext(
+                session_factory=mcp_session_factory,
+                paths=paths,
+                runner=lambda: app.state.runner,
+                env=env,
+                setting=setting,
+                base_url=app.state.mcp_base_url,
+            )
+        )
+        mount_mcp(app, app.state.mcp_server, token)
     return app
