@@ -235,6 +235,36 @@ def test_needs_first_frame_is_read_off_the_swapped_params_panel():
     assert "document.addEventListener('htmx:afterSwap', () => this._syncNeedsFirstFrame());" in src
 
 
+def test_allowed_roles_are_read_off_the_swapped_params_panel():
+    """The twin of the first-frame sync: which reference roles the chosen model takes
+    rides in on #model-params' data-ref-roles, and a chip the new model has no input
+    for is dropped rather than posted."""
+    src = _app_js()
+    idx = src.index("_syncRefRoles() {")
+    window = src[idx : idx + 1000]
+    assert "document.getElementById('model-params')" in window
+    assert "panel.dataset.refRoles" in window
+    assert "panel.dataset.requiredRoles" in window
+    assert "panel.dataset.refAccepts" in window
+    # a role the model does not accept loses its chip, with a line saying so
+    assert "allowed.indexOf(r.role) < 0" in window
+    assert "' removed: this model does not accept it.'" in window
+    assert "allowedRoles: VJH_MODE_ROLES[" in src  # state, so x-show stays reactive
+    assert "requiredRoles: []," in src and "refNotice: ''," in src
+    assert "document.addEventListener('htmx:afterSwap', () => this._syncRefRoles());" in src
+
+
+def test_open_roles_and_add_ref_go_through_the_allowed_list():
+    src = _app_js()
+    idx = src.index("openRoles() {")
+    window = src[idx : idx + 700]
+    assert "return this.allowedRoles.filter(" in window
+    assert "if (this.allowedRoles.indexOf(role) < 0) return;" in window  # addRef refuses
+    # the wording itself comes from the server (constraints.accepts_summary)
+    assert "'Accepts: ' + this.acceptsSummary" in window
+    assert "'This model works from text only.'" in window
+
+
 def test_refs_template_loops_every_role_through_upload_ref():
     """The four roles are a Jinja loop (the rendered per-role markup is asserted in
     tests/test_web_generate.py); this only pins the wiring the loop emits."""
@@ -246,3 +276,8 @@ def test_refs_template_loops_every_role_through_upload_ref():
     # every control is dimmed while one upload is in flight, not just the busy one
     assert ":aria-disabled=\"uploading !== '' ? 'true' : 'false'\"" in html
     assert ":aria-busy=\"uploading === '{{ role }}' ? 'true' : 'false'\"" in html
+    # every slot follows requiredRoles now, not just the first frame
+    assert ":class=\"{ needed: requiredRoles.indexOf('{{ role }}') >= 0 }\"" in html
+    assert ":aria-required=\"requiredRoles.indexOf('{{ role }}') >= 0 ? 'true' : 'false'\"" in html
+    assert 'x-show="allowedRoles.length > 0"' in html  # no slots at all: no add row
+    assert 'x-text="acceptsText()"' in html

@@ -60,6 +60,17 @@ window.generateForm = function (initial) {
     // Same trick for #model-params' data-has-audio: a video model that advertises
     // "feat:audio" gets three sound chips at the end of the Extras row.
     hasAudio: false,
+    // The reference roles THIS model takes, and the ones it insists on, read off
+    // #model-params' data-ref-roles / data-required-roles the same way. Only these
+    // roles get an upload slot, and addRef() refuses anything else, so the form can
+    // never post an input the pre-flight (services/generate.py) would refuse anyway.
+    // The mode's full list is the pre-init default, so nothing flashes hidden.
+    allowedRoles: VJH_MODE_ROLES[initial.mode === 'video' ? 'video' : 'image'].slice(),
+    requiredRoles: [],
+    // the server's own wording (services/constraints.accepts_summary), carried on
+    // data-ref-accepts rather than rebuilt here
+    acceptsSummary: '',
+    refNotice: '',
     uploading: '',
     // the prompt library: the row this form was loaded from (posted back so the job
     // links it instead of creating a second one) and the polish blob to store on it
@@ -150,15 +161,21 @@ window.generateForm = function (initial) {
     roleLabel(role) { return VJH_ROLE_LABELS[role] || role; },
 
     openRoles() {
-      return VJH_MODE_ROLES[this.mode].filter((role) => (
+      return this.allowedRoles.filter((role) => (
         VJH_MULTI_ROLES.indexOf(role) >= 0 || !this.refs.some((r) => r.role === role)
       ));
+    },
+
+    acceptsText() {
+      if (!this.allowedRoles.length) return 'This model works from text only.';
+      return this.acceptsSummary ? 'Accepts: ' + this.acceptsSummary + '.' : '';
     },
 
     addRef(detail) {
       if (!detail || !detail.id) return;
       const role = detail.role || 'reference';
-      if (VJH_MODE_ROLES[this.mode].indexOf(role) < 0) return;
+      if (this.allowedRoles.indexOf(role) < 0) return;
+      this.refNotice = '';
       const ref = {
         id: String(detail.id), role, name: detail.name || String(detail.id), thumb: detail.thumb || '',
       };
@@ -170,7 +187,7 @@ window.generateForm = function (initial) {
       this.refs.push(ref);
     },
 
-    removeRef(index) { this.refs.splice(index, 1); },
+    removeRef(index) { this.refs.splice(index, 1); this.refNotice = ''; },
 
     // "Upload first frame" (and the seed/last/reference twins): post the picked file
     // straight to the Assets library, then drop the stored asset into this role with
@@ -222,6 +239,25 @@ window.generateForm = function (initial) {
     _syncHasAudio() {
       const panel = document.getElementById('model-params');
       this.hasAudio = !!panel && panel.dataset.hasAudio === '1';
+    },
+
+    // Same panel, same swap: which reference roles the freshly chosen model takes.
+    // A chip whose role the new model has no input for is dropped here -- leaving it
+    // would post an id the provider rejects, which is a paid-for failure -- and the
+    // section says so instead of losing it silently.
+    _syncRefRoles() {
+      const panel = document.getElementById('model-params');
+      const list = (raw) => String(raw || '').split(',').map((x) => x.trim()).filter(Boolean);
+      const allowed = panel ? list(panel.dataset.refRoles) : VJH_MODE_ROLES[this.mode].slice();
+      this.allowedRoles = allowed;
+      this.requiredRoles = panel ? list(panel.dataset.requiredRoles) : [];
+      this.acceptsSummary = panel ? (panel.dataset.refAccepts || '') : '';
+      const dropped = this.refs.filter((r) => allowed.indexOf(r.role) < 0);
+      this.refs = this.refs.filter((r) => allowed.indexOf(r.role) >= 0);
+      this.refNotice = dropped.length
+        ? this.roleLabel(dropped[0].role).replace(/^./, (c) => c.toUpperCase())
+          + ' removed: this model does not accept it.'
+        : '';
     },
 
     openPicker(role) {
@@ -286,6 +322,8 @@ window.generateForm = function (initial) {
       document.addEventListener('htmx:afterSwap', () => this._syncNeedsFirstFrame());
       this._syncHasAudio();
       document.addEventListener('htmx:afterSwap', () => this._syncHasAudio());
+      this._syncRefRoles();
+      document.addEventListener('htmx:afterSwap', () => this._syncRefRoles());
       window.addEventListener('ref-picked', (e) => this.addRef(e.detail || {}));
       window.addEventListener('use-polish', (e) => this.usePolish(e.detail || {}));
 

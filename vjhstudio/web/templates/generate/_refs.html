@@ -4,6 +4,15 @@
    dropped when the mode changes, so no stale id can ride along with a submit. #}
 <section class="gen-refs" id="gen-refs">
   <h3>References</h3>
+  {% set accepted = params.ref_roles|default({}, true) %}
+  {# What this model takes, in the wording services/constraints.accepts_summary() builds:
+     the server renders it, and acceptsText() re-renders the same sentence from
+     #model-params' data-ref-accepts after a model change, so the JS never has to
+     re-derive it. #}
+  <p class="muted ref-accepts" x-text="acceptsText()">{% if accepted %}Accepts: {{ params.ref_accepts }}.{% else %}This model works from text only.{% endif %}</p>
+  {# a chip dropped because the freshly picked model has no slot for it says so here,
+     rather than vanishing silently #}
+  <p class="warn ref-notice" x-show="refNotice" x-text="refNotice" style="display:none"></p>
   <div class="ref-chips">
     <template x-for="(r, i) in refs" :key="r.role + '-' + r.id + '-' + i">
       <article class="ref-chip">
@@ -36,17 +45,19 @@
   {% set ref_roles = [('first', 'first frame'), ('last', 'last frame'), ('seed', 'seed image'), ('reference', 'reference')] %}
   {% set mode_roles = ['first', 'last', 'reference'] if mode == 'video' else ['seed', 'reference'] %}
   {% set filled_ref_roles = filled_ref_roles|default([], true) %}
-  <div class="ref-add">
+  <div class="ref-add" x-show="allowedRoles.length > 0"{% if not accepted %} style="display:none"{% endif %}>
     {% for role, label in ref_roles %}
-    {% set needed = role == 'first' and mode == 'video' and params.needs_first_frame %}
-    <span class="ref-slot{{ ' needed' if needed else '' }}" data-role="{{ role }}"{% if role == 'first' %} :class="{ needed: needsFirstFrame }"{% endif %}
-          x-show="openRoles().indexOf('{{ role }}') >= 0"{% if role not in mode_roles or role in filled_ref_roles %} style="display:none"{% endif %}>
+    {% set needed = (accepted.get(role) or {}).get('required') %}
+    <span class="ref-slot{{ ' needed' if needed else '' }}" data-role="{{ role }}"
+          :class="{ needed: requiredRoles.indexOf('{{ role }}') >= 0 }"
+          x-show="openRoles().indexOf('{{ role }}') >= 0"{% if role not in mode_roles or role not in accepted or role in filled_ref_roles %} style="display:none"{% endif %}>
       <label class="ref-upload" aria-busy="false" aria-disabled="false"
              :aria-busy="uploading === '{{ role }}' ? 'true' : 'false'"
              :aria-disabled="uploading !== '' ? 'true' : 'false'">
         Upload {{ label }}
         <input type="file" accept="image/*" aria-label="Upload {{ label }}"
-               aria-required="{{ 'true' if needed else 'false' }}"{% if role == 'first' %} :aria-required="needsFirstFrame ? 'true' : 'false'"{% endif %}
+               aria-required="{{ 'true' if needed else 'false' }}"
+               :aria-required="requiredRoles.indexOf('{{ role }}') >= 0 ? 'true' : 'false'"
                :disabled="uploading !== ''" @change="uploadRef('{{ role }}', $event.target)">
       </label>
       <button type="button" class="secondary outline" @click="openPicker('{{ role }}')">+ Add {{ label }}</button>

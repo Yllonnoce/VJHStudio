@@ -34,6 +34,16 @@ ALEPH_C = {
     "inputs": {"video": {"required": True}},
     "dims": {"mode": "unknown"},
 }
+# a harvested ``inputs`` block, as the docs pass writes it: frames (two of them, so a
+# last-frame slot too) plus up to nine reference images
+SEEDANCE = "vjh:seedance-inputs@1"
+SEEDANCE_C = {
+    "dims": {"mode": "unknown"},
+    "inputs": {
+        "frameImages": {"required": False, "min_items": 1, "max_items": 2},
+        "referenceImages": {"required": False, "min_items": 1, "max_items": 9},
+    },
+}
 NANO_C = {
     "dims": {
         "mode": "list",
@@ -78,6 +88,7 @@ def seeded(app):
     _add(app, ALEPH, "video", "Aleph 2.0", V2V_ONLY, ALEPH_C)
     _add(app, FIRST_ONLY, "video", "FrameStart", I2V_ONLY, None)
     _add(app, NANO, "image", "Nano Banana Pro", ["io:text-to-image"], NANO_C)
+    _add(app, SEEDANCE, "video", "Seedance Inputs", T2V, SEEDANCE_C)
     return app
 
 
@@ -366,7 +377,10 @@ async def test_references_section_calls_out_a_model_that_needs_a_first_frame(cli
     assert 'data-needs-first-frame="true"' in html
     refs = html[html.index('<section class="gen-refs"') : html.index('<dialog id="ref-picker"')]
     assert "This model needs a first-frame image." in refs
-    assert 'style="display:none"' not in refs[: refs.index("This model needs")]
+    # the notice itself is shown, not merely present (the dropped-chip line above it
+    # is the one that starts hidden)
+    notice = refs[refs.index('<p class="warn ref-needs-first"') : refs.index("This model needs")]
+    assert 'style="display:none"' not in notice
     first = refs[refs.index('data-role="first"') : refs.index('data-role="last"')]
     assert 'class="ref-slot needed"' in refs
     assert 'aria-required="true"' in first
@@ -396,3 +410,85 @@ async def test_the_first_frame_flag_follows_a_model_change_in_the_swapped_panel(
     assert 'data-needs-first-frame="true"' in r.text
     r = await client.get(f"/hx/model-options?mode=video&air={VEO}")
     assert 'data-needs-first-frame="false"' in r.text
+
+
+# ---- the accepted reference roles ----------------------------------------
+async def test_params_panel_carries_the_roles_a_harvested_model_accepts(client, seeded):
+    r = await client.get(f"/hx/model-options?mode=video&air={SEEDANCE}")
+    assert 'data-ref-roles="first,last,reference"' in r.text
+    assert 'data-required-roles=""' in r.text
+    assert 'data-ref-accepts="first frame, last frame, up to 9 reference images"' in r.text
+
+
+async def test_params_panel_marks_a_required_role_and_drops_the_rest(client, seeded):
+    r = await client.get(f"/hx/model-options?mode=video&air={FIRST_ONLY}")
+    # no harvested inputs: the capability tags decide, and i2v-only means a first frame
+    assert 'data-ref-roles="first,last"' in r.text
+    assert 'data-required-roles="first"' in r.text
+    assert 'data-ref-accepts="first frame (required), last frame"' in r.text
+
+
+async def test_params_panel_says_text_only_for_a_model_with_no_image_input(client, seeded):
+    r = await client.get(f"/hx/model-options?mode=image&air={NANO}")
+    assert 'data-ref-roles=""' in r.text and 'data-required-roles=""' in r.text
+    assert 'data-ref-accepts="text only"' in r.text
+
+
+async def test_references_section_offers_only_the_accepted_slots(client, seeded, app):
+    from vjhstudio.services import settings as settings_svc
+
+    with db.session_scope(app.state.boot.session_factory) as s:
+        settings_svc.set_many(s, {"defaults.video_model": FIRST_ONLY})
+    html = (await client.get("/generate/video")).text
+    refs = html[html.index('<section class="gen-refs"') : html.index('<dialog id="ref-picker"')]
+    assert "Accepts: first frame (required), last frame." in refs
+    # this model takes no reference images at all, so that slot starts hidden
+    ref_slot = refs[
+        refs.index('data-role="reference"') : refs.index(
+            "<label", refs.index('data-role="reference"')
+        )
+    ]
+    assert 'style="display:none"' in ref_slot
+    first = refs[refs.index('data-role="first"') : refs.index('data-role="last"')]
+    assert 'style="display:none"' not in first
+
+
+async def test_a_text_only_model_hides_the_whole_add_row(client, seeded, app):
+    from vjhstudio.services import settings as settings_svc
+
+    with db.session_scope(app.state.boot.session_factory) as s:
+        settings_svc.set_many(s, {"defaults.image_model": NANO})
+    html = (await client.get("/generate/image")).text
+    refs = html[html.index('<section class="gen-refs"') : html.index('<dialog id="ref-picker"')]
+    assert "This model works from text only." in refs
+    add_row = refs[refs.index('<div class="ref-add"') : refs.index('data-role="first"')]
+    assert 'style="display:none"' in add_row and 'x-show="allowedRoles.length > 0"' in add_row
+
+
+async def test_posting_a_role_the_model_refuses_is_a_422_and_queues_nothing(client, seeded, app):
+    await _key(client)
+    r = await client.post(
+        "/generate/image",
+        data={"project_id": "1", "model": NANO, "subject": "a fox", "seed_image_asset_id": "3"},
+    )
+    assert r.status_code == 422
+    assert "This model does not accept a seed image. Remove it under References." in r.text
+    with db.session_scope(app.state.boot.session_factory) as s:
+        assert s.query(models.Job).count() == 0
+
+
+async def test_posting_a_reference_image_a_frames_only_video_model_refuses(client, seeded, app):
+    await _key(client)
+    r = await client.post(
+        "/generate/video",
+        data={
+            **FORM,
+            "model": FIRST_ONLY,
+            "first_frame_asset_id": "3",  # this one it does take
+            "reference_asset_ids": "4",
+        },
+    )
+    assert r.status_code == 422
+    assert "This model does not accept a reference image. Remove it under References." in r.text
+    with db.session_scope(app.state.boot.session_factory) as s:
+        assert s.query(models.Job).count() == 0

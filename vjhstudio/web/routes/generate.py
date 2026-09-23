@@ -271,12 +271,20 @@ def params_ctx(session, air: str, values: dict | None = None, errors: dict | Non
         (m.default_width if m else None) or 1024,
         (m.default_height if m else None) or 1024,
     )
+    caps = list((m.capabilities_json if m else None) or [])
+    family = catalog.family(m) if m is not None else "diffusion"
+    # which reference roles this model takes, for the slots the References section
+    # offers and for the data-* the panel carries to Alpine on every swap
+    roles = constraints.accepted_roles("image", caps, c, family)
     return {
         "model": m,
         "air": air,
         "mode": "image",
-        "family": catalog.family(m) if m is not None else "diffusion",
-        "capabilities": list((m.capabilities_json if m else None) or []),
+        "family": family,
+        "capabilities": caps,
+        "ref_roles": roles,
+        "required_roles": [r for r, spec in roles.items() if spec["required"]],
+        "ref_accepts": constraints.accepts_summary(roles),
         # no sound in a still: the Extras audio chips are a video-only row
         "has_audio": False,
         "defaults": {
@@ -414,6 +422,7 @@ def video_params_ctx(
         for w, h, name in presets
         for sw, sh in [constraints.nearest_size(c, w, h)]
     ]
+    video_roles = constraints.accepted_roles("video", caps, c)
     return {
         "model": m,
         "air": air,
@@ -427,6 +436,9 @@ def video_params_ctx(
         "sizes": sizes,
         "size_mode": size_mode,
         "needs_first_frame": constraints.needs_first_frame(caps, c),
+        "ref_roles": video_roles,
+        "required_roles": [r for r, spec in video_roles.items() if spec["required"]],
+        "ref_accepts": constraints.accepts_summary(video_roles),
         # a model that makes its own soundtrack earns the three Extras sound chips; the
         # flag rides to Alpine on #model-params' data-has-audio, like needs_first_frame
         "has_audio": AUDIO_CAPABILITY in caps,

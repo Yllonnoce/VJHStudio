@@ -4,10 +4,13 @@
 {# data-needs-first-frame rides in with every swap of this panel: the References
    section (Alpine, outside the swapped subtree) reads it on htmx:afterSwap so its
    "This model needs a first-frame image." notice follows the model select.
-   data-has-audio travels the same way for the three sound chips in Extras. #}
+   data-has-audio travels the same way for the three sound chips in Extras, and
+   data-ref-roles / data-required-roles / data-ref-accepts for the reference slots. #}
 <div id="model-params" class="gen-card"
      data-needs-first-frame="{{ 'true' if needs_first_frame else 'false' }}"
      data-has-audio="{{ '1' if has_audio else '0' }}"
+     data-ref-roles="{{ ref_roles|join(',') }}" data-required-roles="{{ required_roles|join(',') }}"
+     data-ref-accepts="{{ ref_accepts }}"
      hx-get="/hx/model-options?mode=video" hx-trigger="change from:#video-model-select"
      hx-include="#video-model-select" hx-swap="outerHTML">
   <h3>Parameters</h3>
