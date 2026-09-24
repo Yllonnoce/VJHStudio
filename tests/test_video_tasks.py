@@ -177,3 +177,82 @@ def test_portrait_resolution_names_swap_the_sides():
     assert tasks.resolution_wh("1080p Portrait", None) == (1080, 1920)
     # curated dims turn on their side too: LTX's 720p is 1280x704 -> 704x1280
     assert tasks.resolution_wh("720p portrait", {"dims": {"720p": [1280, 704]}}) == (704, 1280)
+
+
+# ---- what a job taught the catalog about frame images and pixels ------------------
+LEARNED_RES = {
+    "air": "minimax:h3@max",
+    "kind": "video",
+    "tiers": {},
+    "provider_settings_schema": [],
+    "constraints": {
+        "size_with_inputs": "resolution",
+        "resolution": {"values": ["480p", "768p"]},
+        "dims": {
+            "mode": "list",
+            "list": [[832, 480], [1344, 768]],
+            "labels": {"832x480": "480p (~16:9)"},
+        },
+    },
+}
+LEARNED_NONE = {**LEARNED_RES, "constraints": {"size_with_inputs": "none"}}
+
+
+def test_frames_swap_pixels_for_the_preset_the_model_learned_to_want():
+    """MiniMax H3 Max refuses width/height next to a frame image and takes a
+    ``resolution`` preset instead; once a job has taught the row that, the builder
+    sends the preset up front (snapped to the values the model lists) and no pixels."""
+    t = tasks.build_video_task(
+        req(model=LEARNED_RES["air"], first_frame_asset_id=5, resolution="720p"),
+        "u",
+        {5: "uuid-5"},
+        LEARNED_RES,
+    )
+    assert "width" not in t and "height" not in t and t["resolution"] == "768p"
+    assert t["inputs"]["frameImages"][0]["image"] == "uuid-5"
+    # text-to-video on the same row keeps its pixels: the rule is about inputs only
+    plain = tasks.build_video_task(req(model=LEARNED_RES["air"]), "u", {}, LEARNED_RES)
+    assert (plain["width"], plain["height"]) == (1280, 720) and "resolution" not in plain
+    # a model that takes no preset either: the frame alone sizes the clip
+    none = tasks.build_video_task(
+        req(model=LEARNED_RES["air"], first_frame_asset_id=5), "u", {5: "uuid-5"}, LEARNED_NONE
+    )
+    assert "width" not in none and "height" not in none and "resolution" not in none
+    # reference images count as inputs too
+    refs = tasks.build_video_task(
+        req(model=LEARNED_RES["air"], reference_asset_ids=[5]), "u", {5: "uuid-5"}, LEARNED_RES
+    )
+    assert "width" not in refs and refs["resolution"] == "768p"
+
+
+def test_resolution_tier_names_the_preset_a_task_was_built_from():
+    """The hint the runner swaps in when a model refuses pixels mid-job."""
+    assert tasks.resolution_tier(req(resolution="720p"), BARE) == "720p"
+    assert tasks.resolution_tier(req(resolution="1080p portrait"), BARE) == "1080p"
+    # posted pixels: the model's own label for that size, else the shorter side
+    assert tasks.resolution_tier(req(width=832, height=480), LEARNED_RES) == "480p"
+    assert tasks.resolution_tier(req(width=1344, height=768), LEARNED_RES) == "768p"
+    assert tasks.resolution_tier(req(width=1920, height=1080), BARE) == "1080p"
+    assert tasks.resolution_tier(req(width=3840, height=2160), BARE) == "4K"
+    # snapped to the presets the model lists, by their number
+    assert tasks.resolution_tier(req(resolution="1080p"), LEARNED_RES) == "768p"
+
+
+def test_duration_snaps_to_the_values_a_job_learned():
+    row = {**BARE, "constraints": {"duration": {"values": [6, 10]}}}
+    assert tasks.build_video_task(req(duration=5, model=BARE["air"]), "u", {}, row)["duration"] == 6
+    assert (
+        tasks.build_video_task(req(duration=9, model=BARE["air"]), "u", {}, row)["duration"] == 10
+    )
+    # the curated list still wins when both exist
+    both = {**VEO, "constraints": {"duration": {"values": [6, 10]}}}
+    assert tasks.build_video_task(req(duration=5), "u", {}, both)["duration"] == 4
+
+
+def test_tier_name_reads_any_p_token_the_label_spells():
+    """MiniMax H3 Max labels its larger sizes "768p (~16:9)": that is the preset the
+    model wants, not the 1080p the shorter side would round to."""
+    assert tasks.tier_name(1344, 768, "768p (~16:9)") == "768p"
+    assert tasks.tier_name(960, 528, "540p (~16:9)") == "540p"
+    assert tasks.tier_name(1344, 768, "") == "1080p"
+    assert tasks.resolution_tier(req(width=1344, height=768), LEARNED_RES) == "768p"

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from ..schemas.image import ImageRequest
 from ..schemas.video import VideoRequest
 from ..services import prompts
@@ -165,6 +167,69 @@ def resolution_wh(resolution: str, video: dict | None = None) -> tuple[int, int]
     return (h, w) if portrait else (w, h)
 
 
+# The tier names a size can be priced and, for a frame job, *requested* by; longest
+# first so "1080p" never loses to a shorter token inside it.
+TIER_TOKENS = ("1080p", "720p", "480p", "4K", "2K")
+TIER_BY_SHORT_SIDE = ((480, "480p"), (720, "720p"), (1080, "1080p"))
+_LEADING_NUMBER = re.compile(r"^\s*(\d+)")
+_P_TOKEN = re.compile(r"\b(\d{3,4}p)\b")
+
+
+def tier_name(w: int, h: int, label: str = "") -> str:
+    """The tier a size belongs to: whatever token the model's own dimension label
+    already spells ("4K (16:9)" -> "4K"), else the closest one by the shorter side."""
+    lowered = (label or "").lower()
+    for token in TIER_TOKENS:
+        if token.lower() in lowered:
+            return token
+    spelled = _P_TOKEN.search(lowered)  # "768p (~16:9)", "540p": the model's own tier
+    if spelled:
+        return spelled.group(1)
+    short = min(int(w), int(h))
+    for limit, token in TIER_BY_SHORT_SIDE:
+        if short <= limit:
+            return token
+    return "4K"
+
+
+def _tier_number(name: str) -> float | None:
+    m = _LEADING_NUMBER.match(str(name))
+    if m:
+        return float(m.group(1))
+    return 2160.0 if str(name).strip().lower() == "4k" else None
+
+
+def nearest_preset(name: str, values: list[str]) -> str:
+    """``name`` if the model lists it, else the listed preset closest by its number
+    ("720p" against ['480p', '768p'] -> "768p"), else the first listed one."""
+    if not values or name in values:
+        return name
+    want = _tier_number(name)
+    numbered = [(v, _tier_number(v)) for v in values]
+    if want is None or any(n is None for _, n in numbered):
+        return values[0]
+    return min(numbered, key=lambda vn: (abs(vn[1] - want), vn[1]))[0]
+
+
+def resolution_tier(req: VideoRequest, model_row: dict) -> str:
+    """The resolution preset a request stands for -- what replaces width/height on a
+    model that refuses pixels next to a frame image. Posted pixels are named by the
+    model's own label for that size (else by the shorter side); a preset name is used
+    as given, minus its orientation. Snapped to the presets the model lists, if known."""
+    c = (model_row or {}).get("constraints") or {}
+    if req.width and req.height:
+        labels = (c.get("dims") or {}).get("labels") or {}
+        name = tier_name(req.width, req.height, labels.get(f"{req.width}x{req.height}", ""))
+    else:
+        name, _portrait = split_orientation(req.resolution)
+        name = name if name.lower() in RESOLUTIONS else DEFAULT_RESOLUTION
+        name = "4K" if name.lower() == "4k" else name.lower()
+    values = (
+        (c.get("resolution") or {}).get("values") if isinstance(c.get("resolution"), dict) else None
+    )
+    return nearest_preset(name, [str(v) for v in values] if isinstance(values, list) else [])
+
+
 def provider_key(air: str) -> str:
     """``"google:3@2"`` -> ``"google"``: the key ``providerSettings`` is nested under."""
     return (air or "").split(":", 1)[0]
@@ -188,15 +253,19 @@ def build_video_task(
     """``model_row`` is a ``catalog.view()`` dict: its ``tiers.video`` block says which
     durations and frame rates the provider will actually accept."""
     video = dict(((model_row or {}).get("tiers") or {}).get("video") or {})
-    duration = nearest(req.duration, video.get("durations") or [])
+    c = (model_row or {}).get("constraints") or {}
+    # the curated list first; else the durations a job or the docs page learned
+    learned = (
+        (c.get("duration") or {}).get("values") if isinstance(c.get("duration"), dict) else None
+    )
+    duration = nearest(req.duration, video.get("durations") or learned or [])
     # Pixels posted by a constraint-aware size select win: the model told us which exact
     # sizes it accepts, so a preset name would only round them back off the list. They
     # are still snapped to whatever the constraints say, because the form is not the only
     # way a request can be built (a remix, a hand-edited post) -- the runner's one-shot
     # size correction stays the backstop, this just spends no round trip on the obvious.
     if req.width and req.height:
-        dims = ((model_row or {}).get("constraints") or {}).get("dims") or {}
-        width, height = nearest_size_in(dims, int(req.width), int(req.height))
+        width, height = nearest_size_in(c.get("dims") or {}, int(req.width), int(req.height))
     else:
         width, height = resolution_wh(req.resolution, video)
     task: dict = {
@@ -230,6 +299,15 @@ def build_video_task(
         inputs["referenceImages"] = refs
     if inputs:
         task["inputs"] = inputs
+        # Some models stop taking width/height once an image is attached (the image
+        # fixes the aspect ratio): a ``resolution`` preset picks the tier instead, or
+        # nothing does. The row learns which from its docs page or from a job's own
+        # free retry (runner.size_to_resolution), and here it costs no round trip.
+        with_inputs = c.get("size_with_inputs")
+        if with_inputs in ("resolution", "none"):
+            task.pop("width"), task.pop("height")
+            if with_inputs == "resolution":
+                task["resolution"] = resolution_tier(req, model_row)
     if req.provider_settings:
         task["providerSettings"] = {provider_key(req.model): dict(req.provider_settings)}
     task.update({k: v for k, v in (req.extra_json or {}).items() if k not in PROTECTED})

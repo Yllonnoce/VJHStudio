@@ -281,3 +281,127 @@ def test_accepts_summary_wording():
     assert C.accepts_summary(C.accepted_roles("image", [], EDIT_ONLY)) == (
         "reference images (required)"
     )
+
+
+# ---- inputs the app cannot supply -----------------------------------------------------
+FABRIC = {"inputs": {"image": {"required": True}, "audio": {"required": True}}}
+ANIMATE = {"inputs": {"referenceImages": {"required": True}, "referenceVideos": {"required": True}}}
+
+
+def test_an_input_the_app_cannot_supply_makes_a_model_unusable():
+    assert C.unsuppliable_input(FABRIC) == "audio"
+    assert C.unsuppliable_input(ANIMATE) == "referenceVideos"
+    assert C.unsuppliable_input(ALEPH) == "video"
+    assert C.unsuppliable_input(KLING) is None and C.unsuppliable_input(None) is None
+    assert (
+        C.is_generate_capable("video", ["io:image-to-video", "io:audio-to-video"], FABRIC) is False
+    )
+    assert C.is_generate_capable("video", ["io:text-to-video"], ANIMATE) is False
+    assert C.is_generate_capable("video", ["io:text-to-video"], KLING) is True
+    assert C.UNSUPPLIABLE_LABELS["audio"] == "an audio track"
+    assert C.UNSUPPLIABLE_LABELS["referenceVideos"] == "a reference video"
+    assert C.UNSUPPLIABLE_LABELS["video"] == "an input video"
+
+
+def test_docs_rules_seed_how_frames_and_pixels_go_together():
+    """The docs page says "When inputs.frameImages is provided, width/height cannot be
+    used": with a ``resolution`` parameter on the page the preset replaces the pair,
+    without one nothing does. The preset's own values are kept too."""
+    docs = {
+        "params": {"resolution": {"type": "string", "values": ["480p", "768p"]}},
+        "inputs": {},
+        "dims": [],
+        "rules": {"frames_forbid_size": True},
+    }
+    out = C.merge_sources(None, docs=docs, api=None, now="t")
+    assert out["size_with_inputs"] == "resolution"
+    assert out["resolution"] == {"type": "string", "values": ["480p", "768p"]}
+    docs2 = {"params": {}, "inputs": {}, "dims": [], "rules": {"frames_forbid_size": True}}
+    assert C.merge_sources(None, docs=docs2, api=None, now="t")["size_with_inputs"] == "none"
+    docs3 = {"params": {}, "inputs": {}, "dims": []}
+    assert "size_with_inputs" not in C.merge_sources(None, docs=docs3, api=None, now="t")
+    # a job's own observation outranks a later docs pass
+    seen = {
+        "size_with_inputs": "resolution",
+        "sources": {"docs": None, "api": None, "observed": "t0"},
+    }
+    assert C.merge_sources(seen, docs=docs2, api=None, now="t")["size_with_inputs"] == "resolution"
+
+
+def test_observe_merges_a_patch_and_stamps_the_source():
+    out = C.observe(KLING, {"duration": {"values": [6, 10]}}, "t1")
+    assert out["duration"] == {"min": 3, "max": 15, "step": 1, "default": 5, "values": [6, 10]}
+    assert out["dims"] == KLING["dims"] and out["sources"]["observed"] == "t1"
+    out2 = C.observe(None, {"inputs": {"frameImages": {"required": True}}}, "t2")
+    assert out2["inputs"] == {"frameImages": {"required": True}}
+    nested = C.observe(
+        {"inputs": {"frameImages": {"required": False, "max_items": 2}}},
+        {"inputs": {"frameImages": {"max_items": 1}}},
+        "t3",
+    )
+    assert nested["inputs"]["frameImages"] == {"required": False, "max_items": 1}
+
+
+def test_a_rejection_can_teach_the_row_which_inputs_are_required():
+    missing = "Missing required parameter: 'inputs.frameImages'."
+    assert C.rejection_patch(missing, None) == {"inputs": {"frameImages": {"required": True}}}
+    # Wan 2.6 Flash: "inputs must be an object" with none sent, and the docs offer frames
+    shape = "Invalid type for 'inputs'. 'inputs' must be an object."
+    wan = {"inputs": {"frameImages": {"required": False}}}
+    assert C.rejection_patch(shape, wan) == {"inputs": {"frameImages": {"required": True}}}
+    assert C.rejection_patch(shape, None) is None  # nothing offerable to require
+    kling = (
+        "Unsupported parameter width/height. Use Kling 2.6 Pro for T2V or I2V requests. Kling "
+        "2.6 Standard only works in Motion Control mode (with inputs.referenceImages and "
+        "inputs.referenceVideos)."
+    )
+    assert C.rejection_patch(kling, None) == {
+        "inputs": {"referenceImages": {"required": True}, "referenceVideos": {"required": True}}
+    }
+    assert C.rejection_patch("Unsupported use of 'steps' parameter.", None) is None
+
+
+def test_observations_from_a_finished_job():
+    """What each runner record teaches the catalog row."""
+    assert C.observation_patch(
+        {"field": "width/height", "action": "converted_to_resolution", "to": "720p"}
+    ) == {"size_with_inputs": "resolution"}
+    assert C.observation_patch({"field": "width/height", "action": "dropped"}) == {
+        "size_with_inputs": "none"
+    }
+    assert C.observation_patch(
+        {"field": "duration", "action": "corrected", "from": 5, "to": 6, "values": [6, 10]}
+    ) == {"duration": {"values": [6, 10]}}
+    assert C.observation_patch({"field": "inputs.frameImages", "action": "trimmed", "max": 1}) == {
+        "inputs": {"frameImages": {"max_items": 1}}
+    }
+    assert C.observation_patch({"field": "steps", "action": "dropped"}) is None
+    assert C.observation_patch({"field": "width/height", "action": "corrected", "dims": {}}) is None
+
+
+def test_job_observations_read_the_whole_retry_chain():
+    """Kling 2.6 Standard, live: width/height became a preset, then ``duration`` and the
+    preset itself were dropped as unsupported, and a bare prompt was accepted. That
+    teaches "no preset either", not "send a preset" -- and only for a task that carried
+    an input image at all, since the key describes what an image changes."""
+    swapped = {"field": "width/height", "action": "converted_to_resolution", "to": "720p"}
+    with_frames = {"inputs": {"frameImages": [{"image": "u", "frame": "first"}]}}
+    assert C.job_observations([swapped], with_frames) == {"size_with_inputs": "resolution"}
+    chain = [
+        swapped,
+        {"field": "duration", "action": "dropped"},
+        {"field": "resolution", "action": "dropped"},
+    ]
+    assert C.job_observations(chain, with_frames) == {"size_with_inputs": "none"}
+    assert C.job_observations(chain, {"positivePrompt": "p"}) == {}  # no image: says nothing
+    both = [
+        swapped,
+        {"field": "duration", "action": "corrected", "from": 5, "to": 6, "values": [6, 10]},
+    ]
+    assert C.job_observations(both, with_frames) == {
+        "size_with_inputs": "resolution",
+        "duration": {"values": [6, 10]},
+    }
+    assert (
+        C.job_observations([{"field": "width/height", "action": "corrected", "dims": {}}], {}) == {}
+    )

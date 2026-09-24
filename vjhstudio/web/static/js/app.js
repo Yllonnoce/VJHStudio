@@ -931,3 +931,22 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
 else vjhEnhanceSteppers(document);
 document.addEventListener('htmx:afterSettle', function (e) { vjhEnhanceSteppers(e.target || document); });
 document.addEventListener('htmx:historyRestore', function () { vjhEnhanceSteppers(document); });
+
+// The Models page folds each kind's list under its heading, closed to start. What the
+// user opened is remembered per section in this browser (like the theme), so a list
+// they keep coming back to stays open. localStorage can be missing or blocked, so
+// every touch is guarded and the page works without it.
+(() => {
+  const KEY = 'vjh-models-open';
+  const folds = document.querySelectorAll('details.models-fold');
+  if (!folds.length) return;
+  let open = {};
+  try { open = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { open = {}; }
+  folds.forEach((d) => {
+    if (open[d.id]) d.open = true;
+    d.addEventListener('toggle', () => {
+      open[d.id] = d.open;
+      try { localStorage.setItem(KEY, JSON.stringify(open)); } catch (e) { /* private window etc. */ }
+    });
+  });
+})();

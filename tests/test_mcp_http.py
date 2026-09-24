@@ -212,10 +212,13 @@ async def test_cross_site_origin_does_not_block_a_tokened_mcp_post(mcp_app):
 
 
 async def test_connection_failures_are_traced(mcp_app):
-    async with mcp_app.router.lifespan_context(mcp_app), httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=mcp_app, client=("10.0.0.5", 1234)),
-        base_url="http://test",
-    ) as c:
+    async with (
+        mcp_app.router.lifespan_context(mcp_app),
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=mcp_app, client=("10.0.0.5", 1234)),
+            base_url="http://test",
+        ) as c,
+    ):
         await c.post("/mcp", json={}, headers={"Authorization": "Bearer wrong"})
         await c.post(
             "/mcp",

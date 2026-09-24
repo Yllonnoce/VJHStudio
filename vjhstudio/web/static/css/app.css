@@ -244,6 +244,13 @@ tr.hidden-model{opacity:.55}
 .model-actions small{color:var(--sp-muted)}
 .model-actions > form > small{margin-top:auto}
 .model-actions details{width:100%}
+/* The three folding model lists: the heading IS the summary, so it keeps its size and
+   the disclosure marker sits on its baseline; the count reads as a quiet suffix. */
+.models-fold{margin-bottom:.5rem}
+.models-fold > summary{display:flex;align-items:baseline;gap:.5rem;cursor:pointer}
+.models-fold > summary h2{margin:0;display:inline}
+.models-fold > summary .count{color:var(--sp-muted);font-weight:normal;font-size:.8em}
+.models-fold[open] > summary{margin-bottom:.75rem}
 .model-search{display:flex;flex-wrap:wrap;align-items:center;gap:.75rem}
 .model-search input[type="search"]{flex:2 1 18rem;margin:0}
 .model-search select{flex:0 1 9rem;margin:0}

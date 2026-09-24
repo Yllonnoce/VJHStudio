@@ -43,6 +43,14 @@ _CODE = re.compile(r"<code[^>]*>([^<]*)</code>")
 _DIMS_BLOCK = re.compile(r'class="component-ModelDimensions".*?</table>', re.S)
 _DIM_CELL = re.compile(r'<code class="dimension-value"[^>]*>([^<]*)</code>')
 _WXH = re.compile(r"^(\d{2,5})x(\d{2,5})$")
+# The "Parameter Dependencies" prose. Read from the tag-stripped page text, so it does not
+# matter how the sentence is marked up: "When inputs.frameImages is provided, width/height
+# cannot be used." (MiniMax H3, HappyHorse) means a frame job must send a resolution
+# preset -- or nothing -- instead of pixels.
+_TAG = re.compile(r"<[^>]+>")
+_FRAMES_FORBID_SIZE = re.compile(
+    r"when\s+inputs\.frameImages\s+is provided,\s+width\s*/\s*height\s+cannot be used", re.I
+)
 EMPTY = {"params": {}, "inputs": {}, "dims": [], "dim_labels": {}}
 
 
@@ -163,7 +171,21 @@ def parse_docs(html: str) -> dict:
                 pending = cell
     if not params and not inputs and not dims:
         return {"params": {}, "inputs": {}, "dims": [], "dim_labels": {}}
-    return {"params": params, "inputs": inputs, "dims": dims, "dim_labels": labels}
+    out = {"params": params, "inputs": inputs, "dims": dims, "dim_labels": labels}
+    rules = parse_rules(html)
+    if rules:
+        out["rules"] = rules
+    return out
+
+
+def parse_rules(html: str) -> dict:
+    """The page's parameter dependencies the builder must honour, as flags. Only the
+    ones that are found are present, so an ordinary page carries no ``rules`` at all."""
+    text = htmllib.unescape(re.sub(r"\s+", " ", _TAG.sub(" ", html or "")))
+    rules: dict = {}
+    if _FRAMES_FORBID_SIZE.search(text):
+        rules["frames_forbid_size"] = True
+    return rules
 
 
 async def fetch_docs_html(

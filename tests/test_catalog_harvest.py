@@ -180,31 +180,71 @@ async def test_harvest_with_no_api_flag_sends_nothing(client, app, fake):
 # --- (c) a probe that was accepted -----------------------------------------
 
 
-async def test_a_billed_probe_stops_the_whole_harvest(client, app, fake):
+async def test_a_billed_probe_blocks_the_model_and_its_provider_and_the_run_goes_on(
+    client, app, fake
+):
+    """Seen live 2026-09-24: FLUX.2 [max] (bfl:7@1) accepted the unknown-key probe and the
+    whole run stopped at 1 of 206. An accepted probe is one charge, already made; stopping
+    there gains nothing. The model is remembered as billed, every other model of that
+    provider is left to its docs page for this run (the same validation path is likely to
+    accept again), and the rest of the catalog still gets harvested. The message says
+    what happened, with the balance before and after."""
+    _seed(
+        app,
+        [
+            {
+                "air": "acme:9@2",
+                "slug": "x",
+                "name": "Acme Two",
+                "kind": "image",
+                "source": "curated",
+            }
+        ],
+    )
     _two_models(app)
-    fake.script["account_management"] = [[{"balance": 10.0}]] * 12
-    # Kling answers both probes; the image model's first probe is *accepted* — which
-    # means RunWare would bill for it, so nothing else may be sent.
+    fake.script["account_management"] = [[{"balance": 10.0}]] * 4 + [[{"balance": 9.9}]] * 12
+    # Kling answers both probes; the image model's first probe is *accepted*; the second
+    # acme model is never asked
     fake.script["run"] = [
         _err(PARAMS_MSG),
         _err(KLING_DIMS_MSG),
         [{"taskUUID": "accepted", "imageURL": "http://x/i.png"}],
     ]
-    state = await _harvest(app, api_key=KEY)
+    state = await constraints.harvest(
+        app.state.boot.session_factory,
+        client_factory=app.state.client_factory,
+        state=constraints.HarvestState(),
+        api_key=KEY,
+        airs=[KLING, IMAGE, "acme:9@2"],
+        docs_transport=docs_transport({"kling-4k": "kling-4k.html"}),
+    )
 
-    assert len(state.rows) == 1 and state.rows[0]["air"] == KLING
-    assert state.message.startswith("STOPPED")
-    assert "was accepted" in state.message
-    # the stopped model is remembered as billed so no harvest ever probes it again
+    assert state.done == 3 and not state.running
+    assert _row(state, KLING)["api"] == "ok"
+    assert _row(state, IMAGE)["api"].startswith("error: probe for acme:9@1 was accepted")
+    assert (
+        _row(state, "acme:9@2")["api"]
+        == "skipped: acme accepted a probe earlier in this run; docs page only"
+    )
     assert _stored(app, IMAGE)["probe"]["blocked"] is True
-    # two probes for Kling plus the one that was accepted, and nothing after it
+    assert "probe" not in _stored(app, "acme:9@2")
     assert len([c for c in fake.calls if c[0] == "run"]) == 3
+    assert state.message.startswith("Harvested")
+    assert (
+        "WARNING" in state.message
+        and "acme:9@1" in state.message
+        and "was accepted" in state.message
+    )
+    assert "before $10.00, after $9.90" in state.message
 
 
 # --- (d) the balance moved -------------------------------------------------
 
 
-async def test_a_balance_change_stops_the_harvest(client, app, fake):
+async def test_a_balance_change_is_reported_and_the_run_goes_on(client, app, fake):
+    """A background generation finishing mid-harvest moves the balance too; that is not
+    a reason to abandon the other 200 models. The model probed at that moment is
+    remembered as possibly billed, and the message says the balance moved."""
     _two_models(app)
     fake.script["account_management"] = [
         [{"balance": 10.0}],
@@ -219,12 +259,15 @@ async def test_a_balance_change_stops_the_harvest(client, app, fake):
     ]
     state = await _harvest(app, api_key=KEY)
 
-    assert state.message.startswith("STOPPED: the balance changed")
+    assert not state.running and state.done == 2
+    assert _row(state, IMAGE)["api"] == "ok"  # the run carried on
+    assert _stored(app, KLING)["probe"]["blocked"] is True
+    assert state.message.startswith("Harvested 2 of 2")
+    assert "WARNING" in state.message and "the balance changed" in state.message
     assert "before $10.00, after $9.00" in state.message
     # a background generation finishing mid-harvest moves the balance too, and the
     # message has to say so before it asks for a report
     assert "If a generation finished while it ran, that explains it" in state.message
-    assert not state.running
 
 
 async def test_an_unreadable_balance_stops_before_any_probe(client, app, fake):
@@ -255,9 +298,9 @@ async def test_a_per_model_error_does_not_stop_the_others(client, app, fake):
     assert state.message == "Harvested 2 of 2 models (2 with sizes known). 1 had errors."
 
 
-async def test_a_crash_in_one_row_cancels_the_queued_probes(client, app, fake):
-    """Nothing may be sent after the closing balance read — including by a probe that
-    was still queued when the run fell over."""
+async def test_a_crash_in_one_row_is_that_row_s_error_and_the_run_goes_on(client, app, fake):
+    """Error checking per model: whatever falls over while handling one row is recorded
+    on that row, and the next model still gets its turn."""
     _two_models(app)
     fake.script["account_management"] = [[{"balance": 10.0}]] * 12
     fake.script["run"] = [
@@ -267,16 +310,22 @@ async def test_a_crash_in_one_row_cancels_the_queued_probes(client, app, fake):
         _err(RULE_DIMS_MSG),
     ]
     state = constraints.HarvestState()
-    state.add_row = lambda row: (_ for _ in ()).throw(RuntimeError("row exploded"))
+    real_add = state.add_row
+    calls = []
 
+    def flaky(row):
+        calls.append(row["air"])
+        if len(calls) == 1:
+            raise RuntimeError("row exploded")
+        real_add(row)
+
+    state.add_row = flaky
     out = await _harvest(app, api_key=KEY, state=state)
 
-    assert out.message == "Harvest failed: row exploded"
-    # Kling's two probes and nothing else: the image model's probe never started
-    assert len([c for c in fake.calls if c[0] == "run"]) == 2
-    # and the balance was still read on the way out (run before/after + Kling's pair)
-    assert len([c for c in fake.calls if c[0] == "account_management"]) == 4
     assert not out.running
+    assert len([c for c in fake.calls if c[0] == "run"]) == 4  # both models were probed
+    assert out.message.startswith("Harvested") and "1 had errors" in out.message
+    assert any(str(r["api"]).startswith("error: row exploded") for r in out.rows)
 
 
 async def test_a_client_that_will_not_open_keeps_the_docs_results(client, app, fake):
@@ -440,21 +489,27 @@ def test_probe_command_flags():
 # --- per-model balance guard and blocked rows ------------------------------
 
 
-async def test_a_balance_change_after_one_model_stops_before_the_next(client, app, fake):
+async def test_a_balance_change_after_one_model_blocks_it_and_moves_on(client, app, fake):
     _two_models(app)
-    # run-before 10, Kling-before 10, Kling-after 9 -> stop right there
+    # run-before 10, Kling-before 10, Kling-after 9 -> Kling is remembered as billed, and
+    # the image model is still probed
     fake.script["account_management"] = [
         [{"balance": 10.0}],
         [{"balance": 10.0}],
         [{"balance": 9.0}],
     ] + [[{"balance": 9.0}]] * 8
-    fake.script["run"] = [_err(PARAMS_MSG), _err(KLING_DIMS_MSG), _err(PARAMS_MSG)]
+    fake.script["run"] = [
+        _err(PARAMS_MSG),
+        _err(KLING_DIMS_MSG),
+        _err(PARAMS_MSG),
+        _err(RULE_DIMS_MSG),
+    ]
     state = await _harvest(app, api_key=KEY)
 
-    assert state.message.startswith("STOPPED: the balance changed")
-    assert len([c for c in fake.calls if c[0] == "run"]) == 2  # Kling only; IMAGE never probed
+    assert "WARNING" in state.message and "the balance changed while probing" in state.message
+    assert {p["model"] for n, p in fake.calls if n == "run"} == {KLING, IMAGE}
     assert _stored(app, KLING)["probe"]["blocked"] is True
-    assert _stored(app, IMAGE) == {}
+    assert _row(state, IMAGE)["api"] == "ok"
 
 
 async def test_a_blocked_model_is_never_probed_again(client, app, fake):

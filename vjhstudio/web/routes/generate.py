@@ -21,6 +21,7 @@ from runware import RunwareError
 
 from ... import db
 from ...models import CatalogModel
+from ...runware import tasks
 from ...runware.errors import classify
 from ...runware.tasks import PORTRAIT_SUFFIX, nearest, resolution_wh, split_orientation
 from ...schemas.image import ImageRequest, PromptForm
@@ -338,25 +339,10 @@ def _video_presets(tiers: dict, resolutions: list[str]) -> list[tuple[int, int, 
     return [(*resolution_wh(name, tiers), name) for name in resolutions]
 
 
-# The tier names ``rate_for`` matches against, longest first so "1080p" never loses to a
-# shorter token inside it. A list-mode model posts one of these so the estimate can still
-# price by tier even though no Resolution select is rendered.
-TIER_TOKENS = ("1080p", "720p", "480p", "4K", "2K")
-TIER_BY_SHORT_SIDE = ((480, "480p"), (720, "720p"), (1080, "1080p"))
-
-
-def _tier_name(w: int, h: int, label: str) -> str:
-    """The tier a listed size belongs to: whatever token the model's own dimension label
-    already spells ("4K (16:9)" -> "4K"), else the closest one by the shorter side."""
-    lowered = (label or "").lower()
-    for token in TIER_TOKENS:
-        if token.lower() in lowered:
-            return token
-    short = min(int(w), int(h))
-    for limit, token in TIER_BY_SHORT_SIDE:
-        if short <= limit:
-            return token
-    return "4K"
+# The tier names ``rate_for`` matches against live with the task builder now (a frame
+# job may have to *request* one); the alias keeps this module's callers and tests.
+TIER_TOKENS = tasks.TIER_TOKENS
+_tier_name = tasks.tier_name
 
 
 def _duration_default(spec: dict, choices: list) -> float | int:

@@ -85,7 +85,10 @@ def _base(air: str, kind: str) -> dict:
 # them. They get docs-page constraints only.
 # Nano Banana Pro (google:4@2) accepted it too on the same day, so the whole Google
 # prefix is out, Veo included (Veo has curated and docs-page constraints anyway).
-UNSAFE_PREFIXES = ("google:", "luma:", "sourceful:")
+# 2026-09-24: FLUX.2 [max] (bfl:7@1) and Runway Gen-4 Image (runway:4@1) each accepted it
+# and billed one image (~$0.07 each), so those two prefixes are out as well. (Runway Aleph
+# was rejected, but only because RunWare itself checks its required inputs.video first.)
+UNSAFE_PREFIXES = ("google:", "luma:", "sourceful:", "bfl:", "runway:")
 # Error codes the SDK can raise before a request is submitted. Anything else after a
 # send (a polling timeout above all) means the task was accepted and will be billed.
 PRE_SUBMIT_CODES = ("auth", "quota", "rateLimit", "connection", "validation")

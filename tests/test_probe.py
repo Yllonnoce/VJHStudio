@@ -92,7 +92,7 @@ async def test_probe_model_sends_two_guaranteed_rejected_requests():
 @pytest.mark.asyncio
 async def test_probe_skips_size_probe_when_model_has_no_width_height():
     fake = FakeRunware({"run": [_err(ALEPH_ALLOWED, "vjhProbe")]})
-    res = await P.probe_model(fake, "runway:aleph@2.0", "video")
+    res = await P.probe_model(fake, "acme:aleph@2.0", "video")
     assert len([1 for n, _ in fake.calls if n == "run"]) == 1
     assert res.dims is None and "inputs.video" in res.params
 
@@ -153,6 +153,8 @@ async def test_unsafe_providers_are_never_probed():
         "google:4@2",
         "luma:ray@3.2",
         "sourceful:riverflow-2.0@pro",
+        "bfl:7@1",  # FLUX.2 [max], accepted and billed 2026-09-24
+        "runway:4@1",  # Gen-4 Image, same day
     ):
         res = await P.probe_model(fake, air, "video")
         assert res.errors == [P.SKIPPED_UNSAFE] and res.params == [] and res.dims is None

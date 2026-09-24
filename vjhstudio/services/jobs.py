@@ -23,7 +23,7 @@ from ..runware import download
 from ..runware import runner as policy
 from ..runware.download import DownloadError
 from ..runware.errors import classify
-from ..runware.tasks import build_image_task, build_video_task
+from ..runware.tasks import build_image_task, build_video_task, resolution_tier
 from ..schemas.image import ImageRequest
 from ..schemas.video import VideoRequest
 from . import assets, catalog, constraints, costs, projects
@@ -313,6 +313,7 @@ class JobRunner:
             )
 
     async def _execute(self, job_id: str) -> None:
+        plan: _Plan | None = None
         try:
             # inside the try: a row whose request_json no longer validates must end up
             # failed with a message, not stuck in `running` behind a swallowed traceback.
@@ -341,6 +342,7 @@ class JobRunner:
                     cancel_event=ev,
                     on_progress=lambda p: self._on_progress(job_id, p),
                     on_attempt=lambda t, d: self._save_task(job_id, t, d),
+                    resolution=resolution_tier(plan.req, plan.model_row) if plan.is_video else None,
                 )
             if ev.is_set():
                 raise RunwareError("aborted", "Request aborted")
@@ -359,6 +361,8 @@ class JobRunner:
             self._fail(job_id, "upload", e.message)
         except RunwareError as e:
             err = classify(e)
+            if err.code == "validation" and plan is not None:
+                self._persist_rejection(plan, e)
             self._fail(job_id, err.code, err.message, cancelled=err.code == "aborted")
         except DownloadError as e:
             self._fail(job_id, "download", str(e))
@@ -417,23 +421,48 @@ class JobRunner:
                 )
             if result.duration_ms is not None:  # retries/backoff would poison the average
                 costs.observe_latency(s, plan.model_air, result.duration_ms)
-            self._persist_size_corrections(s, plan, result)
+            self._persist_observations(s, plan, result)
         return total
 
-    def _persist_size_corrections(self, s, plan: _Plan, result) -> None:
-        """A size the runner had to correct mid-job (``runner.size_correction``) is free,
-        confirmed evidence of what the model actually accepts: record it on the catalog
-        row so future jobs and the Models page pick it up without another probe."""
+    def _persist_observations(self, s, plan: _Plan, result) -> None:
+        """What the runner had to change mid-job is free, confirmed evidence of what the
+        model actually accepts: a corrected size (``runner.size_correction``), pixels
+        swapped for a resolution preset, a duration moved onto the model's list, a frame
+        list trimmed to its cap. Record it on the catalog row so the next job is built
+        right first time and the Models page shows it, without another probe."""
+        if not result.dropped:
+            return
+        model = catalog.get_by_air(s, plan.model_air)
+        if model is None:
+            return
         now = utcnow().isoformat()
+        learned = model.constraints_json
         for rec in result.dropped:
-            if rec.get("action") != "corrected":
-                continue
-            model = catalog.get_by_air(s, plan.model_air)
-            if model is None:
-                continue
-            constraints.store(
-                s, model, constraints.observe_dims(model.constraints_json, rec["dims"], now)
-            )
+            if rec.get("action") == "corrected" and rec.get("dims"):
+                learned = constraints.observe_dims(learned, rec["dims"], now)
+        patch = constraints.job_observations(result.dropped, result.task_sent or {})
+        if patch:
+            learned = constraints.observe(learned, patch, now)
+        if learned is not model.constraints_json:
+            constraints.store(s, model, learned)
+
+    def _persist_rejection(self, plan: _Plan, err: RunwareError) -> None:
+        """A rejection that ended the job can still teach the row which inputs the
+        model insists on (a first frame its docs called optional, say), so the next
+        submit is refused on the form instead of failing here."""
+        patch = None
+        try:
+            with db.session_scope(self.session_factory) as s:
+                model = catalog.get_by_air(s, plan.model_air)
+                if model is None:
+                    return
+                patch = constraints.rejection_patch(err.message or "", model.constraints_json)
+                if patch is None:
+                    return
+                now = utcnow().isoformat()
+                constraints.store(s, model, constraints.observe(model.constraints_json, patch, now))
+        except Exception:  # noqa: BLE001 - learning is a bonus; the failure itself is what matters
+            log.warning("could not record what %s rejected (%s)", plan.model_air, patch)
 
     # ---- state writes ----------------------------------------------------
     def _save_task(self, job_id: str, task: dict, dropped: list[dict]) -> None:

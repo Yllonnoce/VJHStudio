@@ -73,6 +73,7 @@ def family(model: CatalogModel) -> str:
 
 NEEDS_FIRST_FRAME = "needs a first frame"
 VIDEO_ONLY = "video-to-video only — not supported yet"
+UNSUPPORTED_INPUT = "needs {what} — not supported yet"
 
 
 def _priced_label(model: CatalogModel) -> str:
@@ -105,7 +106,10 @@ def badge(model: CatalogModel) -> str:
     caps = model.capabilities_json or []
     c = model.constraints_json
     if not constraints.is_generate_capable(model.kind, caps, c):
-        return VIDEO_ONLY
+        missing = constraints.unsuppliable_input(c)
+        if missing == "video" or missing is None:
+            return VIDEO_ONLY
+        return UNSUPPORTED_INPUT.format(what=constraints.UNSUPPLIABLE_LABELS[missing])
     if model.kind == "video" and constraints.needs_first_frame(caps, c):
         return NEEDS_FIRST_FRAME
     return ""

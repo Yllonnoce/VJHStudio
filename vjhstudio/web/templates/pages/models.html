@@ -22,12 +22,15 @@
   </form>
   <div id="search-results"></div>
 </section>
+{# Each kind folds away under its heading (closed to start: three long tables make one
+   long page). app.js remembers which ones were opened, keyed by the id. The count is the
+   rows shown, so it follows "show hidden". #}
 {% for kind, ctx in lists.items() %}
-<section id="models-{{ kind }}">
-  <h2>{{ kind|capitalize }} models</h2>
+<details id="models-{{ kind }}" class="models-fold">
+  <summary><h2>{{ kind|capitalize }} models <span class="count">({{ ctx.rows|length }})</span></h2></summary>
   <label><input type="checkbox" hx-get="/hx/models?kind={{ kind }}&hidden=1&sort={{ ctx.sort|default('price', true) }}" hx-trigger="change[this.checked]" hx-target="#list-{{ kind }}" hx-swap="outerHTML"
          onchange="if(!this.checked){htmx.ajax('GET','/hx/models?kind={{ kind }}',{target:'#list-{{ kind }}',swap:'outerHTML'})}"> show hidden</label>
   {% with kind=ctx.kind, rows=ctx.rows, include_hidden=ctx.include_hidden %}{% include "catalog/_list.html" %}{% endwith %}
-</section>
+</details>
 {% endfor %}
 {% endblock %}

@@ -34,6 +34,10 @@ def _preflight_video(m: CatalogModel, req: VideoRequest) -> None:
     whole point is that the job is never queued and never billed."""
     if constraints.requires_input_video(m.constraints_json):
         raise ValueError("This model edits an existing video. VJHStudio cannot supply one yet.")
+    missing = constraints.unsuppliable_input(m.constraints_json)
+    if missing:
+        what = constraints.UNSUPPLIABLE_LABELS[missing]
+        raise ValueError(f"This model needs {what}. VJHStudio cannot supply one yet.")
     if (
         constraints.needs_first_frame(m.capabilities_json or [], m.constraints_json)
         and req.first_frame_asset_id is None

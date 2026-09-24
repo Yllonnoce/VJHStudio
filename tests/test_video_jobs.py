@@ -275,3 +275,162 @@ async def test_a_corrected_size_is_recorded_on_the_catalog_row(env):
         }
         assert m.constraints_json["sources"]["observed"] is not None
         assert m.constraints_updated_at is not None
+
+
+# ---- what a job teaches the catalog row -----------------------------------------------
+KLING3_I2V_MSG = (
+    "Unsupported use of 'width' parameter. This parameter is not supported for the selected "
+    "model. Allowed values are: 'includeCost', 'taskUUID', 'taskType', 'model', 'outputType', "
+    "'outputFormat', 'numberResults', 'positivePrompt', 'deliveryMethod', 'duration', "
+    "'inputs', 'resolution'."
+)
+
+
+def _asset(f, paths, name="a.png") -> int:
+    with db.session_scope(f) as s:
+        a, _ = assets.store_upload(s, paths, original_name=name, content=_png(), mime="image/png")
+        return a.id
+
+
+def _row(f, air: str, name: str, caps: list[str], constraints_json: dict | None) -> None:
+    """A video row the curated snapshot does not ship (or ships differently)."""
+    with db.session_scope(f) as s:
+        s.add(
+            models.CatalogModel(
+                air=air,
+                name=name,
+                kind="video",
+                source="curated",
+                capabilities_json=caps,
+                constraints_json=constraints_json,
+            )
+        )
+
+
+async def test_a_frame_job_that_had_to_swap_pixels_for_a_preset_teaches_the_row(env):
+    """Seen live from Kling 3 Standard: with a first frame the model refuses
+    width/height and lists ``resolution``. The job succeeds on the free retry and the
+    row remembers, so the next frame job sends the preset straight away."""
+    air = "klingai:kling-video@3-standard"
+    paths, f, _ = env
+    asset_id = _asset(f, paths)
+    e = RunwareError("unsupportedParameter", KLING3_I2V_MSG)
+    e.parameter = "width"
+    fake = FakeRunware(
+        {
+            "media_storage": [[{"mediaUUID": "m-1"}]],
+            "run": [e, [{"videoURL": "http://x/v.mp4", "cost": 0.4}]],
+        }
+    )
+    r = _runner(env, fake)
+    await r.start()
+    job = generate.enqueue_video(f, paths, _req(f, model=air, first_frame_asset_id=asset_id))
+    r.submit(job.id)
+    await r.wait_idle()
+    await r.stop()
+    sent = [p for n, p in fake.calls if n == "run"]
+    assert sent[1]["resolution"] == "720p" and "width" not in sent[1]
+    with db.session_scope(f) as s:
+        j = s.get(models.Job, job.id)
+        assert j.status == "succeeded", j.error_message
+        assert j.dropped_params_json[0]["action"] == "converted_to_resolution"
+        c = catalog.get_by_air(s, air).constraints_json
+        assert c["size_with_inputs"] == "resolution" and c["sources"]["observed"]
+    # the next frame job on this row needs no retry at all
+    fake2 = FakeRunware(
+        {"media_storage": [[{"mediaUUID": "m-1"}]], "run": [[{"videoURL": "http://x/v.mp4"}]]}
+    )
+    r2 = _runner(env, fake2)
+    await r2.start()
+    job2 = generate.enqueue_video(f, paths, _req(f, model=air, first_frame_asset_id=asset_id))
+    r2.submit(job2.id)
+    await r2.wait_idle()
+    await r2.stop()
+    only = [p for n, p in fake2.calls if n == "run"]
+    assert len(only) == 1 and only[0]["resolution"] == "720p" and "width" not in only[0]
+
+
+async def test_a_corrected_duration_teaches_the_row_its_values(env):
+    air = "vjh:hailuo@1"
+    paths, f, _ = env
+    _row(f, air, "Hailuo", ["io:text-to-video"], {"duration": {"type": "integer"}})
+    e = RunwareError(
+        "invalidValue",
+        "Invalid value for 'duration' parameter. The Duration requested for MiniMax Hailuo 02 "
+        "must be a float. Supported values are: '6', '10'",
+    )
+    e.parameter = "duration"
+    fake = FakeRunware({"run": [e, [{"videoURL": "http://x/v.mp4"}]]})
+    r = _runner(env, fake)
+    await r.start()
+    job = generate.enqueue_video(f, paths, _req(f, model=air, duration=5))
+    r.submit(job.id)
+    await r.wait_idle()
+    await r.stop()
+    with db.session_scope(f) as s:
+        assert s.get(models.Job, job.id).status == "succeeded"
+        c = catalog.get_by_air(s, air).constraints_json
+        assert c["duration"]["values"] == [6, 10]
+    # ...and the next job is built with 6 s from the start
+    fake2 = FakeRunware({"run": [[{"videoURL": "http://x/v.mp4"}]]})
+    r2 = _runner(env, fake2)
+    await r2.start()
+    job2 = generate.enqueue_video(f, paths, _req(f, model=air, duration=5))
+    r2.submit(job2.id)
+    await r2.wait_idle()
+    await r2.stop()
+    assert [p for n, p in fake2.calls if n == "run"][0]["duration"] == 6
+
+
+async def test_a_missing_frame_rejection_teaches_the_row_to_ask_for_one(env):
+    """Vidu Q2 Turbo: the docs call the first frame optional, the API does not. The job
+    fails (nothing can invent a frame) but the row learns, and the next submit is refused
+    before it is billed."""
+    air = "vjh:vidu@1"
+    paths, f, _ = env
+    _row(
+        f,
+        air,
+        "Vidu",
+        ["io:image-to-video"],
+        {"inputs": {"frameImages": {"required": False, "min_items": 1, "max_items": 2}}},
+    )
+    fake = FakeRunware(
+        {
+            "run": [
+                RunwareError(
+                    "missingParameter", "Missing required parameter: 'inputs.frameImages'."
+                )
+            ]
+        }
+    )
+    r = _runner(env, fake)
+    await r.start()
+    job = generate.enqueue_video(f, paths, _req(f, model=air))
+    r.submit(job.id)
+    await r.wait_idle()
+    await r.stop()
+    with db.session_scope(f) as s:
+        assert s.get(models.Job, job.id).status == "failed"
+        c = catalog.get_by_air(s, air).constraints_json
+        assert c["inputs"]["frameImages"]["required"] is True and c["sources"]["observed"]
+    with pytest.raises(ValueError, match="needs a first-frame image"):
+        generate.enqueue_video(f, paths, _req(f, model=air))
+
+
+def test_a_model_that_needs_an_audio_track_is_refused_before_it_is_queued(env):
+    paths, f, _ = env
+    air = "vjh:talking-head@1"
+    _row(
+        f,
+        air,
+        "Talking Head",
+        ["io:image-to-video", "io:audio-to-video"],
+        {"inputs": {"image": {"required": True}, "audio": {"required": True}}},
+    )
+    with pytest.raises(ValueError, match="needs an audio track. VJHStudio cannot supply one yet"):
+        generate.enqueue_video(f, paths, _req(f, model=air))
+    with db.session_scope(f) as s:
+        m = catalog.get_by_air(s, air)
+        assert catalog.badge(m) == "needs an audio track — not supported yet"
+        assert air not in [x.air for x in catalog.list_generate_models(s, "video")]

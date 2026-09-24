@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -23,7 +24,16 @@ from vjhstudio.services import account
 log = logging.getLogger(__name__)
 
 Size = tuple[int, int]
-PARAM_KEYS = ("duration", "fps", "steps", "strength", "CFGScale")
+PARAM_KEYS = ("duration", "fps", "steps", "strength", "CFGScale", "resolution")
+# Inputs the Generate page has no way to supply, and what each is called in a sentence.
+# A model whose harvested block *requires* one is not something this app can drive.
+UNSUPPLIABLE_LABELS = {
+    "video": "an input video",
+    "audio": "an audio track",
+    "referenceVideos": "a reference video",
+    "referenceAudios": "an audio track",
+    "inputAudios": "an audio track",
+}
 _ATTR_KEYS = ("type", "min", "max", "step", "default", "values")
 
 
@@ -79,6 +89,34 @@ def duration_spec(c: dict | None) -> dict:
 def requires_input_video(c: dict | None) -> bool:
     video = ((c or {}).get("inputs") or {}).get("video") or {}
     return bool(isinstance(video, dict) and video.get("required"))
+
+
+def unsuppliable_input(c: dict | None) -> str | None:
+    """The first required input this app cannot provide (``UNSUPPLIABLE_LABELS`` order),
+    or ``None``. A talking-head model wants an audio track, a motion-control one a
+    reference video, a video editor a video: none of them can be driven from a prompt
+    and a still, and a posted job would be a billed failure -- or worse, a rejected one
+    that hides behind five free retries."""
+    inputs = _inputs(c)
+    for name in UNSUPPLIABLE_LABELS:
+        spec = inputs.get(name)
+        if isinstance(spec, dict) and spec.get("required"):
+            return name
+    return None
+
+
+def size_with_inputs(c: dict | None) -> str | None:
+    """How a frame or reference image changes the size parameters this model takes:
+    ``"resolution"`` (a preset replaces width/height), ``"none"`` (the image alone sizes
+    the clip) or ``None`` (pixels as usual, or not known yet)."""
+    value = (c or {}).get("size_with_inputs")
+    return value if value in ("resolution", "none") else None
+
+
+def resolution_values(c: dict | None) -> list[str]:
+    spec = (c or {}).get("resolution") or {}
+    values = spec.get("values") if isinstance(spec, dict) else None
+    return [str(v) for v in values] if isinstance(values, list) else []
 
 
 def can_start_from_text(capabilities: list[str]) -> bool:
@@ -199,7 +237,7 @@ def accepts_summary(roles: dict[str, dict]) -> str:
 
 
 def is_generate_capable(kind: str, capabilities: list[str], c: dict | None) -> bool:
-    if requires_input_video(c):
+    if unsuppliable_input(c):
         return False
     if kind != "video":
         return True
@@ -258,6 +296,13 @@ def merge_sources(existing: dict | None, *, docs: dict | None, api: dict | None,
         owned = bool(sources.get("observed")) or bool(sources.get("api") and not api_has_dims)
         if dd and not owned:
             out["dims"] = _carry_labels(dd, _dims(out))
+        # "When inputs.frameImages is provided, width/height cannot be used": a frame
+        # job sends the resolution preset when the page lists one, nothing otherwise. A
+        # job that already saw the model's answer outranks the page.
+        if (docs.get("rules") or {}).get("frames_forbid_size") and not sources.get("observed"):
+            out["size_with_inputs"] = (
+                "resolution" if (docs.get("params") or {}).get("resolution") else "none"
+            )
     if api:
         sources["api"] = now
         if api.get("params"):
@@ -279,6 +324,97 @@ def observe_dims(existing: dict | None, dims: dict, now: str) -> dict:
     sources["observed"] = now
     out["sources"] = sources
     return out
+
+
+def _deep_merge(base: dict, patch: dict) -> dict:
+    out = dict(base)
+    for key, value in patch.items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = _deep_merge(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
+def observe(existing: dict | None, patch: dict, now: str) -> dict:
+    """Fold what a real job learned into the row: a deep merge, stamped ``observed`` so
+    a later docs pass does not undo it."""
+    out = _deep_merge(dict(existing or {}), patch)
+    sources = dict(out.get("sources") or {"docs": None, "api": None, "observed": None})
+    sources["observed"] = now
+    out["sources"] = sources
+    return out
+
+
+def observation_patch(rec: dict) -> dict | None:
+    """What one runner record (``TaskResult.dropped``) teaches the catalog row, as a
+    patch for ``observe``; ``None`` when it teaches nothing durable. A corrected size is
+    ``observe_dims``'s (its dims carry labels to preserve), not this function's."""
+    field, action = rec.get("field"), rec.get("action")
+    if field == "width/height":
+        if action == "converted_to_resolution":
+            return {"size_with_inputs": "resolution"}
+        if action == "dropped":
+            return {"size_with_inputs": "none"}
+        return None
+    if action == "corrected" and field and "." not in field and rec.get("values"):
+        return {field: {"values": list(rec["values"])}}
+    if action == "trimmed" and str(field).startswith("inputs.") and rec.get("max") is not None:
+        return {"inputs": {str(field).split(".", 1)[1]: {"max_items": int(rec["max"])}}}
+    return None
+
+
+def job_observations(dropped: list[dict], task_sent: dict) -> dict:
+    """Everything a finished job's retry chain teaches the row, as one patch. The
+    width/height records are read together with what came after them: a preset that
+    was swapped in and then itself dropped means the model takes no size at all with
+    an image -- and the key only applies when the task carried an input image, since
+    that is what it describes. Corrected dims are ``observe_dims``'s, not this
+    function's."""
+    patch: dict = {}
+    had_inputs = bool(task_sent.get("inputs"))
+    preset_dropped = any(
+        r.get("field") == "resolution" and r.get("action") == "dropped" for r in dropped
+    )
+    for rec in dropped:
+        one = observation_patch(rec)
+        if not one:
+            continue
+        if "size_with_inputs" in one:
+            if not had_inputs:
+                continue
+            if preset_dropped:
+                one = {"size_with_inputs": "none"}
+        patch = _deep_merge(patch, one)
+    return patch
+
+
+# "Kling 2.6 Standard only works in Motion Control mode (with inputs.referenceImages and
+# inputs.referenceVideos)": the inputs a mode-locked model insists on.
+_ONLY_WITH = re.compile(r"only works in .*?\(with ([^)]*)\)", re.I)
+_INPUT_PATH = re.compile(r"inputs\.([A-Za-z0-9_]+)")
+_INPUTS_SHAPE = re.compile(r"'inputs' must be an object", re.I)
+
+
+def rejection_patch(message: str, c: dict | None) -> dict | None:
+    """What a validation rejection that ended a job teaches the row -- which inputs the
+    model actually requires, whatever its docs page said -- as a patch for ``observe``.
+    A missing ``inputs.frameImages`` is the common case (Vidu Q2 Turbo); "'inputs' must
+    be an object" with none sent (Wan 2.6 Flash) means the frames the page offers are
+    required after all; a mode-locked model names its inputs in prose."""
+    missing = probe.parse_missing_required(message or "")
+    if missing and missing.startswith("inputs."):
+        return {"inputs": {missing.split(".", 1)[1]: {"required": True}}}
+    if _INPUTS_SHAPE.search(message or ""):
+        if "frameImages" in _inputs(c):
+            return {"inputs": {"frameImages": {"required": True}}}
+        return None
+    m = _ONLY_WITH.search(message or "")
+    if m:
+        names = _INPUT_PATH.findall(m.group(1))
+        if names:
+            return {"inputs": {name: {"required": True} for name in names}}
+    return None
 
 
 def store(session, model: CatalogModel, constraints: dict) -> None:
@@ -311,6 +447,11 @@ class HarvestState:
     started_at: datetime | None = None
     finished_at: datetime | None = None
     rows: list[dict] = field(default_factory=list)
+    # what went wrong money-wise this run (an accepted probe, a balance that moved):
+    # reported at the end, never a reason to abandon the other models
+    incidents: list[str] = field(default_factory=list)
+    # providers that accepted a probe this run: docs page only from then on
+    unsafe: set[str] = field(default_factory=set)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     def begin(self) -> bool:
@@ -322,6 +463,8 @@ class HarvestState:
             self.total = self.done = self.ok = 0
             self.message = ""
             self.rows = []
+            self.incidents = []
+            self.unsafe = set()
             self.started_at = utcnow()
             self.finished_at = None
             return True
@@ -449,6 +592,11 @@ def _money(amount: float) -> str:
 
 SKIPPED_BLOCKED = "skipped: a probe of this model was billed once; docs page only"
 SKIPPED_PROBED = "skipped: already probed (use --force to probe again)"
+SKIPPED_PROVIDER = "skipped: {provider} accepted a probe earlier in this run; docs page only"
+
+
+def _provider(air: str) -> str:
+    return (air or "").split(":", 1)[0]
 
 
 def _mark_blocked(session_factory, row: dict, reason: str) -> None:
@@ -465,13 +613,27 @@ def _mark_blocked(session_factory, row: dict, reason: str) -> None:
 async def _probe_one(
     state: HarvestState, session_factory, row: dict, docs_result, client, force: bool = False
 ) -> None:
-    """Probe one model and record it. Lets ``ProbeBilledError`` through — that one stops
-    the whole harvest — while every other RunWare failure stays in this row's ``api``
-    column so the next model still gets its turn. The balance is read before and after
-    THIS model's probes: a provider that accepts a probe is caught here, after one
-    charge, not at the end of the run."""
+    """Probe one model and record it. Nothing that happens to one model stops the run:
+    a RunWare failure stays in this row's ``api`` column; a probe that was accepted (or
+    whose outcome is unknown) is one charge already made, so that model is blocked for
+    good, its provider gets docs pages only for the rest of this run (the same
+    validation path is likely to accept again), and the next model still gets its
+    turn. The balance is read before and after THIS model's probes: a change is
+    recorded against it and reported at the end, since a generation finishing in the
+    background moves the balance just the same."""
+    provider = _provider(row["air"])
     if row.get("blocked"):
         _record(state, session_factory, row, docs_result, SKIPPED_BLOCKED, None)
+        return
+    if provider in state.unsafe:
+        _record(
+            state,
+            session_factory,
+            row,
+            docs_result,
+            SKIPPED_PROVIDER.format(provider=provider),
+            None,
+        )
         return
     if row.get("probed") and not force:
         # Every run re-reads the free docs pages; the API probes only ever run once
@@ -483,7 +645,13 @@ async def _probe_one(
         res = await probe.probe_model(client, row["air"], row["kind"])
     except probe.ProbeBilledError as e:
         _mark_blocked(session_factory, row, str(e))
-        raise
+        state.unsafe.add(provider)
+        state.incidents.append(
+            f"a probe for {row['air']} was accepted and was probably billed; that model is "
+            f"blocked for good and the rest of {provider} was skipped this run"
+        )
+        _record(state, session_factory, row, docs_result, f"error: {e}", None)
+        return
     except Exception as e:  # noqa: BLE001 - one model's failure is per-row
         log.warning("probe failed for %s: %s", row["air"], e)
         _record(state, session_factory, row, docs_result, f"error: {e}", None)
@@ -498,7 +666,7 @@ async def _probe_one(
             f"(before {_money(before)}, after {_money(after)})"
         )
         _mark_blocked(session_factory, row, reason)
-        raise probe.ProbeBilledError(reason)
+        state.incidents.append(f"{reason}; that model is blocked for good")
     if res.params:
         api: dict | None = {"params": res.params, "dims": res.dims, "missing": res.missing}
         status = "ok"
@@ -517,32 +685,32 @@ async def _probe_all(
     concurrency: int,
     force: bool = False,
 ) -> None:
-    """The API half: one bounded pool, stopped for good the moment a probe comes back
-    accepted or a row falls over. Two independent brakes, because a request that goes
-    out after the closing balance read is a request nobody is watching:
-
-    * a ``stopped`` flag, checked by every task *before* it sends anything, which is
-      what actually keeps the queued probes in;
-    * cancelling the pending tasks on the way out, for a task parked anywhere else.
-    """
+    """The API half: one bounded pool. Error checking is per model -- whatever falls
+    over while handling one row is recorded on that row and the next one runs. Only a
+    cancellation (shutdown) takes the pool down, and then the queued tasks are
+    cancelled with it so nothing is sent after the closing balance read."""
     sem = asyncio.Semaphore(concurrency)
-    stopped: list[str] = []
 
     async def one(row: dict) -> None:
         async with sem:
-            if stopped:  # the run is over; send nothing, record nothing
-                return
             try:
                 await _probe_one(
                     state, session_factory, row, docs_by_air.get(row["air"]), client, force
                 )
-            except probe.ProbeBilledError as e:
-                stopped.append(f"STOPPED: {e}. Nothing more was sent. Please report this.")
-            except BaseException:
-                # Not this row's problem but the run's: hold the rest of the pool
-                # before the failure travels up.
-                stopped.append("")
-                raise
+            except Exception as e:  # noqa: BLE001 - this row's problem, not the run's
+                log.warning("harvest row %s failed: %s", row["air"], e)
+                try:
+                    state.add_row(
+                        {
+                            "air": row["air"],
+                            "name": row["name"],
+                            "docs": (docs_by_air.get(row["air"]) or ("skipped", None))[0],
+                            "api": f"error: {e}",
+                            "dims_mode": "unknown",
+                        }
+                    )
+                except Exception:  # noqa: BLE001 - the row could not even be reported
+                    log.warning("harvest row %s could not be recorded", row["air"])
 
     tasks = [asyncio.create_task(one(r)) for r in rows]
     try:
@@ -553,8 +721,6 @@ async def _probe_all(
         # return_exceptions already absorbs the children's CancelledError; no suppress
         # here, so a shutdown cancel that lands on this await still stops the harvest.
         await asyncio.gather(*tasks, return_exceptions=True)
-    if stopped and stopped[0]:
-        state.message = stopped[0]
 
 
 async def _harvest(
@@ -615,25 +781,23 @@ async def _harvest(
 
 async def _check_balance(state: HarvestState, client, before: float) -> None:
     """Compare the balance with the reading taken before the probes. A change (or a
-    reading we cannot take) is the loudest thing the harvest can say."""
-    stopped = state.message
+    reading we cannot take) is reported in the closing message, alongside whatever the
+    per-model checks already recorded."""
     try:
         after = await _balance(client)
     except Exception as e:  # noqa: BLE001
-        state.message = (
-            f"STOPPED: the account balance could not be read after the harvest ({e}). "
-            "Check your RunWare balance."
+        state.incidents.append(
+            f"the account balance could not be read after the harvest ({e}). "
+            "Check your RunWare balance"
         )
         return
     if abs(after - before) > BALANCE_EPSILON:
-        state.message = (
-            "STOPPED: the balance changed during the harvest "
-            f"(before {_money(before)}, after {_money(after)}). Nothing more was sent. "
+        state.incidents.append(
+            "the balance changed during the harvest "
+            f"(before {_money(before)}, after {_money(after)}). "
             "If a generation finished while it ran, that explains it; otherwise please "
-            "report this."
+            "report this"
         )
-    else:
-        state.message = stopped
 
 
 def _summary(state: HarvestState) -> str:
@@ -644,7 +808,11 @@ def _summary(state: HarvestState) -> str:
         1 for r in rows if str(r["docs"]).startswith("error") or str(r["api"]).startswith("error")
     )
     text = f"Harvested {state.ok} of {state.total} models ({sizes} with sizes known)."
-    return text + (f" {errors} had errors." if errors else "")
+    if errors:
+        text += f" {errors} had errors."
+    if state.incidents:
+        text += " WARNING: " + "; ".join(state.incidents) + "."
+    return text
 
 
 async def harvest(

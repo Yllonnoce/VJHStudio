@@ -4,6 +4,35 @@ All notable changes to VJHStudio are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Added
+
+- The Image, Video and Text lists on the Models page fold away under their headings, which now
+  show how many models each holds. They start closed; the ones you open stay open in that browser.
+
+### Fixed
+
+- **Video models that turned requests down now work, or say up front why they cannot.** A full
+  sweep of the video catalog found 31 rejected jobs. Kling 3 Standard, Kling 2.6 Pro, MiniMax H3
+  Max/Fast, HappyHorse 1.1 and SkyReels V4 refuse pixel sizes once a first frame is attached and
+  want a resolution preset instead; MiniMax Hailuo 02, 2.3 Fast and 01 Live only make 6- or
+  10-second clips; Grok Imagine 1.5 takes either a first frame or reference images, and no last
+  frame; Vidu Q2 Turbo and Wan 2.6 Flash insist on a first frame although their docs call it
+  optional. VJHStudio now retries each of these the right way (free — RunWare only charges for clips
+  it makes) and remembers the rule on the model, so the next job is built correctly from the start.
+- Models that need an audio track (VEED Fabric, Creatify Aurora, OmniHuman), a reference video
+  (P-Video-Animate, Kling 2.6 Standard) or an input video (Runway Aleph) are hidden from the
+  Generate dropdown and refused before anything is billed, with a badge on the Models page saying
+  what they need.
+- **Harvest constraints** now also reads the "Parameter Dependencies" rules and the resolution
+  presets from a model's docs page.
+- **Harvest constraints** no longer gives up on the whole run when one model misbehaves. A model
+  that accepts a probe (and so makes a small charge) is marked and never asked again, the rest of
+  that provider is left to its docs page for the run, and every other model is still harvested; a
+  balance that moves mid-run, or any other failure on one model, is recorded on that model. The
+  closing message lists what happened and shows the balance before and after.
+
 ## 0.5.0 — 2026-09-23
 
 ### Added

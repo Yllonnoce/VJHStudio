@@ -147,3 +147,21 @@ async def test_fetch_raises_docs_error_on_server_failure():
     t = httpx.MockTransport(lambda r: httpx.Response(503))
     with pytest.raises(D.DocsError):
         await D.fetch_docs_html("x", transport=t)
+
+
+def test_parameter_dependency_rules_are_read_off_the_page():
+    """MiniMax H3 Max's page: "When inputs.frameImages is provided, width/height cannot
+    be used." The flag rides next to params/inputs/dims; a page without the sentence
+    carries no ``rules`` key at all, so the empty shape stays what it was."""
+    page = (
+        "<html><body><h2>Parameter Dependencies</h2><ul><li>When <code>inputs.frameImages</code>"
+        " is provided, <code>width/height</code> cannot be used.</li><li><code>resolution</code>"
+        " cannot be used with <code>width/height</code>.</li></ul>"
+        '<dl class="component-APIParameter" id="request-resolution"><dt><h3><a href="#r">'
+        'resolution</a></h3></dt><dd><span data-name="type">string</span></dd></dl>'
+        "</body></html>"
+    )
+    parsed = D.parse_docs(page)
+    assert parsed["rules"] == {"frames_forbid_size": True}
+    assert "resolution" in parsed["params"]
+    assert "rules" not in load("kling-4k.html")

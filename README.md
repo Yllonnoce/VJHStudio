@@ -150,14 +150,23 @@ Some models only accept certain image sizes or video lengths, and a few video mo
 an existing video rather than make a new one. VJHStudio starts out knowing the common cases, but you
 can ask it to check for sure: click **Harvest constraints**. This asks RunWare which sizes and
 lengths each model accepts, and reads the model's page on RunWare's own docs site. It is free —
-nothing is generated and nothing is charged, and the check stops itself immediately if your balance
-ever moves.
+nothing is generated and nothing is charged. A few providers ignore the trick VJHStudio uses to ask
+and make a real image instead (one small charge); when that happens the model is marked so it is
+never asked again, the rest of that provider is left to its docs page for the run, and the harvest
+carries on with the other models. The message at the end tells you if it happened and shows your
+balance before and after.
 
 Once a model has been checked, the Models page shows a small **sizes known** badge next to it, and
 the **Generate** page only offers sizes that actually work for that model — no more guessing a size
-and having the job rejected. Video models that can only edit an existing video (and cannot yet be
-given one) are hidden from the Generate dropdown; they stay on the Models page with a badge
-explaining why.
+and having the job rejected. Video models that need something VJHStudio cannot give them yet — an
+existing video to edit, an audio track for a talking head, a reference video for motion control —
+are hidden from the Generate dropdown; they stay on the Models page with a badge explaining why.
+
+VJHStudio also learns from the jobs you run. When a model turns a request down for a reason it can
+fix — it wants a resolution preset instead of pixels once a first frame is attached, it only makes
+6- or 10-second clips, it takes a first frame but not a last one — the job is retried the right way
+at no extra cost (RunWare only charges for clips it actually makes), and the model's page and the
+Generate form remember the rule from then on.
 
 ## Starting it again
 
