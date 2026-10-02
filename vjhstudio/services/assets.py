@@ -40,7 +40,14 @@ ALLOWED_VIDEO: dict[str, str] = {
     "video/quicktime": "mov",
 }
 
-_SINGLE_REF_FIELDS = ("seed_image_asset_id", "first_frame_asset_id", "last_frame_asset_id")
+_SINGLE_REF_FIELDS = (
+    "seed_image_asset_id",
+    "first_frame_asset_id",
+    "last_frame_asset_id",
+    "image_asset_id",  # a 3D object's source picture
+)
+# list-valued request fields: reference images, and the several views of a 3D object
+_LIST_REF_FIELDS = ("reference_asset_ids", "image_asset_ids")
 _ACTIVE_STATUSES = (JobStatus.queued.value, JobStatus.running.value)
 
 
@@ -252,7 +259,7 @@ def _referenced_by_active_job(session: Session, asset_id: int) -> bool:
         request = job.request_json or {}
         if any(request.get(field) == asset_id for field in _SINGLE_REF_FIELDS):
             return True
-        if asset_id in (request.get("reference_asset_ids") or []):
+        if any(asset_id in (request.get(field) or []) for field in _LIST_REF_FIELDS):
             return True
     return False
 
@@ -275,6 +282,21 @@ def delete(session: Session, paths: Paths, asset_id: int) -> bool:
     session.delete(asset)
     session.flush()
     return True
+
+
+def delete_many(session: Session, paths: Paths, asset_ids: list[int]) -> tuple[int, int]:
+    """Delete each of ``asset_ids`` that can be deleted. Returns ``(deleted, in_use)``:
+    an asset a queued or running job still needs is kept and counted; an id that names
+    nothing is ignored."""
+    deleted = in_use = 0
+    for asset_id in dict.fromkeys(asset_ids):
+        if session.get(Asset, asset_id) is None:
+            continue
+        if delete(session, paths, asset_id):
+            deleted += 1
+        else:
+            in_use += 1
+    return deleted, in_use
 
 
 def abs_path(paths: Paths, asset: Asset) -> Path:

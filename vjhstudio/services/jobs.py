@@ -19,11 +19,13 @@ from runware import RunwareError
 from .. import db
 from ..config import Paths
 from ..models import Job, JobStatus, utcnow
-from ..runware import download
+from ..runware import details, download
 from ..runware import runner as policy
 from ..runware.download import DownloadError
 from ..runware.errors import classify
 from ..runware.tasks import build_image_task, build_video_task, resolution_tier
+from ..runware.tasks_media import build_media_task
+from ..schemas import media as media_schema
 from ..schemas.image import ImageRequest
 from ..schemas.video import VideoRequest
 from . import assets, catalog, constraints, costs, projects
@@ -34,6 +36,28 @@ log = logging.getLogger(__name__)
 PROGRESS_WRITE_S = 2.0
 STOP_TIMEOUT_S = 10.0
 DOWNLOAD_PROGRESS = 92
+
+
+# Cancel only stops *waiting*. A video, a song or a 3D object keeps rendering at the
+# provider, is billed when it finishes, and some providers (Hunyuan) will not start
+# another job for the account until it has.
+STOPPED_WAITING = (
+    "Stopped waiting. The job may still finish at the provider and be billed, and its "
+    "result will not be saved here. Some providers will not start a new job until it "
+    "has finished."
+)
+
+
+class NoFileError(RuntimeError):
+    """The task was accepted but its reply carried no file URL we could read."""
+
+    def __init__(self, rows: list[dict]):
+        self.rows = rows
+        keys = sorted({str(k) for r in rows or [] if isinstance(r, dict) for k in r})
+        super().__init__(
+            "RunWare finished the task but the reply had no file to download "
+            f"(reply fields: {', '.join(keys) or 'none'}). It may still have been billed."
+        )
 
 
 def estimate_progress(elapsed_ms: float, expected_ms: int) -> int:
@@ -48,7 +72,7 @@ class _Plan:
     project_id: int
     slug: str
     model_air: str
-    req: ImageRequest | VideoRequest
+    req: ImageRequest | VideoRequest | media_schema.MediaRequest
     negative: str
     family: str
     timeout_s: float
@@ -61,6 +85,11 @@ class _Plan:
     def is_video(self) -> bool:
         return self.kind == "video"
 
+    @property
+    def is_media(self) -> bool:
+        """Music/sound, speech or a 3D object: one file, no thumbnail, no prompt form."""
+        return self.kind in media_schema.MEDIA_KINDS
+
 
 @dataclass
 class _Live:
@@ -72,8 +101,12 @@ class _Live:
     t0: float = field(default_factory=time.monotonic)
 
 
-def _asset_ids(req: ImageRequest | VideoRequest) -> list[int]:
+def _asset_ids(req) -> list[int]:
     """Every asset the task will need a RunWare mediaUUID for, de-duplicated, in order."""
+    if isinstance(req, media_schema.Model3DRequest):
+        return list(req.image_asset_ids)
+    if isinstance(req, (media_schema.AudioRequest, media_schema.SpeechRequest)):
+        return []
     singles = (
         (req.first_frame_asset_id, req.last_frame_asset_id)
         if isinstance(req, VideoRequest)
@@ -87,6 +120,8 @@ def _asset_ids(req: ImageRequest | VideoRequest) -> list[int]:
 
 
 def _build_task(plan: _Plan, job_id: str, media: dict[int, str]) -> dict:
+    if plan.is_media:
+        return build_media_task(plan.kind, plan.req, job_id, media, plan.model_row)
     if plan.is_video:
         return build_video_task(plan.req, job_id, media, plan.model_row)
     return build_image_task(plan.req, job_id, media, plan.family, plan.negative)
@@ -102,6 +137,19 @@ def _params(req: ImageRequest | VideoRequest, sent: dict | None = None) -> dict:
     from the request: the builder resolves the resolution through the model's curated
     ``video.dims`` and snaps the duration to the durations the model accepts, so
     recomputing would describe a file that was never generated."""
+    if isinstance(req, media_schema.REQUEST_FOR_KIND_TYPES):
+        task = sent or {}
+        data = media_schema.dump(req)
+        data.pop("project_id", None)
+        data.pop("title", None)
+        return {
+            **data,
+            "width": None,
+            "height": None,
+            # what was actually sent: the builder clamps a length to the model's range
+            # and leaves it out for a model that takes none
+            "duration": _number(task.get("duration"), None),
+        }
     if isinstance(req, VideoRequest):
         task = sent or {}
         return {
@@ -291,9 +339,13 @@ class JobRunner:
             kind = job.kind or "image"
             data = dict(job.request_json or {})
             negative = str(data.pop("negative", "") or "")
-            req: ImageRequest | VideoRequest = (
-                VideoRequest(**data) if kind == "video" else ImageRequest(**data)
-            )
+            req: ImageRequest | VideoRequest | media_schema.MediaRequest
+            if kind in media_schema.MEDIA_KINDS:
+                req = media_schema.request_from_json(kind, data)
+            elif kind == "video":
+                req = VideoRequest(**data)
+            else:
+                req = ImageRequest(**data)
             model = catalog.get_by_air(s, job.model_air)
             project = projects.get(s, job.project_id)
             return _Plan(
@@ -303,7 +355,7 @@ class JobRunner:
                 slug=project.slug if project else "default",
                 model_air=job.model_air,
                 req=req,
-                negative="" if kind == "video" else negative,
+                negative="" if kind != "image" else negative,
                 family=self.catalog_family(model) if model is not None else "diffusion",
                 timeout_s=float(settings_svc.get(s, "runware.timeout_s")),
                 expected_ms=int(job.expected_ms or costs.DEFAULT_EXPECTED_MS),
@@ -346,6 +398,10 @@ class JobRunner:
                 )
             if ev.is_set():
                 raise RunwareError("aborted", "Request aborted")
+            if plan.is_media and not result.items:
+                # RunWare answered (and billed) but no file URL could be read out of the
+                # reply: a "succeeded" job with nothing in the gallery would hide that
+                raise NoFileError(result.rows)
             self._stage(job_id, "downloading", DOWNLOAD_PROGRESS)
             dest = projects.dir_for(self.paths, plan.slug, plan.outputs_dir)
             saved = await download.download_items(
@@ -361,11 +417,19 @@ class JobRunner:
             self._fail(job_id, "upload", e.message)
         except RunwareError as e:
             err = classify(e)
+            message = err.message
             if err.code == "validation" and plan is not None:
                 self._persist_rejection(plan, e)
-            self._fail(job_id, err.code, err.message, cancelled=err.code == "aborted")
+            elif err.code == "aborted" and plan is not None and plan.kind != "image":
+                message = STOPPED_WAITING
+            elif details.wants_detail(e.message):
+                message = await self._with_provider_detail(job_id, e, message)
+            self._fail(job_id, err.code, message, cancelled=err.code == "aborted")
         except DownloadError as e:
             self._fail(job_id, "download", str(e))
+        except NoFileError as e:
+            log.error("job %s: no file URL in the reply: %s", job_id, e.rows)
+            self._fail(job_id, "provider", str(e))
         except Exception as e:  # noqa: BLE001 - one bad job must never take the runner down
             log.error("job %s failed:\n%s", job_id, traceback.format_exc())
             self._fail(job_id, "unknown", classify(e).message)
@@ -375,16 +439,34 @@ class JobRunner:
             self._last_write.pop(job_id, None)
             self._cancelled.discard(job_id)
 
+    async def _with_provider_detail(self, job_id: str, err: RunwareError, message: str) -> str:
+        """RunWare's "Additional information below" with the information put back: the
+        SDK drops it, so the task's stored reply is asked for once (free). Falls back to
+        the message as it was."""
+        with db.session_scope(self.session_factory) as s:
+            job = s.get(Job, job_id)
+            task_uuid = (job.runware_task_uuid if job is not None else None) or ""
+        task_uuid = getattr(err, "task_uuid", None) or task_uuid
+        detail = await details.error_detail(
+            self.api_key_getter() or "", task_uuid, transport=self.download_transport
+        )
+        if not detail:
+            return message
+        hint = details.hint_for(detail)
+        return f"The model provider failed: {detail}" + (f" {hint}" if hint else "")
+
     def _persist(self, plan: _Plan, result, saved: list) -> float:
         """Blocking tail, run in a worker thread: sidecars and thumbnails first, then one
         short transaction. The outputs root comes from the plan, so a settings change
         mid-job cannot make the relative paths unresolvable."""
         req = plan.req
         video = plan.is_video
+        media_kind = plan.is_media
         params = _params(req, result.task_sent)
-        dims = (params["width"], params["height"]) if video else None
+        # (None, None) for audio and 3D: no pixels, and nothing for Pillow to open
+        dims = (params["width"], params["height"]) if (video or media_kind) else None
         extra = {"task_sent": result.task_sent, "dropped_params": result.dropped}
-        if video:
+        if video or media_kind:
             extra["duration"] = params["duration"]
         meta = outputs_svc.OutputMeta(
             job_id=plan.job_id,
@@ -392,7 +474,9 @@ class JobRunner:
             project_slug=plan.slug,
             kind=plan.kind,
             model_air=plan.model_air,
-            prompt_text=str(result.task_sent.get("positivePrompt") or ""),
+            prompt_text=(
+                req.text() if media_kind else str(result.task_sent.get("positivePrompt") or "")
+            ),
             negative_prompt=plan.negative,
         )
         root = projects.outputs_root(self.paths, plan.outputs_dir)
@@ -404,11 +488,16 @@ class JobRunner:
             extra,
             root=root,
             dims=dims,
-            duration_s=params["duration"] if video else None,
-            thumbnail=not video,  # a video still is a poster, not a Pillow thumbnail
+            duration_s=params["duration"] if (video or media_kind) else None,
+            # a video still is a poster, not a Pillow thumbnail; sound and 3D have neither
+            thumbnail=not (video or media_kind),
             poster=video,  # ...and a poster is an ffmpeg frame out of the clip
+            thumb_from=self._source_picture(plan),
         )
-        task_type = "videoInference" if video else "imageInference"
+        if media_kind:
+            task_type = media_schema.TASK_TYPES[plan.kind]
+        else:
+            task_type = "videoInference" if video else "imageInference"
         total = 0.0
         with db.session_scope(self.session_factory) as s:
             job = s.get(Job, plan.job_id)
@@ -423,6 +512,19 @@ class JobRunner:
                 costs.observe_latency(s, plan.model_air, result.duration_ms)
             self._persist_observations(s, plan, result)
         return total
+
+    def _source_picture(self, plan: _Plan):
+        """The image a 3D object was built from, if any: its stand-in thumbnail until a
+        browser has rendered the object itself."""
+        asset_id = getattr(plan.req, "image_asset_id", None) if plan.kind == "3d" else None
+        if asset_id is None:
+            return None
+        try:
+            with db.session_scope(self.session_factory) as s:
+                asset = assets.get(s, asset_id)
+                return assets.abs_path(self.paths, asset) if asset is not None else None
+        except Exception:  # noqa: BLE001 - a missing picture just means the cube icon
+            return None
 
     def _persist_observations(self, s, plan: _Plan, result) -> None:
         """What the runner had to change mid-job is free, confirmed evidence of what the

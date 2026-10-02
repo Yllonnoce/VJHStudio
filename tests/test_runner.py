@@ -588,3 +588,58 @@ def test_value_correction_reads_the_other_wording_of_the_list():
     task = {k: v for k, v in I2V_TASK.items() if k not in ("width", "height")}
     new, rec = runner.value_correction(e, {**task, "resolution": "1080p"})
     assert new["resolution"] == "768p" and rec["values"] == ["480p", "768p"]
+
+
+# ---- a number outside the range the model states --------------------------------------------
+SEED_RANGE = "Invalid value for 'seed'. 'seed' must be an integer between 0 and 1000000."
+
+
+def test_range_correction_folds_a_seed_and_clamps_anything_else():
+    """For a model whose limits were never harvested, RunWare's own rejection states
+    them (seen live from MiniMax Music). A seed is folded into the range (any value is as
+    good as another, and the same seed lands on the same value); a quantity such as a
+    length is clamped to the nearest end."""
+    e = RunwareError("invalidValue", SEED_RANGE)
+    e.parameter = "seed"
+    task = {"taskType": "audioInference", "model": "m", "positivePrompt": "p", "seed": 148681975}
+    new, rec = runner.range_correction(e, task)
+    assert new["seed"] == 148681975 % 1000001
+    assert rec == {
+        "field": "seed",
+        "action": "corrected",
+        "from": 148681975,
+        "to": 148681975 % 1000001,
+        "range": [0, 1000000],
+    }
+    assert runner.range_correction(e, {**task, "seed": 5}) is None  # already inside
+    d = RunwareError(
+        "invalidValue", "Invalid value for 'duration'. Must be a float between 30 and 300."
+    )
+    d.parameter = "duration"
+    assert runner.range_correction(d, {**task, "duration": 5})[0]["duration"] == 30
+    assert runner.range_correction(d, {**task, "duration": 900})[0]["duration"] == 300
+    # the task's own width/height belong to size_correction, text is not a number
+    w = RunwareError(
+        "invalidValue", "Invalid value for 'width' parameter. Must be between 128 and 2048."
+    )
+    w.parameter = "width"
+    assert runner.range_correction(w, {**task, "width": 1, "height": 1}) is None
+    assert runner.range_correction(e, {**task, "seed": "abc"}) is None
+
+
+async def test_run_with_policy_folds_the_seed_once_then_succeeds():
+    e = RunwareError("invalidValue", SEED_RANGE)
+    e.parameter = "seed"
+    fake = FakeRunware({"run": [e, [{"audioURL": "http://x/a.mp3"}]]})
+    task = {
+        "taskType": "audioInference",
+        "taskUUID": "a",
+        "model": "m",
+        "positivePrompt": "p",
+        "seed": 148681975,
+    }
+    res = await runner.run_with_policy(
+        fake, task, timeout_s=5, cancel_event=None, on_progress=None, sleep=_no_sleep
+    )
+    sent = [p for n, p in fake.calls if n == "run"]
+    assert sent[1]["seed"] == 148681975 % 1000001 and res.dropped[0]["field"] == "seed"

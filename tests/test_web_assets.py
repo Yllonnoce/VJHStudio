@@ -165,7 +165,71 @@ async def test_delete_refused_when_referenced_by_active_job(client, app):
         )
     r2 = await client.delete(f"/assets/{aid}")
     assert r2.status_code == 409
-    assert "error" in r2.json()
+    # the button swaps the reply over the card (htmx is set to swap a 409), so the reply
+    # is the card itself with the reason on it -- a JSON body used to be pasted in its place
+    assert f'id="asset-{aid}"' in r2.text and "used by a queued or running job" in r2.text
+    assert (await client.get("/assets")).text.count(f'id="asset-{aid}"') == 1  # still there
+
+
+async def _upload(client, n: int) -> list[int]:
+    ids = []
+    for i in range(n):
+        r = await client.post(
+            "/assets/upload",
+            files=[("files", (f"a{i}.png", _png(color=(i + 1, 2, 3)), "image/png"))],
+        )
+        ids += [int(x) for x in re.findall(r'id="asset-(\d+)"', r.text) if int(x) not in ids]
+    return sorted(set(ids))
+
+
+async def test_every_card_has_a_delete_cross_and_a_tick_box_on_the_picture(client):
+    """Delete used to be the last of four buttons at the bottom of an 800-pixel card, far
+    below the picture; people did not find it. It is on the picture now, and several
+    assets can be ticked and removed in one go."""
+    (aid,) = await _upload(client, 1)
+    page = (await client.get("/assets")).text
+    thumb = page[page.index(f'id="asset-{aid}"') :]
+    thumb = thumb[: thumb.index('class="asset-card-body"')]
+    assert (
+        f'class="asset-remove" hx-delete="/assets/{aid}"' in thumb and 'hx-confirm="Delete' in thumb
+    )
+    assert f'type="checkbox" name="asset_ids" value="{aid}"' in thumb
+    assert 'id="asset-delete-selected"' in page and 'hx-post="/assets/delete-selected"' in page
+
+
+async def test_delete_selected_removes_the_ticked_assets_and_reports_it(client):
+    a, b, c = await _upload(client, 3)
+    r = await client.post("/assets/delete-selected", data={"asset_ids": [str(a), str(c)]})
+    assert r.status_code == 200 and 'id="asset-grid"' in r.text
+    assert f'id="asset-{b}"' in r.text
+    assert f'id="asset-{a}"' not in r.text and f'id="asset-{c}"' not in r.text
+    assert "Deleted 2 assets." in r.text
+    # nothing ticked, or ids that mean nothing: the grid comes back unchanged, no error
+    r = await client.post("/assets/delete-selected", data={})
+    assert r.status_code == 200 and f'id="asset-{b}"' in r.text and "Deleted" not in r.text
+    r = await client.post("/assets/delete-selected", data={"asset_ids": ["999999", "abc"]})
+    assert r.status_code == 200 and f'id="asset-{b}"' in r.text
+
+
+async def test_delete_selected_keeps_an_asset_a_running_job_still_needs(client, app):
+    a, b = await _upload(client, 2)
+    with db.session_scope(app.state.boot.session_factory) as s:
+        s.add(
+            models.Job(
+                id="job-3d-views",
+                project_id=1,
+                kind="3d",
+                status=models.JobStatus.running.value,
+                model_air="tripo:v3.1@0",
+                # a multi-view 3D job: the second view must be protected too
+                request_json={"image_asset_id": 999, "image_asset_ids": [999, a]},
+            )
+        )
+    r = await client.post("/assets/delete-selected", data={"asset_ids": [str(a), str(b)]})
+    assert f'id="asset-{a}"' in r.text and f'id="asset-{b}"' not in r.text
+    assert "Deleted 1 asset." in r.text and "1 is used by a queued or running job" in r.text
+    # the single delete refuses it for the same reason
+    assert (await client.delete(f"/assets/{a}")).status_code == 409
 
 
 async def test_picker_returns_buttons(client):

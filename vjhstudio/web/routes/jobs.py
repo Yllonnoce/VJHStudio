@@ -18,9 +18,12 @@ from sqlalchemy.orm import Session
 
 from ... import db
 from ...models import CatalogModel, Job, JobStatus, Output, Project, utcnow
+from ...schemas import media as media_schema
 from ...schemas.image import ImageRequest
+from ...schemas.video import VideoRequest
 from ...services import costs, generate, meta
 from ...services import jobs as jobs_svc
+from ...services import outputs as outputs_svc
 from ...services import settings as settings_svc
 from .. import deps
 from ..urls import output_url, thumb_url
@@ -52,6 +55,7 @@ def _output_views(session: Session, job_ids: list[str], slugs: dict[int, str]) -
                 "id": o.id,
                 "url": output_url(slug, o.filename),
                 "thumb_url": thumb_url(o.thumb_rel_path),
+                "snap3d": outputs_svc.needs_snapshot(o),
                 "seed": o.seed,
                 "width": o.width,
                 "height": o.height,
@@ -277,14 +281,21 @@ def retry(request: Request, job_id: str):
         data = dict(job.request_json or {})
         data.pop("negative", None)
         default_negative = settings_svc.get(s, "defaults.negative_prompt", request.app.state.env)
+        kind = job.kind or "image"
     try:
-        req = ImageRequest(**data)
-        new = generate.enqueue_image(
-            request.app.state.boot.session_factory,
-            request.app.state.paths,
-            req,
-            default_negative=default_negative,
-        )
+        # the stored request is rebuilt as what it was: a video or a song retried as an
+        # image request would fail validation (or worse, queue the wrong thing)
+        factory, paths = request.app.state.boot.session_factory, request.app.state.paths
+        if kind in media_schema.MEDIA_KINDS:
+            new = generate.enqueue_media(
+                factory, paths, kind, media_schema.request_from_json(kind, data)
+            )
+        elif kind == "video":
+            new = generate.enqueue_video(factory, paths, VideoRequest(**data))
+        else:
+            new = generate.enqueue_image(
+                factory, paths, ImageRequest(**data), default_negative=default_negative
+            )
     except (ValueError, TypeError) as e:
         # the button targets #queue-panel: a JSON body here would replace the whole queue
         ctx = panel_ctx(request)

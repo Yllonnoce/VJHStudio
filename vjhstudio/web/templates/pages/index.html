@@ -7,19 +7,6 @@
 </header>
 {% if not has_api_key %}{% include "generate/_no_key.html" %}{% endif %}
 
-<div class="hero-grid">
-  <article class="hero-card">
-    <h2>Create an image</h2>
-    <p>Photos, art and product shots from a description.</p>
-    <a role="button" href="/generate/image">Create an image</a>
-  </article>
-  <article class="hero-card">
-    <h2>Create a video</h2>
-    <p>Short clips from text or from a first frame.</p>
-    <a role="button" href="/generate/video">Create a video</a>
-  </article>
-</div>
-
 <section class="dash-section">
   <header class="card-head"><h2>Recent</h2><a href="/gallery">See all</a></header>
   {% include "partials/_recent_strip.html" %}

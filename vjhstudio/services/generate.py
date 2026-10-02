@@ -9,11 +9,14 @@ from sqlalchemy.orm import Session, sessionmaker
 from .. import db
 from ..config import Paths
 from ..models import CatalogModel, Job, JobStatus, Project
+from ..runware import tasks_media
+from ..schemas import media as media_schema
 from ..schemas.image import ImageRequest
 from ..schemas.video import VideoRequest
-from . import automation, catalog, constraints, costs, projects, prompts
+from . import assets, automation, catalog, constraints, costs, projects, prompts
 
 TITLE_MAX = 80
+KIND_NAMES = {"audio": "music or sound-effect", "3d": "3D"}
 
 
 def title_for(req: ImageRequest | VideoRequest) -> str:
@@ -23,8 +26,9 @@ def title_for(req: ImageRequest | VideoRequest) -> str:
 def _require_kind(session: Session, air: str, kind: str) -> CatalogModel:
     m = catalog.get_by_air(session, air)
     if m is None or m.kind != kind:
-        article = "an" if kind[0] in "aeiou" else "a"
-        raise ValueError(f"{air} is not {article} {kind} model")
+        name = KIND_NAMES.get(kind, kind)
+        article = "an" if name[0] in "aeiou" else "a"
+        raise ValueError(f"{air} is not {article} {name} model")
     return m
 
 
@@ -185,6 +189,89 @@ def enqueue_video(
             model_air=req.model,
             request_json=req.model_dump(),
             title=title_for(req),
+            expected_ms=costs.expected_ms(s, req.model),
+            status_text="queued",
+        )
+        s.add(job)
+        if source == automation.MCP:
+            automation.tag(job, estimate_usd)
+        s.flush()
+        projects.dir_for(paths, project.slug, projects.root_override(s)).mkdir(
+            parents=True, exist_ok=True
+        )
+    return job
+
+
+NEEDS_IMAGE_3D = "This model builds a 3D object from an image. Pick one under Image."
+NO_IMAGE_3D = "This model does not take an image. Remove it and describe the object instead."
+IMAGE_GONE = "That image is no longer in your assets. Pick another one."
+
+
+def _preflight_media(session: Session, m: CatalogModel, kind: str, req) -> None:
+    """Everything that would make RunWare reject the task (or bill a result nobody
+    wanted) and that is already knowable: an input the app cannot supply, and for a 3D
+    model whether it starts from an image, from text, or either."""
+    caps = m.capabilities_json or []
+    reason = constraints.unsupported_reason(kind, caps, m.constraints_json)
+    if reason is not None:
+        what = constraints.UNSUPPLIABLE_LABELS[reason]
+        raise ValueError(f"This model needs {what}. VJHStudio cannot supply one yet.")
+    if kind != "3d":
+        return
+    inputs = (m.constraints_json or {}).get("inputs") or {}
+    image_required = any(
+        isinstance(inputs.get(k), dict) and inputs[k].get("required") for k in ("image", "images")
+    )
+    text_ok = not caps or "io:text-to-3d" in caps
+    image_ok = not caps or "io:image-to-3d" in caps
+    if req.image_asset_id is None:
+        if image_required or not text_ok:
+            raise ValueError(NEEDS_IMAGE_3D)
+        return
+    if not image_ok:
+        raise ValueError(NO_IMAGE_3D)
+    limit = tasks_media.max_images({"constraints": m.constraints_json or {}})
+    if len(req.image_asset_ids) > limit:
+        what = "one image" if limit == 1 else f"at most {limit} images"
+        raise ValueError(f"This model takes {what}. Untick the others.")
+    if any(assets.get(session, asset_id) is None for asset_id in req.image_asset_ids):
+        raise ValueError(IMAGE_GONE)
+
+
+def enqueue_media(
+    session_factory: sessionmaker[Session],
+    paths: Paths,
+    kind: str,
+    req: media_schema.MediaRequest,
+    *,
+    source: str = automation.WEB,
+    estimate_usd: float | None = None,
+) -> Job:
+    """Queue a music/sound, speech or 3D job, and file it in the Prompts library."""
+    if kind not in media_schema.MEDIA_KINDS:
+        raise ValueError(f"not a media kind: {kind}")
+    with db.session_scope(session_factory) as s:
+        m = _require_kind(s, req.model, kind)
+        _preflight_media(s, m, kind, req)
+        # completes the request where the model's rules allow it (a seed folded into
+        # the model's range, no lyrics -> instrumental) and raises where it cannot (lyrics
+        # really required); what is stored below is the request as it will be sent
+        req = tasks_media.resolve(req, kind, constraints.media_fields(m.constraints_json))
+        project = _require_project(s, req.project_id)
+        if source == automation.MCP:
+            automation.check(s, estimate_usd)
+        stored = media_schema.dump(req)
+        # every submit lands in the Prompts library, like an image or a video does
+        prompt = prompts.for_media(s, kind, project.id, stored, req.text())
+        job = Job(
+            id=str(uuid.uuid4()),
+            project_id=project.id,
+            prompt_id=prompt.id,
+            kind=kind,
+            status=JobStatus.queued.value,
+            model_air=req.model,
+            request_json=stored,
+            title=(req.title or req.text())[:TITLE_MAX].strip() or "Untitled",
             expected_ms=costs.expected_ms(s, req.model),
             status_text="queued",
         )

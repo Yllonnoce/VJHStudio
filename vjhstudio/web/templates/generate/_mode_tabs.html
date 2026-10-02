@@ -1,0 +1,11 @@
+{# The five Generate tabs as plain links: used on the Music & SFX, Speech and 3D pages,
+   where every tab is another URL. (Image and Video switch in place on their own page;
+   pages/generate.html appends the last three of these to its two buttons.) #}
+<nav class="gen-modes" aria-label="Generation mode">
+  {% for key, label, href in tabs %}
+  <a role="button" href="{{ href }}" id="mode-tab-{{ key }}"
+     class="gen-mode-tab{% if key != mode %} secondary outline{% endif %}"
+     {% if key == mode %}aria-current="page"{% endif %}>{{ label }}</a>
+  {% endfor %}
+  <button type="button" class="secondary outline gen-reset" id="media-reset" title="Clear the form">Reset</button>
+</nav>

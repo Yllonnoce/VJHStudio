@@ -27,7 +27,7 @@
    rows shown, so it follows "show hidden". #}
 {% for kind, ctx in lists.items() %}
 <details id="models-{{ kind }}" class="models-fold">
-  <summary><h2>{{ kind|capitalize }} models <span class="count">({{ ctx.rows|length }})</span></h2></summary>
+  <summary><h2>{{ kind_labels[kind] }} models <span class="count">({{ ctx.rows|length }})</span></h2></summary>
   <label><input type="checkbox" hx-get="/hx/models?kind={{ kind }}&hidden=1&sort={{ ctx.sort|default('price', true) }}" hx-trigger="change[this.checked]" hx-target="#list-{{ kind }}" hx-swap="outerHTML"
          onchange="if(!this.checked){htmx.ajax('GET','/hx/models?kind={{ kind }}',{target:'#list-{{ kind }}',swap:'outerHTML'})}"> show hidden</label>
   {% with kind=ctx.kind, rows=ctx.rows, include_hidden=ctx.include_hidden %}{% include "catalog/_list.html" %}{% endwith %}

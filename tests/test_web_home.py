@@ -30,9 +30,10 @@ async def test_home_empty_state(client):
     r = await client.get("/")
     assert r.status_code == 200
     text = r.text
-    assert "Create an image" in text and "Create a video" in text
-    assert 'href="/generate/image"' in text and 'href="/generate/video"' in text
-    assert "Nothing generated yet. Create an image to get started." in text
+    # the two "Create an image / video" cards are gone: five kinds can be made now, and
+    # Generate in the menu is the way in for all of them
+    assert "hero-card" not in text and 'href="/generate"' in text
+    assert "Nothing generated yet. Open Generate to make something." in text
     assert "Spent today" in text and "Outputs" in text
     assert "arrive in the next phases" not in text
 

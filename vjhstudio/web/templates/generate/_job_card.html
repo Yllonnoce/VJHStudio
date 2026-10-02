@@ -15,11 +15,22 @@
   {% if j.outputs %}
   <div class="job-thumbs">
     {% for o in j.outputs %}
+      {% if j.kind == '3d' %}
+      {# a browser cannot show a .glb: the raw link only downloaded it. The Gallery's
+         details has the viewer, and ?open= goes straight to it. #}
+      <a href="/gallery?open={{ o.id }}" title="Open the 3D viewer"
+         {% if o.snap3d %}data-snap3d-id="{{ o.id }}" data-snap3d-src="{{ o.url }}"{% endif %}>
+        <img src="{{ o.thumb_url or '/static/img/model3d.svg' }}" alt="{{ j.title }}" width="96" height="96">
+      </a>
+      {% elif j.kind in ('audio', 'speech') %}
+      <audio src="{{ o.url }}" controls preload="none" aria-label="{{ j.title }}"></audio>
+      {% else %}
       <a href="{{ o.url }}" target="_blank" rel="noopener">
         {% if o.thumb_url %}<img src="{{ o.thumb_url }}" alt="{{ j.title }}" loading="lazy" width="96" height="96">
         {% elif j.kind == 'video' %}<img src="/static/img/video-poster.svg" alt="{{ j.title }}" width="96" height="96">
         {% else %}<span class="chip">{{ o.id }}</span>{% endif %}
       </a>
+      {% endif %}
     {% endfor %}
   </div>
   {% endif %}
@@ -27,7 +38,7 @@
     {% if j.status in ('queued', 'running') %}
       <button type="button" class="secondary outline" hx-post="/jobs/{{ j.id }}/cancel"
               hx-target="#job-{{ j.id }}" hx-swap="outerHTML" {% if j.cancel_requested %}disabled{% endif %}>{#
-        #}{% if j.kind == 'video' %}Stop waiting{% else %}Cancel{% endif %}</button>
+        #}{% if j.kind != 'image' %}Stop waiting{% else %}Cancel{% endif %}</button>
     {% else %}
       <button type="button" class="secondary outline" hx-post="/jobs/{{ j.id }}/retry"
               hx-target="#queue-panel" hx-swap="outerHTML">Retry</button>
@@ -40,7 +51,10 @@
     {% if j.error_message %}<p class="error">{{ j.error_message }}{% if j.error_code %} <small class="muted">({{ j.error_code }})</small>{% endif %}</p>{% endif %}
     {% set corrected = j.dropped_params|selectattr('action', 'equalto', 'corrected')|list if j.dropped_params else [] %}
     {% set dropped = j.dropped_params|rejectattr('action', 'equalto', 'corrected')|list if j.dropped_params else [] %}
-    {% for d in corrected %}<p class="muted"><small>Adjusted size {{ d['from'][0] }}×{{ d['from'][1] }} → {{ d['to'][0] }}×{{ d['to'][1] }} (the model only accepts certain sizes; it is now remembered).</small></p>{% endfor %}
+    {% for d in corrected %}
+      {% if d.get('field') == 'width/height' %}<p class="muted"><small>Adjusted size {{ d['from'][0] }}×{{ d['from'][1] }} → {{ d['to'][0] }}×{{ d['to'][1] }} (the model only accepts certain sizes; it is now remembered).</small></p>
+      {% else %}<p class="muted"><small>Adjusted {{ d.get('field') }} {{ d['from'] }} → {{ d['to'] }} (the model only accepts certain values).</small></p>{% endif %}
+    {% endfor %}
     {% if dropped %}<p class="muted"><small>Dropped params: {% for d in dropped %}{{ d.get('field', d) }}{% if d.get('action') %} ({{ d['action'] }}){% endif %}{% if not loop.last %}, {% endif %}{% endfor %}</small></p>{% endif %}
   </details>
   {% endif %}

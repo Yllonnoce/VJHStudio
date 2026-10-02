@@ -213,14 +213,15 @@ async def test_model_sections_are_collapsible_closed_by_default_with_counts(clie
     was opened (app.js, keyed by the section id)."""
     r = await client.get("/models")
     body = r.text
-    for kind in ("image", "video", "text"):
+    for kind in ("image", "video", "text", "audio", "speech", "3d"):
         assert f'<details id="models-{kind}" class="models-fold"' in body
         tag_start = body.index(f'id="models-{kind}"')
         assert " open" not in body[tag_start : body.index(">", tag_start)]
     labels = re.findall(
-        r'<summary[^>]*><h2>(\w+) models <span class="count">\((\d+)\)</span></h2></summary>', body
+        r'<summary[^>]*><h2>([^<]+) models <span class="count">\((\d+)\)</span></h2></summary>',
+        body,
     )
-    assert [k for k, _ in labels] == ["Image", "Video", "Text"]
-    assert all(int(n) > 0 for _, n in labels)
+    assert [k for k, _ in labels] == ["Image", "Video", "Text", "Music &amp; SFX", "Speech", "3D"]
+    assert all(int(n) > 0 for k, n in labels if k in ("Image", "Video", "Text"))
     # the list itself still carries its own id, so the sort/hidden swaps keep working
     assert 'id="list-video"' in body

@@ -6,6 +6,10 @@
         <img src="{{ c.thumb }}" alt="{{ c.o.prompt_text|truncate(60) }}" loading="lazy" width="150" height="150">
       {% elif c.o.kind == 'video' %}
         <img src="/static/img/video-poster.svg" alt="{{ c.o.filename }}" loading="lazy" width="150" height="150">
+      {% elif c.o.kind in ('audio', 'speech') %}
+        <img src="/static/img/audio.svg" alt="{{ c.o.prompt_text|truncate(60) }}" loading="lazy" width="150" height="150">
+      {% elif c.o.kind == '3d' %}
+        <img src="/static/img/model3d.svg" alt="{{ c.o.prompt_text|truncate(60) }}" loading="lazy" width="150" height="150">
       {% else %}
         <span class="chip">{{ c.o.filename }}</span>
       {% endif %}
@@ -17,6 +21,6 @@
     </footer>
   </a>
   {% else %}
-  <p class="muted" id="dash-empty">Nothing generated yet. Create an image to get started.</p>
+  <p class="muted" id="dash-empty">Nothing generated yet. Open Generate to make something.</p>
   {% endfor %}
 </div>

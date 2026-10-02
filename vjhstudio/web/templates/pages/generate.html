@@ -52,6 +52,11 @@
             @click="setMode('video')"
             hx-get="/hx/model-options" hx-target="#model-params" hx-swap="outerHTML"
             hx-vals='js:{mode: "video", air: document.getElementById("video-model-select").value}'>Video</button>
+    {# Music & SFX, Speech and 3D are pages of their own (routes/generate_media.py):
+       plain links here, so the five tabs read as one row everywhere. #}
+    <a role="button" class="gen-mode-tab secondary outline" id="mode-tab-audio" href="/generate/audio">Music &amp; SFX</a>
+    <a role="button" class="gen-mode-tab secondary outline" id="mode-tab-speech" href="/generate/speech">Speech</a>
+    <a role="button" class="gen-mode-tab secondary outline" id="mode-tab-3d" href="/generate/3d">3D</a>
     <button type="button" class="secondary outline gen-reset" id="generate-reset" title="Clear the form"
             @click="resetForm()">Reset</button>
   </div>

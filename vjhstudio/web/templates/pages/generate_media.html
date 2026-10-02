@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Generate · VJHStudio{% endblock %}
+{% block content %}
+<header class="page-head">
+  <h1>Generate</h1>
+  <p class="lead">{{ lead }}</p>
+</header>
+{% if not has_api_key %}{% include "generate/_no_key.html" %}{% endif %}
+{% include "generate/_mode_tabs.html" %}
+{# One plain form per tab. Left: the chosen model's own fields (re-rendered when the
+   model changes). Right: model, project, estimate, submit. The queue panel below is
+   the same one Image and Video use. #}
+{# data-draft-kind / data-prefilled: app.js remembers what was typed on each of these
+   tabs (per tab, in this browser) and puts it back on the next visit -- unless the page
+   was opened from a remix or a saved prompt, whose values must stand. #}
+<form id="media-form" hx-post="/generate/{{ mode }}" hx-target="#queue-panel" hx-swap="outerHTML"
+      hx-indicator="#gen-spinner" data-draft-kind="{{ mode }}" data-prefilled="{{ '1' if prefilled else '0' }}">
+  <input type="hidden" name="kind" value="{{ mode }}">
+  <div class="gen-layout">
+    {% include "generate/_media_params.html" %}
+    <aside class="gen-rail gen-card">
+      <header class="card-head"><h2>Model &amp; settings</h2></header>
+      <div hx-post="/hx/media/params" hx-trigger="change from:#media-model-select"
+           hx-target="#media-params" hx-swap="outerHTML" hx-include="#media-form">
+        {% with name='model', select_id='media-model-select', options=models, selected=selected, selected_unsupported=selected_unsupported, allow_empty=False %}{% include "catalog/_model_select.html" %}{% endwith %}
+      </div>
+      {% if not models %}<p class="muted"><small>No {{ mode }} models yet: open <a href="/models">Models</a> and click Refresh prices.</small></p>{% endif %}
+      {% with projects=projects, selected_project=selected_project %}{% include "generate/_project_select.html" %}{% endwith %}
+      {% include "generate/_media_estimate.html" %}
+      <div id="gen-errors" role="alert"></div>
+      <button type="submit" class="gen-submit" {% if not has_api_key or not models %}disabled{% endif %}>{{ submit_label }}</button>
+      <span id="gen-spinner" class="htmx-indicator" aria-hidden="true">Submitting…</span>
+    </aside>
+  </div>
+</form>
+<section class="gen-results">
+  <h2>Results</h2>
+  {% include "generate/_queue_panel.html" %}
+</section>
+{% endblock %}

@@ -19,6 +19,9 @@
       <option value="">All kinds</option>
       <option value="image" {% if filters.kind == 'image' %}selected{% endif %}>Image</option>
       <option value="video" {% if filters.kind == 'video' %}selected{% endif %}>Video</option>
+      <option value="audio" {% if filters.kind == 'audio' %}selected{% endif %}>Music &amp; SFX</option>
+      <option value="speech" {% if filters.kind == 'speech' %}selected{% endif %}>Speech</option>
+      <option value="3d" {% if filters.kind == '3d' %}selected{% endif %}>3D</option>
     </select>
   </label>
   <label>Model

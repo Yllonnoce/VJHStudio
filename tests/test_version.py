@@ -56,7 +56,7 @@ def test_changelog_has_a_0_4_0_section_mentioning_chips_and_dashboard():
 def test_readme_mentions_idea_chips_and_the_home_dashboard_cards():
     text = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     assert "idea" in text.lower()
-    assert "Create an image" in text
+    assert "Click **Generate** in the top menu" in text
 
 
 def test_changelog_has_a_0_5_0_section_mentioning_mcp_and_the_spend_cap():

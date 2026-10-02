@@ -25,6 +25,11 @@ main() {
   GIT="${VJHSTUDIO_GIT:-$(command -v git 2>/dev/null || echo git)}"
   export VJHSTUDIO_UV="$UV" VJHSTUDIO_GIT="$GIT" VJHSTUDIO_HOME="$here" VJHSTUDIO_LAUNCHER=1
   local PORT="${VJHSTUDIO_PORT:-8080}" OPEN="--open" code
+  # ./start.sh --network : let other devices on your network open the app
+  if [ "${1:-}" = "--network" ]; then
+    export VJHSTUDIO_HOST=0.0.0.0
+    shift
+  fi
   case "${1:-}" in
     --no-browser) OPEN="--no-browser" ;;
     ''|--open) ;;

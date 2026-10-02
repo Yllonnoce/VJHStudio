@@ -1,0 +1,221 @@
+{# The fields of one Music & SFX, Speech or 3D model (services/media_forms.form_ctx).
+   Re-rendered whenever the model changes, and on a validation error with the posted
+   values and the message. Optional boxes left blank are not sent at all, so the model's
+   own defaults apply. #}
+{% set p = params %}{% set v = p['values'] %}{% set e = p.errors %}
+<section id="media-params" class="gen-card media-params" data-kind="{{ p.kind }}">
+  {% if e.form %}<p class="error" role="alert">{{ e.form }}</p>{% endif %}
+  {% if e.model %}<p class="error" role="alert">{{ e.model }}</p>{% endif %}
+  {% if not p.known and p.model %}<p class="muted"><small>This model's options have not been read yet (Models → Harvest constraints). The basics below still work.</small></p>{% endif %}
+
+  {% if p.kind == 'audio' %}
+  <label>Describe the music or sound
+    <textarea name="prompt" rows="3" required maxlength="{{ p.prompt_max }}"
+              placeholder="e.g. upbeat synthwave with a driving bassline, or: heavy rain on a tin roof">{{ v.get('prompt', '') }}</textarea>
+  </label>
+  {% if e.prompt %}<small class="error">{{ e.prompt }}</small>{% endif %}
+  {% if p.has_vocals_choice %}
+  {# This model must be told how the vocals are handled; with nothing said and no lyrics
+     it rejects the job. Instrumental needs nothing more, so it is where the form opens. #}
+  <label>Vocals
+    <select name="vocals">
+      <option value="instrumental" {% if p.vocals == 'instrumental' %}selected{% endif %}>Instrumental (no vocals)</option>
+      <option value="lyrics" {% if p.vocals == 'lyrics' %}selected{% endif %}>With vocals: my lyrics below</option>
+      {% if p.has_lyrics_writer %}<option value="auto" {% if p.vocals == 'auto' %}selected{% endif %}>With vocals: the model writes the lyrics</option>{% endif %}
+    </select>
+  </label>
+  {% if e.vocals %}<small class="error">{{ e.vocals }}</small>{% endif %}
+  {% endif %}
+  {% if p.has_lyrics %}
+  <label class="media-lyrics">Lyrics <small class="muted">({% if p.has_vocals_choice %}needed for "my lyrics"{% else %}optional{% endif %})</small>
+    <textarea name="lyrics" rows="5" maxlength="{{ p.lyrics_max }}"
+              placeholder="[verse]&#10;…&#10;[chorus]&#10;…">{{ v.get('lyrics', '') }}</textarea>
+  </label>
+  {% endif %}
+  {% if p.has_negative %}
+  <label>Avoid <small class="muted">(optional)</small>
+    <input type="text" name="negative_prompt" value="{{ v.get('negative_prompt', '') }}" placeholder="e.g. vocals, distortion">
+  </label>
+  {% endif %}
+  <div class="media-row">
+    {% if p.duration is not none %}
+    <label>Length (seconds)
+      <input type="number" name="duration" step="any"
+             {% if p.duration.get('min') is not none %}min="{{ p.duration.min }}"{% endif %}
+             {% if p.duration.get('max') is not none %}max="{{ p.duration.max }}"{% endif %}
+             {# a stored request holds 45.0; the box should read 45 #}
+             {% set dur = v.get('duration') if v.get('duration') is not none else p.duration.get('default') %}
+             value="{{ ('%g'|format(dur)) if dur is number else (dur if dur is not none else '') }}"
+             placeholder="model default">
+      {% if p.duration.get('min') is not none and p.duration.get('max') is not none %}<small class="muted">{{ '%g'|format(p.duration.min) }}–{{ '%g'|format(p.duration.max) }} s</small>{% endif %}
+    </label>
+    {% endif %}
+  {% elif p.kind == 'speech' %}
+  <label>Text to read aloud
+    <textarea name="text" rows="6" required {% if p.text_max %}maxlength="{{ p.text_max }}"{% endif %}
+              placeholder="Type or paste the words to speak.">{{ v.get('text', '') }}</textarea>
+    {% if p.text_max %}<small class="muted">Up to {{ p.text_max }} characters.</small>{% endif %}
+  </label>
+  {% if e.text %}<small class="error">{{ e.text }}</small>{% endif %}
+  <div class="media-row">
+    <label>Voice
+      {% if p.voices %}
+      {# a real dropdown: every voice the model has, visible on one click. The filter box
+         (app.js, data-filter-select) only appears for the long lists: Inworld has 133. #}
+      {% set chosen = v.get('voice') or p.voice_default %}
+      {% if p.voices|length > 12 %}<input type="search" class="select-filter" data-filter-select="voice-select"
+             placeholder="Filter {{ p.voices|length }} voices…" aria-label="Filter voices" autocomplete="off">{% endif %}
+      <select name="voice" id="voice-select">
+        {% if not p.voice_default %}<option value="" {% if not chosen %}selected{% endif %}>Model default</option>{% endif %}
+        {% if chosen and chosen not in p.voices %}<option value="{{ chosen }}" selected>{{ chosen }}</option>{% endif %}
+        {% for name in p.voices %}<option value="{{ name }}" {% if name == chosen %}selected{% endif %}>{{ name }}</option>{% endfor %}
+      </select>
+      <small class="muted">{{ p.voices|length }} voices</small>
+      {% else %}
+      <input type="text" name="voice" autocomplete="off" value="{{ v.get('voice', '') }}" placeholder="voice name">
+      {% endif %}
+    </label>
+    {% if p.has_language %}
+    <label>Language
+      {% if p.languages %}
+      {% set lang = v.get('language') or p.language_default %}
+      {% if p.languages|length > 12 %}<input type="search" class="select-filter" data-filter-select="language-select"
+             placeholder="Filter {{ p.languages|length }} languages…" aria-label="Filter languages" autocomplete="off">{% endif %}
+      <select name="language" id="language-select">
+        {% if not p.language_default %}<option value="" {% if not lang %}selected{% endif %}>Model default</option>{% endif %}
+        {% if lang and lang not in p.languages %}<option value="{{ lang }}" selected>{{ lang }}</option>{% endif %}
+        {% for code in p.languages %}<option value="{{ code }}" {% if code == lang %}selected{% endif %}>{{ code }}</option>{% endfor %}
+      </select>
+      {% else %}
+      <input type="text" name="language" autocomplete="off" value="{{ v.get('language', '') }}" placeholder="model default">
+      {% endif %}
+    </label>
+    {% endif %}
+    {% if p.speed %}
+    <label>Speed
+      <input type="number" name="speed" step="{{ p.speed.get('step') or 0.1 }}"
+             {% if p.speed.get('min') is not none %}min="{{ p.speed.min }}"{% endif %}
+             {% if p.speed.get('max') is not none %}max="{{ p.speed.max }}"{% endif %}
+             {% set spd = v.get('speed') %}
+             value="{{ ('%g'|format(spd)) if spd is number else (spd if spd is not none else '') }}" placeholder="{{ p.speed.get('default', 1) }}">
+    </label>
+    {% endif %}
+  {% else %}
+  {# A 3D object is built from a description OR from an image, never both: models take
+     exactly one, and a job sent with both lost its image to a retry. A model that does
+     both gets the choice; only the chosen box is shown (CSS, on the checked radio) and
+     only it is sent (media_forms.parse reads `source`), so it works without scripts. #}
+  <div class="media-3d-source" data-source="{{ p.source }}">
+  {% if p.choose_source %}
+  <fieldset class="media-source-pick">
+    <legend>Build it</legend>
+    <label><input type="radio" name="source" value="text" {% if p.source == 'text' %}checked{% endif %}> From a description</label>
+    <label><input type="radio" name="source" value="image" {% if p.source == 'image' %}checked{% endif %}> From an image</label>
+  </fieldset>
+  {% endif %}
+  {% if p.takes_text %}
+  <div class="media-source-text">
+  <label>Describe the object
+    <textarea name="prompt" rows="3" maxlength="{{ p.prompt_max }}"
+              placeholder="e.g. a weathered brass telescope on a wooden tripod">{{ v.get('prompt', '') }}</textarea>
+  </label>
+  {% if p.has_negative %}
+  {# part of the description: models refuse it next to images, so it hides with the text box #}
+  <label>Avoid <small class="muted">(optional)</small>
+    <input type="text" name="negative_prompt" value="{{ v.get('negative_prompt', '') }}">
+  </label>
+  {% endif %}
+  </div>
+  {% endif %}
+  {% if p.takes_image %}
+  <fieldset class="media-image-pick media-source-image">
+    <legend>Image {% if not p.takes_text %}<small class="muted">(this model only works from an image)</small>{% endif %}</legend>
+    {% if p.image_max > 1 %}
+    {# several views of ONE object. Checkboxes post in page order, so app.js keeps the
+       pick order in `image_order` (the first pick is the main view) and stops further
+       ticks at the model's limit; the server enforces both again. #}
+    <p class="muted media-views-hint"><small>Pick up to {{ p.image_max }} views of the same object (front, side, back…). The first one you pick is the main view.</small></p>
+    <input type="hidden" name="image_order" value="{{ p.picked|join(',') }}">
+    <div class="media-image-grid" data-max-images="{{ p.image_max }}">
+      {% for a in p.image_assets %}
+      {% set pos = p.picked.index(a.id|string) + 1 if a.id|string in p.picked else 0 %}
+      <label class="media-image-option" title="{{ a.name }}">
+        <input type="checkbox" name="image_asset_ids" value="{{ a.id }}" {% if pos %}checked{% endif %}>
+        {% if a.thumb %}<img src="{{ a.thumb }}" alt="{{ a.name }}" width="72" height="72" loading="lazy">{% else %}<span>{{ a.name }}</span>{% endif %}
+        <span class="media-pick-order" aria-hidden="true">{{ pos if pos else '' }}</span>
+      </label>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="media-image-grid">
+      {% for a in p.image_assets %}
+      <label class="media-image-option" title="{{ a.name }}">
+        <input type="radio" name="image_asset_id" value="{{ a.id }}" {% if p.picked and p.picked[0] == a.id|string %}checked{% endif %}>
+        {% if a.thumb %}<img src="{{ a.thumb }}" alt="{{ a.name }}" width="72" height="72" loading="lazy">{% else %}<span>{{ a.name }}</span>{% endif %}
+      </label>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if not p.image_assets %}<p class="muted"><small>No images in your asset library yet.</small></p>{% endif %}
+    {# upload here, like a video's first frame: app.js posts the file to the asset
+       library and re-renders this picker with the new picture ticked #}
+    <label class="media-upload" role="button">Upload a picture
+      <input type="file" accept="image/*" data-media-upload {% if p.image_max > 1 %}multiple{% endif %} hidden>
+    </label>
+    <small class="muted">Or pick from your <a href="/assets">Assets</a>. A plain object on a clean background works best.</small>
+  </fieldset>
+  {% endif %}
+  </div>
+  <div class="media-row">
+  {% endif %}
+    <label>Format
+      <select name="output_format">
+        {% for f in p.formats %}<option value="{{ f }}" {% if v.get('output_format') == f %}selected{% endif %}>{{ f }}</option>{% endfor %}
+      </select>
+    </label>
+    {% if p.has_seed %}
+    <label>Seed <small class="muted">(optional)</small>
+      <input type="number" name="seed" min="0" step="1" value="{{ v.get('seed') if v.get('seed') is not none else '' }}" placeholder="random">
+      {% if p.seed_range %}<small class="muted">{{ p.seed_range }}; a larger one is brought into range</small>{% endif %}
+    </label>
+    {% endif %}
+  </div>
+  {% if e.duration %}<small class="error">Length: {{ e.duration }}</small>{% endif %}
+  {% if e.speed %}<small class="error">Speed: {{ e.speed }}</small>{% endif %}
+  {% if e.seed %}<small class="error">Seed: {{ e.seed }}</small>{% endif %}
+
+  {% if p.extras %}
+  <details class="media-extras">
+    <summary>More settings <small class="muted">({{ p.extras|length }})</small></summary>
+    <div class="media-row">
+    {% for x in p.extras %}
+      <label>{{ x.label }}
+      {% if x.control == 'bool' %}
+        <select name="{{ x.name }}">
+          <option value="" {% if x.value == '' %}selected{% endif %}>Model default{% if x.default is not none %} ({{ 'on' if x.default|string|lower == 'true' else 'off' }}){% endif %}</option>
+          <option value="on" {% if x.value == 'on' %}selected{% endif %}>On</option>
+          <option value="off" {% if x.value == 'off' %}selected{% endif %}>Off</option>
+        </select>
+      {% elif x.control == 'choice' %}
+        <select name="{{ x.name }}">
+          <option value="">Model default{% if x.default is not none %} ({{ x.default }}){% endif %}</option>
+          {% for c in x['values'] %}<option value="{{ c }}" {% if x.value is not none and x.value|string == c|string %}selected{% endif %}>{{ c }}</option>{% endfor %}
+        </select>
+      {% elif x.control == 'number' %}
+        <input type="number" name="{{ x.name }}" step="{{ x.step }}"
+               {% if x.min is not none %}min="{{ x.min }}"{% endif %} {% if x.max is not none %}max="{{ x.max }}"{% endif %}
+               value="{{ x.value if x.value is not none else '' }}" placeholder="{{ x.default if x.default is not none else 'model default' }}">
+      {% else %}
+        <input type="text" name="{{ x.name }}" value="{{ x.value if x.value is not none else '' }}" placeholder="model default">
+      {% endif %}
+      </label>
+    {% endfor %}
+    </div>
+  </details>
+  {% endif %}
+  <details class="media-extras">
+    <summary>Extra JSON <small class="muted">(advanced)</small></summary>
+    <textarea name="extra_json" rows="3" placeholder='{"steps": 12}'>{{ v.get('extra_json') if v.get('extra_json') is string else '' }}</textarea>
+    {% if e.extra_json %}<small class="error">{{ e.extra_json }}</small>{% endif %}
+  </details>
+</section>

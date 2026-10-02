@@ -295,6 +295,40 @@ def for_request(
     return prompt
 
 
+# Request fields that are not part of "the prompt": where it was filed, and things that
+# change per run. Everything else a music, speech or 3D request carries is kept, so
+# loading the row back restores the model, the lyrics, the voice and so on.
+_MEDIA_SKIP = ("project_id", "title", "seed", "extra_json", "image_asset_id", "image_asset_ids")
+
+
+def for_media(session: Session, kind: str, project_id: int, data: dict, text: str) -> Prompt:
+    """Auto-history for a music/sound, speech or 3D submit, the twin of ``for_request``.
+    ``data`` is the stored request (``schemas.media.dump``) and ``text`` its main text
+    (the description, or the words to speak). These kinds have no nine-field prompt
+    form, so the request's own fields are what ``form_json`` holds, and composed and
+    final prompt are both the text. Deduped per project by content hash like every
+    other row; either way the row is marked used."""
+    form = {k: v for k, v in data.items() if k not in _MEDIA_SKIP and v not in ("", None, {}, [])}
+    hash_ = content_hash(kind, text, text, "", form)
+    prompt = find_by_hash(session, project_id, hash_)
+    if prompt is None:
+        prompt = Prompt(
+            project_id=project_id,
+            title=(text[:60] or "Untitled"),
+            kind=kind,
+            form_json=form,
+            composed_prompt=text,
+            final_prompt=text,
+            negative_prompt="",
+            tags=normalize_tags(""),
+            content_hash=hash_,
+        )
+        session.add(prompt)
+        session.flush()
+    mark_used(session, prompt.id)
+    return prompt
+
+
 def mark_used(session: Session, prompt_id: int) -> Prompt | None:
     prompt = session.get(Prompt, prompt_id)
     if prompt is None:

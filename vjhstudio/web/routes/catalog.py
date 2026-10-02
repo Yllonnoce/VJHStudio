@@ -12,7 +12,10 @@ from .. import deps
 from .system import _local_only
 
 router = APIRouter()
-KINDS = ("image", "video", "text")
+KINDS = catalog.KINDS
+# "Find more models" searches RunWare's checkpoint index, which only covers these three;
+# music, speech and 3D models arrive through Refresh prices instead.
+SEARCH_KINDS = ("image", "video", "text")
 
 
 _view = catalog.view  # one shape for /api/models, the row partials and the task builders
@@ -68,6 +71,7 @@ def _refresh_ctx(request: Request, message: str | None = None, error: str | None
 def models_page(request: Request):
     ctx = {
         "lists": {k: _list_ctx(request, k) for k in KINDS},
+        "kind_labels": catalog.KIND_LABELS,
         **_refresh_ctx(request),
         "harvest": constraints.STATE.snapshot(),
     }
@@ -127,7 +131,7 @@ async def hx_search(request: Request, form: deps.Form):
 @router.post("/models/add")
 def add_model(request: Request, form: deps.Form):
     kind = str(form.get("kind", "image"))
-    if kind not in KINDS:
+    if kind not in SEARCH_KINDS:
         return JSONResponse({"error": "bad kind"}, status_code=400)
     try:
         record = json.loads(str(form.get("record", "{}")))

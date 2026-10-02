@@ -10,6 +10,7 @@ than teleporting the spend away from images that are still sitting in the old pr
 from __future__ import annotations
 
 import errno
+import io
 import json
 import logging
 import os
@@ -116,6 +117,7 @@ def prepare(
     duration_s: float | None = None,
     thumbnail: bool = True,
     poster: bool = False,
+    thumb_from: Path | None = None,
 ) -> list[Prepared]:
     """Sidecars, dimensions and thumbnails. Deliberately does no DB work: JPEG encoding
     must not happen inside a write transaction.
@@ -148,11 +150,17 @@ def prepare(
         thumb_rel: str | None = None
         poster_rel: str | None = None
         still = paths.thumbs / f"{f.path.stem}.jpg"
+        item_params = params
         if thumbnail:
             if make_thumbnail(f.path, still) is not None:
                 thumb_rel = still.relative_to(paths.data).as_posix()
         elif poster and make_poster(f.path, still) is not None:
             poster_rel = thumb_rel = still.relative_to(paths.data).as_posix()
+        elif thumb_from is not None and make_thumbnail(thumb_from, still) is not None:
+            # a 3D object built from a picture: that picture stands in until a browser
+            # has rendered the object itself (``set_viewer_thumb``)
+            thumb_rel = still.relative_to(paths.data).as_posix()
+            item_params = {**params, "thumb_source": "input"}
         out.append(
             Prepared(
                 saved=f,
@@ -161,7 +169,7 @@ def prepare(
                 thumb_rel_path=thumb_rel,
                 width=w,
                 height=h,
-                params=params,
+                params=item_params,
                 duration_s=duration_s,
                 poster_rel_path=poster_rel,
             )
@@ -198,6 +206,67 @@ def insert(session: Session, meta: OutputMeta, prepared: list[Prepared]) -> list
     session.add_all(rows)
     session.flush()
     return rows
+
+
+THUMB_MAX_BYTES = 8 * 1024 * 1024
+THUMB_BACKGROUND = (27, 29, 34)  # the dark card colour of the stand-in icons
+
+
+class ThumbError(ValueError):
+    """A snapshot that cannot become a thumbnail; ``status`` is the HTTP answer."""
+
+    def __init__(self, status: int, message: str):
+        super().__init__(message)
+        self.status = status
+
+
+def needs_snapshot(output: Output) -> bool:
+    """True for a 3D object whose picture is still the cube icon or its source image:
+    the page then asks the browser to render it once and post the result back."""
+    if output.kind != "3d" or output.is_missing:
+        return False
+    return (output.params_json or {}).get("thumb_source") != "viewer"
+
+
+def set_viewer_thumb(session: Session, paths: Paths, output_id: int, content: bytes) -> bool:
+    """Store the browser's rendering of a 3D object as its thumbnail. RunWare returns
+    only the model file, so this is the one way the gallery gets to show what the
+    object looks like. Returns ``False`` when a viewer thumbnail already exists (the
+    first one wins; two open tabs must not fight). Raises ``LookupError`` for an unknown
+    output and ``ThumbError`` for anything that is not a usable picture of a 3D output."""
+    output = get(session, output_id)
+    if output is None:
+        raise LookupError(output_id)
+    if output.kind != "3d":
+        raise ThumbError(415, "only 3D objects take a viewer snapshot")
+    if not needs_snapshot(output) and output.thumb_rel_path:
+        return False
+    if not content:
+        raise ThumbError(400, "no image was sent")
+    if len(content) > THUMB_MAX_BYTES:
+        raise ThumbError(413, "the snapshot is too large")
+    try:
+        from PIL import Image
+
+        with Image.open(io.BytesIO(content)) as im:
+            im.load()
+            # the viewer's background is transparent: flatten it onto the card colour
+            rgba = im.convert("RGBA")
+            flat = Image.new("RGB", rgba.size, THUMB_BACKGROUND)
+            flat.paste(rgba, mask=rgba.split()[3])
+            flat.thumbnail((384, 384))
+    except Exception as e:  # noqa: BLE001 - whatever Pillow dislikes is "not an image"
+        raise ThumbError(400, "that is not an image") from e
+    still = paths.thumbs / f"{Path(output.filename).stem}.jpg"
+    still.parent.mkdir(parents=True, exist_ok=True)
+    part = still.with_name(still.name + ".part")
+    flat.save(part, "JPEG", quality=85)
+    part.replace(still)
+    output.thumb_rel_path = still.relative_to(paths.data).as_posix()
+    # reassigned, not mutated: JSON columns are not mutation-tracked
+    output.params_json = {**(output.params_json or {}), "thumb_source": "viewer"}
+    session.flush()
+    return True
 
 
 def record_outputs(

@@ -8,10 +8,69 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **The Music & SFX, Speech and 3D tabs caught up with Image and Video.** They remember what you
+  typed (each tab on its own, in that browser) and have a **Reset** button; every submit is filed
+  in the **Prompts** library and can be loaded back into its tab; each has a default model under
+  **Settings**; and the 3D tab can upload a picture on the spot instead of sending you to Assets.
+- A **Full screen** button on the 3D viewer. Press it again, or Esc, to come back.
+- **Use VJHStudio from other devices on your network.** Start it with `./start.sh --network`
+  (`start.bat --network` on Windows) and it shows the address to open on a phone, tablet or
+  another computer. **Settings → Network access** shows whether the network is open and the
+  address. There is no login, so only use it on a network you trust.
+- **Remix, Download and Delete on every Gallery card**, for images, videos, music, speech and 3D
+  objects alike. They used to be inside the details panel only.
+- **Removing assets is easy to find.** Each asset has a delete cross on its picture, and you can
+  tick several and remove them with one **Delete selected**. (Delete used to be the last button at
+  the bottom of a very tall card.)
+- **Several views for one 3D object.** Tripo, Meshy, Rodin Gen-2 and Hunyuan 3D Pro can build from
+  more than one picture of the same object (front, side, back…), which gives them real shape for
+  the sides they would otherwise guess. On those models the 3D tab lets you tick up to the
+  model's limit; the first one you pick is the main view, and the tiles are numbered in pick order.
+- **3D objects show what they look like.** Gallery cards, the queue and the home page now show a
+  picture of each 3D object instead of a cube icon. RunWare sends only the model file, so the app
+  takes the picture itself, in your browser, the first time the object appears on a page. An object
+  built from one of your images shows that image until its own picture is ready.
+- The Speech tab's **Voice** and **Language** are real dropdowns listing everything the model
+  offers, with a filter box for the long lists (Inworld has 133 voices). Switching model resets
+  them to that model's own.
+- **Music & sound effects, speech and 3D objects.** Three new tabs on the Generate page beside
+  Image and Video. Describe a piece of music or a sound; type a text and pick a voice to read it;
+  describe an object or turn one of your pictures into a 3D model. Each form shows only the
+  options the chosen model accepts (lyrics, length, voices, textures…), with a cost estimate.
+- Music and speech play in their Gallery card. 3D objects open in a viewer you can rotate and
+  zoom, with a download for the `.glb` file. The Gallery filter and the Models page cover the
+  new kinds, and **Refresh prices** now also fetches RunWare's audio and 3D models (27 today).
 - The Image, Video and Text lists on the Models page fold away under their headings, which now
   show how many models each holds. They start closed; the ones you open stay open in that browser.
 
+### Changed
+
+- The home page no longer has the "Create an image" and "Create a video" cards: five kinds of
+  thing can be made now, and **Generate** in the menu leads to all of them.
+
 ### Fixed
+
+- An asset that a running 3D job is using can no longer be deleted from under it, and refusing a
+  delete no longer replaces the asset's card with a line of raw text.
+
+- A seed too large for the chosen model no longer fails the job. Models accept different seed
+  ranges (MiniMax Music stops at 1,000,000; ACE-Step goes to about 2 billion), and a seed carried
+  over from one to another is now brought into range. The same seed always maps to the same
+  value, so repeating a job still repeats it. The form shows each model's range.
+
+- **MiniMax Music without lyrics no longer fails.** That model insists on being told how the
+  vocals are handled, so its form now has a Vocals choice: instrumental (the default, nothing more
+  needed), your own lyrics, or lyrics the model writes. Only "your own lyrics" needs the lyrics
+  box, and the form says so before anything is sent.
+
+- A job the model provider refuses now shows the provider's own reason instead of "Additional
+  information below" with nothing below it, and explains the common one in plain words: a provider
+  that is still busy with an earlier job of yours.
+- Stopping a video, music, speech or 3D job says what really happens: the app stops waiting, but
+  the job may still finish and be charged, and some providers will not start another until it has.
+
+- **Retry** on a failed video job re-queues it as a video; it used to be rebuilt as an image
+  request.
 
 - **Video models that turned requests down now work, or say up front why they cannot.** A full
   sweep of the video catalog found 31 rejected jobs. Kling 3 Standard, Kling 2.6 Pro, MiniMax H3

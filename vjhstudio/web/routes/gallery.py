@@ -6,8 +6,9 @@ import json
 from datetime import date
 
 from fastapi import APIRouter, HTTPException, Request, Response
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select
+from starlette.datastructures import UploadFile
 
 from ... import db
 from ...models import Job, Output, Project
@@ -80,6 +81,7 @@ def _card_ctx(output: Output, slug: str) -> dict:
         "url": output_url(slug, output.filename),
         "thumb": thumb_url(output.thumb_rel_path),
         "poster": thumb_url(output.poster_rel_path),
+        "snap3d": outputs_svc.needs_snapshot(output),
     }
 
 
@@ -247,6 +249,26 @@ def output_as_asset(request: Request, output_id: int):
         # htmx follows a 303 with the swap it was given; HX-Redirect navigates instead.
         return Response(status_code=204, headers={"HX-Redirect": target})
     return RedirectResponse(target, status_code=303)
+
+
+@router.post("/outputs/{output_id}/thumb")
+async def set_output_thumb(request: Request, output_id: int):
+    """The browser's own rendering of a 3D object (app.js ``vjhSnapshot3d``), posted as
+    multipart ``image``. JSON either way: ``{"thumb_url", "kept"}`` -- ``kept`` true when
+    a viewer snapshot was already there and this one was ignored."""
+    app = request.app
+    form = await request.form()
+    upload = form.get("image")
+    content = await upload.read() if isinstance(upload, UploadFile) else b""
+    with db.session_scope(app.state.boot.session_factory) as s:
+        try:
+            stored = outputs_svc.set_viewer_thumb(s, app.state.paths, output_id, content)
+        except LookupError as e:
+            raise HTTPException(status_code=404, detail="unknown output") from e
+        except outputs_svc.ThumbError as e:
+            raise HTTPException(status_code=e.status, detail=str(e)) from e
+        url = thumb_url(outputs_svc.get(s, output_id).thumb_rel_path)
+    return JSONResponse({"thumb_url": url, "kept": not stored})
 
 
 @router.get("/outputs/{output_id}/download")

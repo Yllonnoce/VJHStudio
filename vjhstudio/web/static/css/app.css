@@ -685,3 +685,94 @@ input[type="number"]::-webkit-outer-spin-button,input[type="number"]::-webkit-in
 .stepper-btn:focus-visible{outline:2px solid var(--sp-accent);outline-offset:1px}
 
 .mcp-trace td{vertical-align:top;font-size:.85rem}.mcp-trace code.wrap{white-space:pre-wrap;word-break:break-word}
+
+/* ---- Music & SFX, Speech and 3D forms (generate/_media_params.html) ---- */
+/* On these pages the tab row is a <nav>, and Pico spreads a nav's children to both
+   edges; the tabs belong together at the left, as on the Image/Video page. */
+.gen-modes{flex-wrap:wrap}
+nav.gen-modes{justify-content:flex-start}
+/* The real submit button here is type="submit", which the app-wide `width:auto` rule
+   for buttons out-ranks `.gen-submit` on; say it with the same weight. */
+button.gen-submit[type="submit"]{width:100%}
+.media-params > label, .media-params > details, .media-params > fieldset{margin-bottom:.75rem}
+.media-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr));gap:.75rem;align-items:start}
+.media-row > label{margin:0}
+.media-extras > summary{cursor:pointer}
+.media-image-pick{border:0;padding:0}
+.media-image-grid{display:flex;flex-wrap:wrap;gap:.5rem;margin:.35rem 0}
+.media-image-option{display:flex;flex-direction:column;align-items:center;gap:.2rem;margin:0;padding:.3rem;border:1px solid var(--sp-border);border-radius:var(--sp-radius);cursor:pointer;font-size:.8rem;max-width:6rem;overflow:hidden}
+.media-image-option img{border-radius:calc(var(--sp-radius) / 2);object-fit:cover}
+.media-image-option:has(input:checked){border-color:var(--sp-accent);box-shadow:0 0 0 1px var(--sp-accent)}
+
+/* ---- audio and 3D in the gallery ---- */
+.gallery-audio{cursor:default;padding-bottom:.4rem}
+.gallery-audio img, .gallery-3d img{height:110px;object-fit:cover}
+.gallery-audio audio{display:block;width:calc(100% - .8rem);margin:.3rem .4rem 0;height:2.2rem}
+.gallery-caption{display:block;margin:.35rem .5rem 0;font-size:.8rem;line-height:1.25;color:var(--sp-text);text-align:left;
+  overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.gallery-3d{padding-bottom:.5rem}
+.lightbox-audio{display:block;width:100%;margin:1rem 0}
+.lightbox-model{display:block;width:100%;height:min(60vh,34rem);margin:0 auto .25rem;border-radius:var(--sp-radius-sm);
+  background:var(--sp-surface-2)}
+.lightbox-hint{text-align:center;margin:0 0 .75rem}
+
+/* 3D: a description OR an image. The checked radio decides which box is on screen. */
+.media-source-pick{border:0;padding:0;margin:0 0 .75rem;display:flex;flex-wrap:wrap;gap:.25rem 1.25rem;align-items:center}
+.media-source-pick legend{float:left;margin:0 .75rem 0 0;font-weight:600}
+.media-source-pick label{margin:0}
+.media-3d-source:has(input[name="source"][value="image"]:checked) .media-source-text,
+.media-3d-source:has(input[name="source"][value="text"]:checked) .media-source-image{display:none}
+.job-thumbs audio{display:block;width:100%;height:2.2rem}
+/* Music: the lyrics box is only on screen when the Vocals choice can use it. */
+.media-params:has(select[name="vocals"] option[value="instrumental"]:checked) .media-lyrics{display:none}
+/* a 3D object's own picture (a viewer snapshot) fills the card like any thumbnail */
+.gallery-3d img[src^="/files/thumbs/"]{height:180px;object-fit:contain;background:#1b1d22}
+.select-filter{margin-bottom:.35rem}
+/* 3D: several views. The number on a tile is the order it was picked in (1 = main view). */
+.media-image-option{position:relative}
+.media-pick-order{position:absolute;top:.2rem;right:.2rem;min-width:1.3rem;height:1.3rem;border-radius:999px;
+  background:var(--sp-accent);color:var(--sp-bg,#111);font-weight:700;font-size:.75rem;line-height:1.3rem;text-align:center}
+.media-pick-order:empty{display:none}
+.media-image-option:has(input:disabled){opacity:.45;cursor:not-allowed}
+
+/* ---- removing assets: a cross and a tick box on each picture, one bulk button ---- */
+.asset-remove{position:absolute;top:.35rem;right:.35rem;width:2rem;height:2rem;min-height:0;padding:0;margin:0;
+  border-radius:999px;border:1px solid var(--sp-border);background:color-mix(in srgb, var(--sp-surface) 85%, transparent);
+  color:var(--sp-text);font-size:1.25rem;line-height:1;cursor:pointer}
+.asset-remove:hover{background:var(--sp-danger, #b3261e);color:#fff;border-color:transparent}
+.asset-select{position:absolute;bottom:.35rem;left:.35rem;margin:0;padding:.2rem .3rem;border-radius:.4rem;
+  background:color-mix(in srgb, var(--sp-surface) 85%, transparent);line-height:0;cursor:pointer}
+.asset-select input{margin:0}
+.asset-card:has(.asset-select input:checked){outline:2px solid var(--sp-accent);outline-offset:-2px}
+.asset-bulk{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;margin:.25rem 0 .75rem}
+.asset-bulk button{margin:0}
+.gallery-card-actions{display:flex;gap:.35rem;padding:.35rem .4rem 0}
+.gallery-card-actions [role="button"], .gallery-card-actions button{flex:1;width:auto;margin:0;padding:.2rem .3rem;font-size:.8rem;text-align:center;min-height:0}
+.gallery-card-actions{flex-wrap:wrap}
+.gallery-card-delete:hover{background:var(--sp-danger, #b3261e);color:#fff;border-color:transparent}
+
+/* ---- 3D viewer: full screen ---- */
+/* width:100% is not optional: in the phone sheet the detail is a flex column, where an
+   auto side margin shrinks an item to its content -- and a viewer has none (it was 0px wide) */
+.model-stage{position:relative;width:100%;margin:0 0 .25rem;border-radius:var(--sp-radius-sm);background:var(--sp-surface-2)}
+.model-stage .lightbox-model{margin:0}
+.model-fullscreen{position:absolute;top:.5rem;right:.5rem;width:auto;margin:0;padding:.25rem .7rem;font-size:.8rem;min-height:0;
+  opacity:.85;z-index:2}
+.model-fullscreen:hover{opacity:1}
+/* the real thing (Fullscreen API) and the stand-in for browsers without it (iPhone
+   Safari): either way the stage covers the display and the viewer fills the stage */
+.model-stage:fullscreen, .model-stage.is-maximized{width:100vw;height:100vh;margin:0;border-radius:0;background:#14161a}
+.model-stage.is-maximized{position:fixed;inset:0;z-index:2000}
+.model-stage:fullscreen .lightbox-model, .model-stage.is-maximized .lightbox-model{width:100%;height:100%;border-radius:0}
+
+/* Phone sheet: the viewer is fixed media above the scrolling details, like an image,
+   and short enough that the prompt and the buttons still fit under it. */
+@media (max-width: 767px){
+  .model-stage{flex:0 0 auto}
+  .model-stage .lightbox-model{height:min(38vh,20rem);height:min(38dvh,20rem)}
+  .lightbox-hint{margin-bottom:.4rem}
+  .model-stage:fullscreen .lightbox-model, .model-stage.is-maximized .lightbox-model{height:100%}
+  .model-stage.is-maximized{height:100vh;height:100dvh}
+}
+.media-upload{display:inline-block;width:auto;margin:.25rem .5rem .25rem 0;padding:.3rem .8rem;font-size:.85rem;cursor:pointer}
+.media-upload.is-busy{opacity:.6;pointer-events:none}

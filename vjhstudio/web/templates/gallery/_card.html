@@ -13,6 +13,27 @@
      the first output on screen. Both lightbox buttons state the swap themselves. #}
   <button type="button" class="secondary outline gallery-details" hx-get="/hx/outputs/{{ o.id }}"
           hx-target="#lightbox-body" hx-swap="innerHTML" onclick="vjhOpenLightbox()">Details</button>
+  {% elif o.kind in ('audio', 'speech') %}
+  {# music, a sound effect or a spoken text: it plays in the card, like a clip #}
+  <div class="gallery-thumb gallery-audio">
+    <img src="/static/img/audio.svg" alt="" width="200" height="112" loading="lazy">
+    <p class="gallery-caption">{{ o.prompt_text|truncate(70) }}</p>
+    <audio src="{{ url }}" controls preload="none" aria-label="{{ o.filename }}"></audio>
+    {% if o.is_favourite %}<span class="gallery-fav" aria-label="Favourite">★</span>{% endif %}
+  </div>
+  <button type="button" class="secondary outline gallery-details" hx-get="/hx/outputs/{{ o.id }}"
+          hx-target="#lightbox-body" hx-swap="innerHTML" onclick="vjhOpenLightbox()">Details</button>
+  {% elif o.kind == '3d' %}
+  {# a 3D object has no still: the icon opens the details, where it can be turned around #}
+  {# data-snap3d-*: until the object has a picture taken by the viewer, app.js renders
+     it once off-screen and posts the snapshot back (RunWare sends only the model file). #}
+  <button type="button" class="gallery-thumb gallery-3d" hx-get="/hx/outputs/{{ o.id }}" hx-target="#lightbox-body"
+          hx-swap="innerHTML" onclick="vjhOpenLightbox()" aria-label="Open {{ o.filename }}"
+          {% if snap3d %}data-snap3d-id="{{ o.id }}" data-snap3d-src="{{ url }}"{% endif %}>
+    <img src="{{ thumb or '/static/img/model3d.svg' }}" alt="" width="200" height="112" loading="lazy">
+    <span class="gallery-caption">{{ o.prompt_text|truncate(70) }}</span>
+    {% if o.is_favourite %}<span class="gallery-fav" aria-label="Favourite">★</span>{% endif %}
+  </button>
   {% else %}
   <button type="button" class="gallery-thumb" hx-get="/hx/outputs/{{ o.id }}" hx-target="#lightbox-body"
           hx-swap="innerHTML" onclick="vjhOpenLightbox()" aria-label="Open {{ o.filename }}">
@@ -21,10 +42,21 @@
     {% if o.is_favourite %}<span class="gallery-fav" aria-label="Favourite">★</span>{% endif %}
   </button>
   {% endif %}
-  {% if o.kind != 'video' %}
+  {% if o.kind == 'image' %}
   <button type="button" class="secondary outline gallery-details" hx-post="/outputs/{{ o.id }}/as-asset"
           title="Add to the asset library and open Generate with it picked">Use as reference</button>
   {% endif %}
+  {# on every card, whatever it is: make another like it, or take the file #}
+  <div class="gallery-card-actions">
+    <a role="button" class="secondary outline" href="/generate?remix={{ o.id }}" title="Open Generate with this one's settings">Remix</a>
+    <a role="button" class="secondary outline" href="/outputs/{{ o.id }}/download" title="Download {{ o.filename }}">Download</a>
+    {# target and swap are spelled out: both are inherited, and the grid (this card's
+       parent) sets its own for its reload. An empty 200 removes the card. #}
+    <button type="button" class="secondary outline gallery-card-delete" hx-delete="/outputs/{{ o.id }}"
+            hx-target="#output-{{ o.id }}" hx-swap="outerHTML"
+            hx-confirm="Delete {{ o.filename }}? This removes the file." title="Delete this item"
+            aria-label="Delete {{ o.filename }}">Delete</button>
+  </div>
   <footer class="gallery-card-meta">
     <small class="muted">{{ o.created_at.strftime('%Y-%m-%d %H:%M') }}</small>
     {% if o.cost %}<small class="cost">${{ '%.4f'|format(o.cost) }}</small>{% endif %}

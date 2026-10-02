@@ -1,0 +1,10 @@
+{# hx-target="this" is not optional: this span lives inside #media-form, whose own target
+   is #queue-panel, and hx-target is inherited -- without it the estimate replaces the queue. #}
+<span id="media-estimate" class="estimate"
+      hx-post="/hx/media/estimate"
+      hx-trigger="change from:#media-form delay:300ms, input from:#media-form delay:800ms"
+      hx-include="#media-form" hx-target="this" hx-swap="outerHTML">
+  {% if estimate.total is not none %}Estimated cost: <strong>≈${{ '%.4f'|format(estimate.total) }}</strong>
+  {% else %}Estimated cost: <strong>n/a</strong>{% endif %}
+  <small class="muted">({{ estimate.note }})</small>
+</span>

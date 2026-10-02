@@ -35,5 +35,14 @@
   <label>Search <input type="search" name="q" value="{{ filters.q or '' }}" placeholder="filename or notes"></label>
 </form>
 
+{# Tick assets on their pictures, then remove them all with one confirmation. The count
+   and the disabled state are kept by app.js (delegated: the grid is swapped often). #}
+<div class="asset-bulk">
+  <button type="button" id="asset-delete-selected" class="secondary outline" disabled
+          hx-post="/assets/delete-selected" hx-include="#asset-grid input[name=asset_ids]:checked"
+          hx-target="#asset-grid" hx-swap="outerHTML"
+          hx-confirm="Delete the selected assets? This removes the files.">Delete selected</button>
+  <small class="muted" id="asset-selected-count">Tick assets to remove several at once, or use the &times; on a picture.</small>
+</div>
 {% include "assets/_grid.html" %}
 {% endblock %}

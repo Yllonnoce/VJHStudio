@@ -12,8 +12,8 @@
         {% if key == "ui.notify_desktop" %}
           <button type="button" class="secondary outline" onclick="vjhTestNotification()">Test notification</button>
         {% endif %}
-      {% elif key in ("defaults.image_model", "defaults.video_model", "defaults.polish_model") %}
-        {% set kind = {"defaults.image_model": "image", "defaults.video_model": "video", "defaults.polish_model": "text"}[key] %}
+      {% elif key in ("defaults.image_model", "defaults.video_model", "defaults.polish_model", "defaults.audio_model", "defaults.speech_model", "defaults.model3d_model") %}
+        {% set kind = {"defaults.image_model": "image", "defaults.video_model": "video", "defaults.polish_model": "text", "defaults.audio_model": "audio", "defaults.speech_model": "speech", "defaults.model3d_model": "3d"}[key] %}
         {% with name=key, options=model_options[kind], selected=values[key], allow_empty=(key == "defaults.polish_model") %}{% include "catalog/_model_select.html" %}{% endwith %}
       {% else %}
         <input name="{{ key }}" value="{{ values[key] }}" {% if sp.type.__name__ == 'int' %}type="number"{% endif %}>

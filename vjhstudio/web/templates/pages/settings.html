@@ -5,6 +5,19 @@
   <h1>Settings</h1>
   <p class="lead">Your API key, appearance, updates, backups and agent access.</p>
 </header>
+{# Who can reach the app is decided when it is started (start.sh --network), so this
+   section only reports it and says how to change it. #}
+<section id="network"><h2>Network access</h2>
+  {% if network_open %}
+  <p><strong>Other devices on your network can open VJHStudio.</strong>
+    {% if network_urls %}On a phone, tablet or another computer, open
+    {% for u in network_urls %}<a href="{{ u }}"><code>{{ u }}</code></a>{% if not loop.last %} or {% endif %}{% endfor %}.
+    {% else %}This computer's address could not be worked out; look it up in your network settings and add <code>:{{ request.url.port or 8080 }}</code>.{% endif %}</p>
+  <p class="muted"><small>Anyone on your network can use it and spend your RunWare balance; there is no login. Updating, restarting, backups and Harvest constraints still only work from this computer. To close it again, start VJHStudio without <code>--network</code>.</small></p>
+  {% else %}
+  <p>Only this computer can open VJHStudio. To use it from a phone, tablet or another computer on the same network, start it with <code>./start.sh --network</code> (Windows: <code>start.bat --network</code>).</p>
+  {% endif %}
+</section>
 <section id="api"><h2>RunWare API</h2>{% include "settings/_api_key_form.html" %}</section>
 <section id="general"><h2>General</h2>{% include "settings/_general_form.html" %}</section>
 <section id="updates"><h2>Updates</h2>{% include "settings/_updates.html" %}</section>

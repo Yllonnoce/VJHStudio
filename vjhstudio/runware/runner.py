@@ -243,6 +243,47 @@ def value_correction(err: BaseException, task: dict) -> tuple[dict, dict] | None
     }
 
 
+# "Invalid value for 'seed'. 'seed' must be an integer between 0 and 1000000."
+_INVALID_FOR = re.compile(r"invalid value for '([A-Za-z0-9_.]+)'", re.I)
+_BETWEEN = re.compile(r"between\s+(-?\d+(?:\.\d+)?)\s+and\s+(-?\d+(?:\.\d+)?)", re.I)
+
+
+def range_correction(err: BaseException, task: dict) -> tuple[dict, dict] | None:
+    """A top-level number outside the range RunWare states ("must be … between A and
+    B") is brought inside it. A seed is folded in by modulo -- any seed is as good as
+    another, and the same one always lands on the same value -- while a quantity
+    (a length, a step count) is clamped to the nearer end. The task's own width/height
+    are ``size_correction``'s, and a field that is not a number is left alone."""
+    message = getattr(err, "message", None) or str(err)
+    m = _INVALID_FOR.search(message)
+    field = str(getattr(err, "parameter", "") or "") or (m.group(1) if m else "")
+    span = _BETWEEN.search(message)
+    if not field or not span or "." in field or field in PROTECTED or field in PAIR:
+        return None
+    current = task.get(field)
+    if isinstance(current, bool) or not isinstance(current, (int, float)):
+        return None
+    lo, hi = float(span.group(1)), float(span.group(2))
+    if hi < lo or lo <= current <= hi:
+        return None
+    if field == "seed":
+        lo_i, hi_i = int(lo), int(hi)
+        value: float | int = lo_i + (int(current) - lo_i) % (hi_i - lo_i + 1)
+    else:
+        value = min(max(float(current), lo), hi)
+        value = int(value) if float(value).is_integer() else value
+    new = copy.deepcopy(task)
+    new[field] = value
+    bounds = [int(lo) if lo.is_integer() else lo, int(hi) if hi.is_integer() else hi]
+    return new, {
+        "field": field,
+        "action": "corrected",
+        "from": current,
+        "to": value,
+        "range": bounds,
+    }
+
+
 def trim_correction(err: BaseException, task: dict) -> tuple[dict, dict] | None:
     """A list input longer than the model allows ("Frame images must contain between 0
     and 1 images") keeps its first items: the first frame outranks the last."""
@@ -308,6 +349,12 @@ def _validation_fallback(
     if fixed is not None:
         return fixed
     fixed = value_correction(err, task)
+    if fixed is not None and fixed[1]["field"] not in corrected:
+        corrected.add(fixed[1]["field"])
+        return fixed
+    if fixed is not None:
+        return None
+    fixed = range_correction(err, task)
     if fixed is not None and fixed[1]["field"] not in corrected:
         corrected.add(fixed[1]["field"])
         return fixed

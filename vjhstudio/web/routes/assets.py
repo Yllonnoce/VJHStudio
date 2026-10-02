@@ -193,9 +193,42 @@ def delete_asset(request: Request, asset_id: int):
         if asset is None:
             raise HTTPException(status_code=404, detail="unknown asset")
         ok = assets_svc.delete(s, request.app.state.paths, asset_id)
-    if not ok:
-        return JSONResponse({"error": REFERENCED_MESSAGE}, status_code=409)
+        # the buttons swap the reply over the card, and htmx is configured to swap a
+        # 409: answer with the card itself carrying the reason, never a JSON body
+        ctx = None if ok else _card_ctx(asset, error=REFERENCED_MESSAGE)
+        if ctx is not None:
+            return deps.render(request, "assets/_card.html", ctx, 409)
     return Response(status_code=200)
+
+
+@router.post("/assets/delete-selected")
+def delete_selected(request: Request, form: deps.Form):
+    """Remove every ticked asset in one go and answer with the refreshed grid (same
+    filters), saying how many went and how many a running job is still holding on to."""
+    ids: list[int] = []
+    for raw in form.getlist("asset_ids"):
+        try:
+            ids.append(int(str(raw).strip()))
+        except ValueError:
+            continue
+    with db.session_scope(request.app.state.boot.session_factory) as s:
+        deleted, in_use = assets_svc.delete_many(s, request.app.state.paths, ids)
+    ctx = _grid_ctx(request, _filters_from(request), 1)
+    toasts = []
+    if deleted:
+        toasts.append(
+            {"text": f"Deleted {deleted} asset{'' if deleted == 1 else 's'}.", "level": "info"}
+        )
+    if in_use:
+        verb = "is" if in_use == 1 else "are"
+        toasts.append(
+            {
+                "text": f"{in_use} {verb} used by a queued or running job and stayed.",
+                "level": "error",
+            }
+        )
+    ctx["toasts"] = toasts
+    return deps.render(request, "assets/_grid.html", ctx)
 
 
 @router.post("/assets/{asset_id}/push")

@@ -33,8 +33,34 @@ UNSUPPLIABLE_LABELS = {
     "referenceVideos": "a reference video",
     "referenceAudios": "an audio track",
     "inputAudios": "an audio track",
+    "meshFile": "a 3D mesh file",
+    "mask": "a mask image",
 }
+# ``mask`` is deliberately not in the tuple ``unsuppliable_input`` walks: it is checked by
+# hand for 3D models only (``unsupported_reason``); image models with a mask input are
+# not this rule's business.
+_BY_HAND = ("mask",)
 _ATTR_KEYS = ("type", "min", "max", "step", "default", "values")
+# Request keys every task carries and no form ever asks about; everything else on a
+# model's docs page is a *field* the Music, Speech and 3D forms can render.
+PLUMBING_PARAMS = (
+    "taskType",
+    "taskUUID",
+    "model",
+    "outputType",
+    "outputQuality",
+    "webhookURL",
+    "deliveryMethod",
+    "uploadEndpoint",
+    "ttl",
+    "includeCost",
+    "numberResults",
+    "audioSettings",
+)
+_FIELD_ATTRS = (*_ATTR_KEYS, "required")
+# The kinds whose forms are rendered from ``fields`` and that the API probes (built
+# around an image/video request) are never sent for.
+MEDIA_KINDS = ("audio", "speech", "3d")
 
 
 def _dims(c: dict | None) -> dict:
@@ -99,6 +125,8 @@ def unsuppliable_input(c: dict | None) -> str | None:
     that hides behind five free retries."""
     inputs = _inputs(c)
     for name in UNSUPPLIABLE_LABELS:
+        if name in _BY_HAND:
+            continue
         spec = inputs.get(name)
         if isinstance(spec, dict) and spec.get("required"):
             return name
@@ -236,15 +264,40 @@ def accepts_summary(roles: dict[str, dict]) -> str:
     return ", ".join(parts)
 
 
-def is_generate_capable(kind: str, capabilities: list[str], c: dict | None) -> bool:
-    if unsuppliable_input(c):
-        return False
-    if kind != "video":
-        return True
+def unsupported_reason(kind: str, capabilities: list[str], c: dict | None) -> str | None:
+    """Why this app cannot drive the model, as an ``UNSUPPLIABLE_LABELS`` key, or ``None``
+    when it can. A required input we cannot supply comes first; then the capability
+    tags: a video model must start from text or an image, a music or speech model from
+    text (a cover or voice-conversion model wants an audio clip), a 3D model from text
+    or an image. A row with no tags at all (search-added) is let through: the runner
+    finds out."""
+    missing = unsuppliable_input(c)
+    if missing:
+        return missing
     caps = capabilities or []
     if not caps:
-        return True  # a search-added row with no tags: let the runner find out
-    return "io:text-to-video" in caps or "io:image-to-video" in caps
+        return None
+    if kind == "video" and not ("io:text-to-video" in caps or "io:image-to-video" in caps):
+        return "video"
+    if kind in ("audio", "speech") and "io:text-to-audio" not in caps:
+        return "audio"
+    if kind == "3d" and not ("io:text-to-3d" in caps or "io:image-to-3d" in caps):
+        return "meshFile"
+    mask = _inputs(c).get("mask")
+    if kind == "3d" and isinstance(mask, dict) and mask.get("required"):
+        return "mask"  # SAM 3D lifts one masked object out of a photo
+    return None
+
+
+def is_generate_capable(kind: str, capabilities: list[str], c: dict | None) -> bool:
+    return unsupported_reason(kind, capabilities, c) is None
+
+
+def media_fields(c: dict | None) -> dict:
+    """The harvested per-parameter attributes of a model (``{"duration": {"min": 30, …},
+    "speech.voice": {"values": […]}, "settings.lyrics": {…}}``), or ``{}``."""
+    fields = (c or {}).get("fields")
+    return fields if isinstance(fields, dict) else {}
 
 
 def _docs_dims(docs: dict) -> dict | None:
@@ -288,6 +341,16 @@ def merge_sources(existing: dict | None, *, docs: dict | None, api: dict | None,
                 out[key] = {k: attrs[k] for k in _ATTR_KEYS if k in attrs}
         if docs.get("inputs"):
             out["inputs"] = {**(out.get("inputs") or {}), **docs["inputs"]}
+        # Every parameter the page documents, minus the plumbing: what the Music, Speech
+        # and 3D forms are rendered from. Replaced wholesale on each docs pass, so a
+        # parameter RunWare removed does not linger.
+        fields = {
+            name: {k: attrs[k] for k in _FIELD_ATTRS if k in attrs}
+            for name, attrs in (docs.get("params") or {}).items()
+            if isinstance(attrs, dict) and name.split(".", 1)[0] not in PLUMBING_PARAMS
+        }
+        if fields:
+            out["fields"] = fields
         dd = _docs_dims(docs)
         # The docs are the weakest source: a docs-only pass (no key, a client that fell
         # over, an unreadable balance, one model's probe erroring) still runs for every
@@ -556,6 +619,10 @@ def _merge_and_store(session_factory, row: dict, docs: dict | None, api: dict | 
             return "unknown"
         merged = merge_sources(m.constraints_json, docs=docs, api=api, now=now)
         store(s, m, merged)
+        if m.kind in ("audio", "speech") and media_fields(merged):
+            # RunWare files music and speech under one category; the docs page settles
+            # which this is: a model that reads a text aloud takes ``speech.text``
+            m.kind = "speech" if "speech.text" in media_fields(merged) else "audio"
     return (merged.get("dims") or {}).get("mode") or "unknown"
 
 
@@ -593,6 +660,7 @@ def _money(amount: float) -> str:
 SKIPPED_BLOCKED = "skipped: a probe of this model was billed once; docs page only"
 SKIPPED_PROBED = "skipped: already probed (use --force to probe again)"
 SKIPPED_PROVIDER = "skipped: {provider} accepted a probe earlier in this run; docs page only"
+SKIPPED_KIND = "skipped: docs page only for this kind"
 
 
 def _provider(air: str) -> str:
@@ -622,6 +690,11 @@ async def _probe_one(
     recorded against it and reported at the end, since a generation finishing in the
     background moves the balance just the same."""
     provider = _provider(row["air"])
+    if row["kind"] in MEDIA_KINDS:
+        # the two probes are an image/video request by construction; these kinds learn
+        # everything they need from the docs page
+        _record(state, session_factory, row, docs_result, SKIPPED_KIND, None)
+        return
     if row.get("blocked"):
         _record(state, session_factory, row, docs_result, SKIPPED_BLOCKED, None)
         return
@@ -820,7 +893,7 @@ async def harvest(
     *,
     client_factory,
     api_key: str,
-    kinds: tuple[str, ...] = ("video", "image"),
+    kinds: tuple[str, ...] = ("video", "image", "audio", "speech", "3d"),
     airs: list[str] | None = None,
     docs: bool = True,
     api: bool = True,

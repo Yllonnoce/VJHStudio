@@ -126,8 +126,7 @@ If the test worked, your balance appears at the top of the page.
 
 ## Make your first image
 
-1. The home page has two big cards, **Create an image** and **Create a video**. Click **Create an
-   image** (or click **Generate** in the top menu).
+1. Click **Generate** in the top menu. It opens on the **Image** tab.
 2. Type a few words into **Subject** — for example "a red fox in a snowy forest".
 3. Under Style, Mood, Lighting and the other boxes, click a few of the ideas to add them, or just
    type your own. Clicking an idea again removes it. Style takes one at a time. The ideas change
@@ -140,6 +139,34 @@ If the test worked, your balance appears at the top of the page.
 
 Click any picture in the **Gallery** to see its details. The **Project** dropdown down there moves
 that image or video to another project — the file, its sidecar and its cost move with it.
+
+## Music, speech and 3D
+
+The **Generate** page has five tabs: **Image**, **Video**, **Music & SFX**, **Speech** and **3D**.
+The last three work the same way as the first two: pick a model, fill in the boxes, click
+Generate, and the result lands in the queue and then in the Gallery.
+
+- **Music & SFX** — describe a piece of music ("upbeat synthwave with a driving bassline") or a
+  sound ("heavy rain on a tin roof"). Some models also take lyrics or a length; the boxes appear
+  when the model you picked has them.
+- **Speech** — type the words and choose a voice. Start typing in the Voice box to search the
+  model's list (some have over a hundred).
+- **3D** — describe an object, or pick a picture from your **Assets** and have it turned into one.
+  A plain object on a clean background works best. A few models only work from a picture; the
+  form says so.
+
+Each form only shows what the chosen model actually accepts. Less common options sit under **More
+settings**; leave them on "Model default" unless you know you want something else.
+
+In the **Gallery**, music and speech play right in their card. Click a 3D object to open it, then
+drag to turn it around and scroll to zoom; **Download** gives you the `.glb` file, which opens in
+Blender, Windows 3D Viewer and most game engines. (A few models save a compressed file whose
+decoder the viewer fetches from the internet the first time. Without a connection the download
+still works.)
+
+Prices differ by model: a song or a 3D object is charged per result, some music per second, and
+speech per thousand characters. The estimate under the form says which, and the real cost is
+shown on the result.
 
 ## Models
 
@@ -180,16 +207,29 @@ Your browser opens at http://127.0.0.1:8080 again.
 
 To stop the app, close the terminal window, or click in it and press Ctrl+C.
 
-### On your phone or tablet
+### On your phone, tablet or another computer
 
-You can open VJHStudio on a phone or tablet that is on the same Wi-Fi, and use your browser's
-"Add to Home Screen" so it gets an icon and opens like an app. Normally the app only answers on
-the computer it runs on, so first start it with `VJHSTUDIO_HOST=0.0.0.0 ./start.sh` (on Windows,
-`set VJHSTUDIO_HOST=0.0.0.0` and then `start.bat`), then on the phone open
-`http://<your computer's IP address>:8080` — something like `http://192.168.1.24:8080`. Please
-note: while it runs that way, anyone else on the same network can reach your VJHStudio, see your
-images and spend your RunWare balance, so only do this on a network you trust, and go back to the
-normal start when you are done.
+VJHStudio normally only answers on the computer it runs on. To open it from other devices on
+the same home network, start it with `--network`:
+
+- **Linux or macOS:** `./start.sh --network`
+- **Windows:** `start.bat --network`
+
+The window it starts in then shows the address to use, something like
+`http://192.168.1.24:8080/`. Open that in the browser on your phone, tablet or other computer.
+The same address is shown under **Settings → Network access**. On a phone you can use the
+browser's "Add to Home Screen" so it gets an icon and opens like an app.
+
+Things to know:
+
+- **There is no login.** While it runs this way, anyone on your network can open VJHStudio, see
+  what you have made and spend your RunWare balance. Only do this on a network you trust, and
+  start it without `--network` to go back to this computer only.
+- If the other device cannot connect, the firewall on the computer running VJHStudio is the
+  usual reason: allow incoming connections on port 8080 (Windows asks the first time; choose
+  "Private networks").
+- Updating, restarting, backups and **Harvest constraints** only work on the computer VJHStudio
+  runs on, even when the network is open.
 
 ## If something goes wrong
 

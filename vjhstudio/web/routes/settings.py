@@ -5,7 +5,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Request
 
-from ... import config, db, secrets
+from ... import config, db, netinfo, secrets
 from ...services import account, automation, catalog, maintenance
 from ...services import settings as settings_svc
 from .. import deps
@@ -84,6 +84,8 @@ def _general_ctx(request: Request, saved: bool = False, error: str | None = None
     with db.session_scope(request.app.state.boot.session_factory) as s:
         values = settings_svc.all_values(s, request.app.state.env)
         model_options = {k: catalog.list_models(s, k) for k in ("image", "video", "text")}
+        # the three newer tabs only ever offer models they can drive
+        model_options |= {k: catalog.list_generate_models(s, k) for k in ("audio", "speech", "3d")}
         labels = {m.air: catalog.label(m) for k in model_options for m in model_options[k]}
     return {
         "spec": general_spec(),
@@ -169,6 +171,16 @@ def _maintenance_ctx(
     return {"paths": request.app.state.paths, "message": message, "error": error}
 
 
+def _network_ctx(request: Request) -> dict:
+    """Who can open the app right now: only this computer, or the network (and then
+    under which addresses). Decided when the app was started, so this only reports it."""
+    host = getattr(request.app.state, "host", config.DEFAULT_HOST)
+    return {
+        "network_open": not netinfo.is_loopback(host),
+        "network_urls": netinfo.network_urls(host, request.app.state.port),
+    }
+
+
 @router.get("/settings")
 def settings_page(request: Request):
     with db.session_scope(request.app.state.boot.session_factory) as s:
@@ -178,6 +190,7 @@ def settings_page(request: Request):
         "pages/settings.html",
         {
             **_general_ctx(request),
+            **_network_ctx(request),
             **_automation_ctx(request),
             **_key_ctx(request, balance=bal),
             **_maintenance_ctx(request),

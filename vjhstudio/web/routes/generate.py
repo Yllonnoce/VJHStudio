@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import RedirectResponse
 from pydantic import ValidationError
 from runware import RunwareError
 
@@ -25,6 +26,7 @@ from ...runware import tasks
 from ...runware.errors import classify
 from ...runware.tasks import PORTRAIT_SUFFIX, nearest, resolution_wh, split_orientation
 from ...schemas.image import ImageRequest, PromptForm
+from ...schemas.media import MEDIA_KINDS
 from ...schemas.video import VideoRequest
 from ...services import assets as assets_svc
 from ...services import catalog, constraints, costs, generate, ideas, projects, prompts
@@ -683,8 +685,41 @@ def _unsupported(s, air: str) -> bool:
     )
 
 
+def _media_remix(request: Request, remix: str):
+    """A ``?remix=`` link for a song, a spoken text or a 3D object belongs to that
+    kind's own tab (routes/generate_media.py), never to the image form: old links and
+    the job card's Remix button all come through here."""
+    if not remix:
+        return None
+    with db.session_scope(request.app.state.boot.session_factory) as s:
+        try:
+            output = outputs_svc.get(s, int(remix))
+        except (TypeError, ValueError):
+            return None
+        if output is None or output.kind not in MEDIA_KINDS:
+            return None
+        return RedirectResponse(f"/generate/{output.kind}?remix={output.id}", status_code=303)
+
+
+def _media_prompt(request: Request, prompt: str):
+    """The same for ``?prompt=``: "Load into form" on a saved music, speech or 3D prompt."""
+    if not prompt:
+        return None
+    with db.session_scope(request.app.state.boot.session_factory) as s:
+        try:
+            row = prompts.get(s, int(prompt))
+        except (TypeError, ValueError):
+            return None
+        if row is None or row.kind not in MEDIA_KINDS:
+            return None
+        return RedirectResponse(f"/generate/{row.kind}?prompt={row.id}", status_code=303)
+
+
 def _page(request: Request, remix: str, mode: str, ref: str = "", role: str = "", prompt: str = ""):
     app = request.app
+    redirect = _media_remix(request, remix) or (None if remix else _media_prompt(request, prompt))
+    if redirect is not None:
+        return redirect
     with db.session_scope(app.state.boot.session_factory) as s:
         try:
             initial = _initial(s, remix, ref, role, prompt)

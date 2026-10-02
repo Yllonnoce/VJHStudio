@@ -27,7 +27,7 @@ def test_seed_curated_is_idempotent_and_versioned(factory):
         n1 = catalog.seed_curated(s)
         n2 = catalog.seed_curated(s)
         assert n1 >= 10 and n2 == 0
-        assert meta.get(s, catalog.SEED_VERSION_KEY) == "3"
+        assert meta.get(s, catalog.SEED_VERSION_KEY) == "4"
         flux = catalog.get_by_air(s, "runware:101@1")
         assert flux.kind == "image" and flux.price_primary == 0.0038 and flux.source == "curated"
 
@@ -231,7 +231,7 @@ async def test_refresh_from_content_api_total_failure_does_not_stamp(factory):
         assert catalog.last_refreshed(s) is None
     api = ContentAPI(transport=_all_500_transport())
     res = await catalog.refresh_from_content_api(factory, api)
-    assert res.models == 0 and len(res.errors) == 3
+    assert res.models == 0 and len(res.errors) == 5  # one per RunWare category
     with db.session_scope(factory) as s:
         assert catalog.last_refreshed(s) is None
         assert catalog.needs_refresh(s)

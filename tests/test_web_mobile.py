@@ -199,8 +199,9 @@ def test_the_lightbox_buttons_state_their_swap():
     """hx-swap is inherited, and #gallery-grid (the cards' parent) sets outerHTML for
     its own reload -- so without this the detail REPLACES #lightbox-body and every
     later click finds no target and leaves the first output on screen."""
-    assert CARD_HTML.count('hx-target="#lightbox-body"') == 2
-    assert CARD_HTML.count('hx-swap="innerHTML"') == 2
+    # one lightbox button per card shape: video, music/speech, 3D, image
+    assert CARD_HTML.count('hx-target="#lightbox-body"') == 4
+    assert CARD_HTML.count('hx-swap="innerHTML"') == 4
 
 
 async def test_the_lightbox_detail_still_carries_its_actions(client, fake, app):

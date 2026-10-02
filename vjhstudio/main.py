@@ -15,7 +15,7 @@ from pathlib import Path
 
 import httpx
 
-from . import __version__, config, secrets
+from . import __version__, config, netinfo, secrets
 from .services import archive, gitinfo, migrate, update
 
 log = logging.getLogger("vjhstudio")
@@ -41,8 +41,10 @@ def log_level(env=None) -> str:
 
 
 def is_ours(host: str, port: int) -> bool:
+    # a wildcard is an address to listen on, not one to dial (Windows refuses outright)
+    probe = config.DEFAULT_HOST if netinfo.is_wildcard(host) else host
     try:
-        r = httpx.get(f"http://{host}:{port}/api/health", timeout=1.5)
+        r = httpx.get(f"http://{probe}:{port}/api/health", timeout=1.5)
         return r.status_code == 200 and r.json().get("app") == "VJHStudio"
     except Exception:  # noqa: BLE001
         return False
@@ -111,10 +113,17 @@ def cmd_serve(args: argparse.Namespace) -> int:
     from .web.app import create_app
 
     paths = config.resolve_paths()
-    host = args.host or config.env_str(os.environ, "VJHSTUDIO_HOST", config.DEFAULT_HOST)
+    # --host wins, then --network (every interface), then the environment, then this
+    # computer only
+    host = (
+        args.host
+        or (netinfo.NETWORK_HOST if args.network else "")
+        or config.env_str(os.environ, "VJHSTUDIO_HOST", config.DEFAULT_HOST)
+    )
     want = args.port or config.env_int(os.environ, "VJHSTUDIO_PORT", config.DEFAULT_PORT)
     port, ours = pick_port(host, want)
-    url = f"http://{host}:{port}/"
+    # what THIS computer opens: a wildcard bind is reachable here on loopback
+    url = f"http://{config.DEFAULT_HOST if netinfo.is_wildcard(host) else host}:{port}/"
     if ours:
         print(f"VJHStudio is already running at {url}")
         if args.open:
@@ -131,6 +140,16 @@ def cmd_serve(args: argparse.Namespace) -> int:
     if args.open:
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     print(f"VJHStudio {__version__} on {url}  (data: {paths.data})")
+    if not netinfo.is_loopback(host):
+        others = netinfo.network_urls(host, port)
+        if others:
+            print("On other devices on your network, open: " + "  or  ".join(others))
+        else:
+            print("Listening on your network, but this computer's address could not be worked out.")
+        print(
+            "Anyone on your network can use VJHStudio and spend your RunWare balance while it "
+            "runs this way. Start it without --network to go back to this computer only."
+        )
     uvicorn.run(app, host=host, port=port, log_level=log_level().lower())
     return 0
 
@@ -513,6 +532,11 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("serve", help="run the web app")
     s.add_argument("--host")
+    s.add_argument(
+        "--network",
+        action="store_true",
+        help="let other devices on your network open the app (listen on every interface)",
+    )
     s.add_argument("--port", type=int)
     g = s.add_mutually_exclusive_group()
     g.add_argument("--open", dest="open", action="store_true", help="open the browser")
@@ -536,7 +560,11 @@ def build_parser() -> argparse.ArgumentParser:
     th.set_defaults(func=cmd_thumbs)
     pr = sub.add_parser("probe", help="learn what each model accepts (free, sends no job)")
     pr.add_argument(
-        "--kind", action="append", choices=("image", "video"), default=[], help="repeatable"
+        "--kind",
+        action="append",
+        choices=("image", "video", "audio", "speech", "3d"),
+        default=[],
+        help="repeatable",
     )
     pr.add_argument("--air", action="append", default=[], help="one model only; repeatable")
     pr.add_argument("--no-docs", dest="docs", action="store_false", help="skip the docs pages")

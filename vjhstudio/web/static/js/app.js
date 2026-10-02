@@ -950,3 +950,356 @@ document.addEventListener('htmx:historyRestore', function () { vjhEnhanceStepper
     });
   });
 })();
+
+// ── Pictures of 3D objects ─────────────────────────────────────────────────────────
+// RunWare returns only the model file, so a 3D object's thumbnail is a snapshot this
+// browser takes: any element carrying data-snap3d-id / data-snap3d-src (a gallery card,
+// a finished job's card) is rendered once in an off-screen <model-viewer>, the picture
+// is posted to /outputs/<id>/thumb, and every <img> for that object is swapped to it.
+// One at a time (the files run to tens of MB), each id once per page life, and any
+// failure just leaves the icon in place: the picture is a nicety, never an error.
+(() => {
+  const VIEWER = '/static/vendor/model-viewer.min.js';
+  const queue = [];
+  const seen = new Set();
+  const tries = {};
+  let busy = false;
+
+  // One off-screen viewer for every snapshot. Creating and removing a viewer per object
+  // churns the shared WebGL context (seen in testing: the second snapshot came back
+  // blank after a lost context), so the same element just gets a new `src`.
+  let stage = null;
+  function viewer() {
+    if (stage && stage.isConnected) return stage;
+    stage = document.createElement('model-viewer');
+    // eager: by default the viewer waits until its element is on screen, and this one
+    // never is, so without it the model is never even fetched
+    stage.setAttribute('loading', 'eager');
+    stage.setAttribute('shadow-intensity', '1');
+    stage.setAttribute('exposure', '1');
+    stage.setAttribute('aria-hidden', 'true');
+    stage.style.cssText = 'position:fixed;left:-10000px;top:0;width:512px;height:512px;';
+    document.body.appendChild(stage);
+    return stage;
+  }
+
+  // A blank frame (lost context, nothing drawn yet) compresses to a few KB; a rendered
+  // object is tens of KB at least. Blank ones are not uploaded, so a later visit retries.
+  const MIN_BYTES = 12000;
+
+  function shoot(src) {
+    return new Promise((resolve, reject) => {
+      const mv = viewer();
+      const done = (fn, value) => {
+        clearTimeout(timer);
+        mv.removeEventListener('load', onLoad);
+        mv.removeEventListener('error', onError);
+        fn(value);
+      };
+      const timer = setTimeout(() => done(reject, new Error('timeout')), 120000);
+      const onError = () => done(reject, new Error('load failed'));
+      const onLoad = async () => {
+        try {
+          // two frames, so the first render with the loaded model has been drawn
+          await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+          // right after a context hiccup the first frames can be empty: look again a
+          // few times before giving up on this attempt
+          let blob = null;
+          for (let i = 0; i < 6; i++) {
+            blob = await mv.toBlob({ mimeType: 'image/png', idealAspect: true });
+            if (blob && blob.size >= MIN_BYTES) break;
+            await new Promise((r) => setTimeout(r, 500));
+          }
+          if (!blob || blob.size < MIN_BYTES) throw new Error('blank frame');
+          done(resolve, blob);
+        } catch (e) { done(reject, e); }
+      };
+      mv.addEventListener('load', onLoad);
+      mv.addEventListener('error', onError);
+      mv.setAttribute('src', src);
+    });
+  }
+
+  async function next() {
+    if (busy || !queue.length) return;
+    busy = true;
+    const { id, src } = queue.shift();
+    try {
+      await import(VIEWER);
+      await customElements.whenDefined('model-viewer');
+      const blob = await shoot(src);
+      const body = new FormData();
+      body.append('image', blob, 'snapshot.png');
+      const r = await fetch('/outputs/' + id + '/thumb', { method: 'POST', body });
+      if (r.ok) {
+        const data = await r.json();
+        const url = data.thumb_url + '?v=' + Date.now();
+        document.querySelectorAll('[data-snap3d-id="' + id + '"]').forEach((el) => {
+          const img = el.querySelector('img');
+          if (img) img.src = url;
+          el.removeAttribute('data-snap3d-id');
+          el.removeAttribute('data-snap3d-src');
+        });
+      }
+    } catch (e) {
+      // A lost WebGL context usually comes back, and the object after this one often
+      // renders fine: start over with a fresh viewer and put this one at the back of
+      // the line, a couple of times. After that (no WebGL at all, a file that will not
+      // load, offline) the icon simply stays.
+      if (stage) { stage.remove(); stage = null; }
+      tries[id] = (tries[id] || 0) + 1;
+      if (tries[id] < 3) queue.push({ id, src });
+      await new Promise((r) => setTimeout(r, 800));
+    }
+    busy = false;
+    next();
+  }
+
+  function scan(root) {
+    (root || document).querySelectorAll('[data-snap3d-id]').forEach((el) => {
+      const id = el.dataset.snap3dId;
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      queue.push({ id, src: el.dataset.snap3dSrc });
+    });
+    next();
+  }
+  window.vjhSnapshot3dScan = scan;
+  document.addEventListener('DOMContentLoaded', () => scan(document));
+  if (document.readyState !== 'loading') scan(document);
+  document.body.addEventListener('htmx:afterSwap', () => scan(document));
+})();
+
+// ── Filter box over a long <select> (the Speech tab's voices and languages) ────────
+// Delegated, because the fields are re-rendered whenever the model changes. Typing
+// hides the options that do not contain the text (the chosen one always stays), and
+// the first match is selected so Enter/Tab moves on with it.
+document.addEventListener('input', (e) => {
+  const box = e.target.closest('input[data-filter-select]');
+  if (!box) return;
+  const select = document.getElementById(box.dataset.filterSelect);
+  if (!select) return;
+  const needle = box.value.trim().toLowerCase();
+  let first = null;
+  Array.from(select.options).forEach((opt) => {
+    const hit = !needle || opt.textContent.toLowerCase().includes(needle);
+    opt.hidden = !hit;
+    opt.disabled = !hit;
+    if (hit && needle && !first && opt.value) first = opt;
+  });
+  if (first) {
+    select.value = first.value;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+});
+
+// ── 3D: several views, in the order they were picked ───────────────────────────────
+// Checkboxes post in page order, but the first view picked is the main one, so the
+// order is kept in the hidden `image_order` field, shown as a number on each tile, and
+// further ticks are blocked once the model's limit is reached. Delegated: the fields
+// are re-rendered whenever the model changes.
+(() => {
+  function sync(grid) {
+    const order = grid.parentElement.querySelector('input[name="image_order"]');
+    if (!order) return;
+    const max = parseInt(grid.dataset.maxImages || '1', 10);
+    const boxes = Array.from(grid.querySelectorAll('input[name="image_asset_ids"]'));
+    const ticked = boxes.filter((b) => b.checked).map((b) => b.value);
+    const kept = order.value.split(',').filter((v) => v && ticked.includes(v));
+    ticked.forEach((v) => { if (!kept.includes(v)) kept.push(v); });
+    order.value = kept.join(',');
+    boxes.forEach((b) => {
+      const badge = b.parentElement.querySelector('.media-pick-order');
+      const pos = kept.indexOf(b.value);
+      if (badge) badge.textContent = pos >= 0 ? String(pos + 1) : '';
+      b.disabled = !b.checked && kept.length >= max;
+    });
+  }
+  document.addEventListener('change', (e) => {
+    const box = e.target.closest('input[name="image_asset_ids"]');
+    const grid = box && box.closest('[data-max-images]');
+    if (grid) sync(grid);
+  });
+  const all = () => document.querySelectorAll('[data-max-images]').forEach(sync);
+  document.addEventListener('DOMContentLoaded', all);
+  document.body.addEventListener('htmx:afterSwap', all);
+})();
+
+// ── Assets: "Delete selected" follows the tick boxes ────────────────────────────────
+// Delegated and re-run after every swap: uploads, filters and deletions all replace
+// the grid, and the button must not stay enabled over a grid with nothing ticked.
+(() => {
+  function sync() {
+    const btn = document.getElementById('asset-delete-selected');
+    if (!btn) return;
+    const n = document.querySelectorAll('#asset-grid input[name="asset_ids"]:checked').length;
+    btn.disabled = n === 0;
+    btn.textContent = n ? 'Delete selected (' + n + ')' : 'Delete selected';
+  }
+  document.addEventListener('change', (e) => {
+    if (e.target.matches && e.target.matches('#asset-grid input[name="asset_ids"]')) sync();
+  });
+  document.addEventListener('DOMContentLoaded', sync);
+  document.body.addEventListener('htmx:afterSwap', sync);
+})();
+
+// ── 3D viewer: full screen ───────────────────────────────────────────────────────────
+// The button sits inside the stage it enlarges, so it is delegated (the details panel
+// is swapped in by htmx) and doubles as the way out. Browsers without the Fullscreen
+// API for ordinary elements (iPhone Safari) get the same look from a CSS class; Esc
+// leaves both.
+(() => {
+  const stageOf = (btn) => btn.closest('.' + btn.dataset.fullscreen);
+  const isFull = (stage) => document.fullscreenElement === stage || stage.classList.contains('is-maximized');
+  function label(stage) {
+    const btn = stage.querySelector('[data-fullscreen]');
+    if (!btn) return;
+    const on = isFull(stage);
+    btn.textContent = on ? 'Exit full screen' : 'Full screen';
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
+  // The stand-in for real full screen. `position:fixed` alone is not enough: the details
+  // sheet is its own positioning box (it starts under the top bar), so a fixed child is
+  // laid out against the sheet, not the screen -- it began 111px down and ran off the
+  // bottom. While maximised the stage is moved to <body>, with a marker left where it
+  // came from.
+  function maximize(stage) {
+    stage._home = document.createComment('model-stage');
+    stage.parentNode.insertBefore(stage._home, stage);
+    document.body.appendChild(stage);
+    stage.classList.add('is-maximized');
+    label(stage);
+  }
+  function restore(stage) {
+    stage.classList.remove('is-maximized');
+    const home = stage._home;
+    stage._home = null;
+    if (home && home.isConnected) home.parentNode.replaceChild(stage, home);
+    else stage.remove();  // the panel it came from was closed or swapped meanwhile
+    label(stage);
+  }
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-fullscreen]');
+    const stage = btn && stageOf(btn);
+    if (!stage) return;
+    if (document.fullscreenElement === stage) {
+      document.exitFullscreen();
+    } else if (stage.classList.contains('is-maximized')) {
+      restore(stage);
+    } else if (stage.requestFullscreen) {
+      stage.requestFullscreen().catch(() => maximize(stage));
+    } else {
+      maximize(stage);
+    }
+  });
+  document.addEventListener('fullscreenchange', () => {
+    document.querySelectorAll('.model-stage').forEach(label);
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    document.querySelectorAll('.model-stage.is-maximized').forEach((stage) => {
+      restore(stage);
+      e.stopPropagation();  // leave full screen first; a second Esc closes the panel
+    });
+  }, true);
+})();
+
+// ── Music & SFX, Speech, 3D: remember the form, reset it, upload a picture ───────────
+// Image and Video keep a draft through Alpine; these three tabs are plain forms, so the
+// same promise is kept here. What was typed is saved per tab in this browser and put
+// back on the next visit by asking the server to render the fields with those values
+// (the server already knows how to show a model's fields filled in). A page opened
+// from a remix or a saved prompt (data-prefilled="1") is left exactly as it arrived.
+(() => {
+  const PREFIX = 'vjh.media.draft.';
+  const SKIP = new Set(['kind', 'new_project_name', 'project_id']);
+  const form = () => document.getElementById('media-form');
+  const key = (f) => PREFIX + f.dataset.draftKind;
+
+  function values(f) {
+    const out = {};
+    new FormData(f).forEach((v, k) => {
+      if (SKIP.has(k) || typeof v !== 'string') return;
+      if (k in out) out[k] = [].concat(out[k], v); else out[k] = v;
+    });
+    return out;
+  }
+  function save() {
+    const f = form();
+    if (!f) return;
+    try { localStorage.setItem(key(f), JSON.stringify(values(f))); } catch (e) { /* best effort */ }
+  }
+  function render(f, vals) {
+    // the server renders the chosen model's fields with these values in them
+    return window.htmx.ajax('POST', '/hx/media/params', {
+      target: '#media-params', swap: 'outerHTML', values: { ...vals, kind: f.dataset.draftKind },
+    });
+  }
+  function restore() {
+    const f = form();
+    if (!f || f.dataset.prefilled === '1' || f.dataset.restored === '1' || !window.htmx) return;
+    f.dataset.restored = '1';
+    let draft = null;
+    try { draft = JSON.parse(localStorage.getItem(key(f)) || 'null'); } catch (e) { draft = null; }
+    if (!draft || typeof draft !== 'object') return;
+    const select = document.getElementById('media-model-select');
+    if (select && draft.model && Array.from(select.options).some((o) => o.value === draft.model)) {
+      select.value = draft.model;
+    } else if (select) {
+      draft.model = select.value;  // that model is gone: keep the text, on the current one
+    }
+    render(f, draft).then(() => {
+      // the estimate listens for a change on the form
+      f.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  }
+
+  let timer = null;
+  const later = () => { clearTimeout(timer); timer = setTimeout(save, 300); };
+  document.addEventListener('input', (e) => { if (e.target.closest && e.target.closest('#media-form')) later(); });
+  document.addEventListener('change', (e) => { if (e.target.closest && e.target.closest('#media-form')) later(); });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#media-reset')) return;
+    const f = form();
+    if (!f) return;
+    try { localStorage.removeItem(key(f)); } catch (err) { /* best effort */ }
+    window.location.assign('/generate/' + f.dataset.draftKind);
+  });
+  document.addEventListener('DOMContentLoaded', restore);
+  if (document.readyState !== 'loading') restore();
+  document.body.addEventListener('htmx:afterSwap', restore);  // arriving by the menu
+
+  // Upload a picture on the 3D tab: into the asset library, then back into the picker
+  // already ticked. Several at once on a model that takes several views.
+  document.addEventListener('change', async (e) => {
+    const input = e.target.closest && e.target.closest('input[data-media-upload]');
+    const f = form();
+    if (!input || !f || !input.files || !input.files.length) return;
+    const label = input.closest('.media-upload');
+    if (label) label.classList.add('is-busy');
+    try {
+      const body = new FormData();
+      Array.from(input.files).forEach((file) => body.append('files', file));
+      const r = await fetch('/assets/upload', { method: 'POST', body, headers: { Accept: 'application/json' } });
+      const data = await r.json();
+      (data.errors || []).forEach((msg) => window.vjhToast && window.vjhToast(msg, 'error'));
+      const ids = (data.assets || []).filter((a) => a.kind === 'image').map((a) => String(a.id));
+      if (ids.length) {
+        const vals = values(f);
+        vals.source = 'image';
+        if (input.multiple) {
+          const had = [].concat(vals.image_asset_ids || []);
+          vals.image_asset_ids = had.concat(ids.filter((id) => !had.includes(id)));
+          vals.image_order = [vals.image_order, ...ids].filter(Boolean).join(',');
+        } else {
+          vals.image_asset_id = ids[0];
+        }
+        await render(f, vals);
+        f.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    } catch (err) {
+      if (window.vjhToast) window.vjhToast('The picture could not be uploaded.', 'error');
+    }
+    if (label) label.classList.remove('is-busy');
+  });
+})();

@@ -6,10 +6,45 @@
       "type": "debugpy",
       "request": "launch",
       "module": "vjhstudio.main",
-      "args": ["serve", "--port", "8080", "--no-browser"],
+      "args": [
+        "serve",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8080",
+        "--no-browser"
+      ],
       "cwd": "${workspaceFolder}",
       "python": "${workspaceFolder}/.venv/bin/python",
-      "windows": { "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe" },
+      "windows": {
+        "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "env": {
+        "VJHSTUDIO_LOG_LEVEL": "DEBUG",
+        "VJHSTUDIO_DATA_DIR": "${workspaceFolder}/data-debug",
+        "PYTHONUNBUFFERED": "1"
+      },
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "VJHStudio: serve (debug, this computer only)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "vjhstudio.main",
+      "args": [
+        "serve",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8080",
+        "--no-browser"
+      ],
+      "cwd": "${workspaceFolder}",
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "windows": {
+        "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
       "env": {
         "VJHSTUDIO_LOG_LEVEL": "DEBUG",
         "VJHSTUDIO_DATA_DIR": "${workspaceFolder}/data-debug",
@@ -23,11 +58,17 @@
       "type": "debugpy",
       "request": "launch",
       "module": "vjhstudio.main",
-      "args": ["doctor"],
+      "args": [
+        "doctor"
+      ],
       "cwd": "${workspaceFolder}",
       "python": "${workspaceFolder}/.venv/bin/python",
-      "windows": { "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe" },
-      "env": { "VJHSTUDIO_DATA_DIR": "${workspaceFolder}/data-debug" },
+      "windows": {
+        "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "env": {
+        "VJHSTUDIO_DATA_DIR": "${workspaceFolder}/data-debug"
+      },
       "console": "integratedTerminal"
     },
     {
@@ -35,10 +76,15 @@
       "type": "debugpy",
       "request": "launch",
       "module": "pytest",
-      "args": ["-q", "tests"],
+      "args": [
+        "-q",
+        "tests"
+      ],
       "cwd": "${workspaceFolder}",
       "python": "${workspaceFolder}/.venv/bin/python",
-      "windows": { "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe" },
+      "windows": {
+        "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
       "console": "integratedTerminal",
       "justMyCode": false
     },
@@ -47,10 +93,15 @@
       "type": "debugpy",
       "request": "launch",
       "module": "pytest",
-      "args": ["-q", "${file}"],
+      "args": [
+        "-q",
+        "${file}"
+      ],
       "cwd": "${workspaceFolder}",
       "python": "${workspaceFolder}/.venv/bin/python",
-      "windows": { "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe" },
+      "windows": {
+        "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
       "console": "integratedTerminal",
       "justMyCode": false
     }

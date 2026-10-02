@@ -3,6 +3,14 @@
     {% if thumb_url %}<img src="{{ thumb_url }}" alt="{{ a.original_name }}" loading="lazy" width="200" height="200">
     {% else %}<span class="chip">{{ a.kind }}</span>{% endif %}
     {% if a.media_uuid %}<span class="asset-badge chip" title="{{ a.media_url or '' }}">uploaded to RunWare</span>{% endif %}
+    {# removal lives on the picture, where it can be seen: a cross for this one asset,
+       and a tick box for "Delete selected" above the grid (pages/assets.html) #}
+    <button type="button" class="asset-remove" hx-delete="/assets/{{ a.id }}" hx-target="closest article"
+            hx-swap="outerHTML" hx-confirm="Delete {{ a.original_name }}?" title="Delete this asset"
+            aria-label="Delete {{ a.original_name }}">&times;</button>
+    <label class="asset-select" title="Select for Delete selected">
+      <input type="checkbox" name="asset_ids" value="{{ a.id }}" aria-label="Select {{ a.original_name }}">
+    </label>
   </div>
   <div class="asset-card-body">
     <small class="muted asset-name" title="{{ a.original_name }}">{{ a.original_name }}</small>

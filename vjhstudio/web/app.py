@@ -4,7 +4,6 @@ import asyncio
 import logging
 import mimetypes
 import os
-import socket
 import threading
 from collections.abc import Mapping
 from contextlib import AsyncExitStack, asynccontextmanager, suppress
@@ -14,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 
 from .. import boot as _boot
-from .. import config, db, secrets
+from .. import config, db, netinfo, secrets
 from ..mcp.http import mount_mcp
 from ..mcp.server import MCPContext, build_server
 from ..models import Job, JobStatus
@@ -31,6 +30,7 @@ from .routes import catalog as catalog_routes
 from .routes import files as files_routes
 from .routes import gallery as gallery_routes
 from .routes import generate as generate_routes
+from .routes import generate_media as generate_media_routes
 from .routes import jobs as jobs_routes
 from .routes import pages, system
 from .routes import projects as projects_routes
@@ -52,10 +52,8 @@ WILDCARD_HOSTS = ("0.0.0.0", "::", "[::]", "*")  # noqa: S104 - matched, never b
 
 def _lan_address() -> str:
     """This machine's address on the LAN, or loopback when it cannot be found."""
-    try:
-        return socket.gethostbyname(socket.gethostname()) or config.DEFAULT_HOST
-    except OSError:
-        return config.DEFAULT_HOST
+    found = netinfo.lan_addresses()
+    return found[0] if found else config.DEFAULT_HOST
 
 
 def mcp_base_url(env: Mapping[str, str], port: int, host: str = "") -> str:
@@ -222,6 +220,7 @@ def create_app(
     app.state.client_factory = client_factory
     app.state.env = env
     app.state.port = port
+    app.state.host = host  # what `serve` was told to listen on; Settings says who can reach it
     app.state.auto_refresh = auto_refresh
     app.state.download_transport = download_transport
     app.state.runner = None
@@ -283,6 +282,7 @@ def create_app(
     app.include_router(settings_routes.router)
     app.include_router(catalog_routes.router)
     app.include_router(generate_routes.router)
+    app.include_router(generate_media_routes.router)
     app.include_router(jobs_routes.router)
     app.include_router(files_routes.router)
     app.include_router(gallery_routes.router)

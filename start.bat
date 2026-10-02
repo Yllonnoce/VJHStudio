@@ -36,6 +36,11 @@ set "VJHSTUDIO_UV=%UV%"
 set "VJHSTUDIO_GIT=%GIT%"
 set "VJHSTUDIO_HOME=%HOME_DIR%"
 set "VJHSTUDIO_LAUNCHER=1"
+rem start.bat --network : let other devices on your network open the app
+if /i not "%~1"=="--network" goto :nonetwork
+set "VJHSTUDIO_HOST=0.0.0.0"
+shift
+:nonetwork
 set "PORT=%VJHSTUDIO_PORT%"
 if "%PORT%"=="" set "PORT=8080"
 set "OPENFLAG=--open"

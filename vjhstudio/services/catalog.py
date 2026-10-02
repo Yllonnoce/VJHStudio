@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -24,7 +25,21 @@ log = logging.getLogger(__name__)
 CURATED_PATH = Path(__file__).resolve().parent.parent / "data" / "curated_models.json"
 SEED_VERSION_KEY = "catalog_seed_version"
 REFRESH_KEY = "catalog_prices_refreshed_at"
-KINDS = ("image", "video", "text")
+KINDS = ("image", "video", "text", "audio", "speech", "3d")
+# RunWare's own catalog categories. Its `audio` holds music, sound effects and speech;
+# ``audio_kind`` files each model under our `audio` or `speech`.
+CATEGORIES = ("image", "video", "text", "audio", "3d")
+# What a kind is called in a heading or on a tab.
+KIND_LABELS = {
+    "image": "Image",
+    "video": "Video",
+    "text": "Text",
+    "audio": "Music & SFX",
+    "speech": "Speech",
+    "3d": "3D",
+}
+_SPEECH_NAME = re.compile(r"\btts\b|speech|\bdia\d", re.I)
+_SPEECH_UNITS = {"character", "utf8Byte", "inputToken", "outputToken"}
 _UTILITY = (
     "controlnet-preprocess",
     "birefnet",
@@ -60,11 +75,25 @@ def is_utility_slug(slug: str | None) -> bool:
     return any(k in s for k in _UTILITY)
 
 
+def audio_kind(item: dict, constraints_json: dict | None = None) -> str:
+    """``"speech"`` or ``"audio"`` (music and sound effects) for a row of RunWare's
+    `audio` category. The docs page is the authority once it has been read: a model
+    that reads a text aloud takes ``speech.text``. Before that, the price says it (a
+    voice is billed per character, byte or token; music per song or per second), and
+    failing that the name (TTS, Speech, Dia)."""
+    fields = constraints.media_fields(constraints_json)
+    if fields:
+        return "speech" if "speech.text" in fields else "audio"
+    units = {r.get("unit") for r in (item.get("pricingRates") or []) if isinstance(r, dict)}
+    if units & _SPEECH_UNITS:
+        return "speech"
+    text = " ".join(str(item.get(k) or "") for k in ("name", "model", "air"))
+    return "speech" if _SPEECH_NAME.search(text) else "audio"
+
+
 def family(model: CatalogModel) -> str:
-    if model.kind == "video":
-        return "video"
-    if model.kind == "text":
-        return "text"
+    if model.kind in ("video", "text", "audio", "speech", "3d"):
+        return model.kind
     hay = " ".join(
         x or "" for x in (model.architecture, model.creator, model.air, model.slug)
     ).lower()
@@ -85,6 +114,12 @@ def _priced_label(model: CatalogModel) -> str:
         return f"{star}{model.name} — ${p:.4f}/img"
     if model.kind == "video":
         return f"{star}{model.name} — ${p:.3f}/s (${p * 5:.2f}/5 s)"
+    if model.kind in ("audio", "speech", "3d"):
+        if model.price_unit == "per_second":
+            return f"{star}{model.name} — ${p:.4f}/s (${p * 60:.3f}/min)"
+        if model.price_unit == "per_1k_chars":
+            return f"{star}{model.name} — ${p:.3f} per 1,000 chars"
+        return f"{star}{model.name} — ${p:.3f} each"
     if model.price_in is None or model.price_out is None:
         return f"{star}{model.name} — price unknown"
     return f"{star}{model.name} — ${model.price_in:.2f} in / ${model.price_out:.2f} out per 1M"
@@ -105,9 +140,9 @@ def badge(model: CatalogModel) -> str:
     """The one short warning a catalog row deserves, or "" when it needs none."""
     caps = model.capabilities_json or []
     c = model.constraints_json
-    if not constraints.is_generate_capable(model.kind, caps, c):
-        missing = constraints.unsuppliable_input(c)
-        if missing == "video" or missing is None:
+    missing = constraints.unsupported_reason(model.kind, caps, c)
+    if missing is not None:
+        if missing == "video":
             return VIDEO_ONLY
         return UNSUPPORTED_INPUT.format(what=constraints.UNSUPPLIABLE_LABELS[missing])
     if model.kind == "video" and constraints.needs_first_frame(caps, c):
@@ -275,16 +310,20 @@ async def refresh_from_content_api(
                 res.errors.append(f"{item.get('model')}: {e}")
                 return None
 
-    for kind in KINDS:
+    for category in CATEGORIES:
         try:
-            items = await api.list_models(kind)
+            items = await api.list_models(category)
         except ContentAPIError as e:
-            res.errors.append(f"list {kind}: {e}")
+            res.errors.append(f"list {category}: {e}")
             continue
         items = [i for i in items if i.get("air")]
         pricings = await asyncio.gather(*(price_for(i) for i in items))
         with db.session_scope(session_factory) as s:
             for item, pricing in zip(items, pricings, strict=True):
+                kind = category
+                if category == "audio":
+                    known = get_by_air(s, item["air"])
+                    kind = audio_kind(item, known.constraints_json if known else None)
                 upsert_row(s, _row_from_listing(item, kind, pricing), source="content")
                 res.models += 1
                 if pricing is not None:

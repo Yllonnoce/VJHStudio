@@ -2,6 +2,24 @@
   {% if o.kind == 'video' %}
   <video src="{{ url }}" class="lightbox-image" preload="metadata" muted controls playsinline
          poster="{{ poster or '/static/img/video-poster.svg' }}" aria-label="{{ o.filename }}"></video>
+  {% elif o.kind in ('audio', 'speech') %}
+  <audio src="{{ url }}" class="lightbox-audio" controls preload="metadata" aria-label="{{ o.filename }}"></audio>
+  {% elif o.kind == '3d' %}
+  {# Google's <model-viewer>, vendored (static/vendor) and loaded only here, the first
+     time a 3D object is opened: drag to turn it, scroll or pinch to zoom. A model that
+     was saved with Draco or meshopt compression fetches its decoder from the internet
+     the first time; without a connection, Download still gives the file. #}
+  {# The stage is what goes full screen (app.js, data-fullscreen), not the viewer alone:
+     the button lives inside it, so it is still there to leave full screen with. #}
+  <div class="model-stage">
+    <model-viewer src="{{ url }}" class="lightbox-model" camera-controls auto-rotate
+                  touch-action="pan-y" shadow-intensity="1" exposure="1"
+                  alt="{{ o.prompt_text|truncate(80) }}"></model-viewer>
+    <button type="button" class="secondary model-fullscreen" data-fullscreen="model-stage"
+            aria-pressed="false" title="Show the object on the whole screen (Esc to leave)">Full screen</button>
+  </div>
+  <script type="module" src="/static/vendor/model-viewer.min.js"></script>
+  <p class="muted lightbox-hint"><small>Drag to rotate, scroll to zoom.</small></p>
   {% else %}
   <img src="{{ url }}" alt="{{ o.prompt_text|truncate(80) }}" class="lightbox-image">
   {% endif %}
@@ -14,8 +32,11 @@
     <tbody>
       <tr><th>Model</th><td>{{ model_name }}</td></tr>
       <tr><th>Project</th><td>{{ project_name }}</td></tr>
-      <tr><th>Size</th><td>{{ o.width }}&times;{{ o.height }}</td></tr>
+      {% if o.kind in ('image', 'video') %}<tr><th>Size</th><td>{{ o.width }}&times;{{ o.height }}</td></tr>{% endif %}
       {% if o.kind == 'video' %}<tr><th>Duration</th><td>{% if o.duration_s %}{{ '%g'|format(o.duration_s) }}s{% else %}—{% endif %}</td></tr>{% endif %}
+      {% if o.kind == 'audio' and o.duration_s %}<tr><th>Length asked for</th><td>{{ '%g'|format(o.duration_s) }}s</td></tr>{% endif %}
+      {% if o.kind == 'speech' and o.params_json.get('voice') %}<tr><th>Voice</th><td>{{ o.params_json.get('voice') }}</td></tr>{% endif %}
+      {% if o.kind in ('audio', 'speech', '3d') %}<tr><th>Format</th><td>{{ o.filename.rsplit('.', 1)[-1]|upper }}</td></tr>{% endif %}
       <tr><th>Seed</th><td>{{ o.seed if o.seed is not none else '—' }}</td></tr>
       <tr><th>Cost</th><td>{% if o.cost %}${{ '%.4f'|format(o.cost) }}{% else %}n/a{% endif %}</td></tr>
       <tr><th>Job</th><td><a href="/api/jobs/{{ o.job_id }}" target="_blank" rel="noopener">{{ o.job_id }}</a>{% if job_source == 'mcp' %} <small class="chip" title="An AI agent queued this job">via agent</small>{% endif %}</td></tr>
@@ -32,7 +53,7 @@
       {{ '★ Favourited' if o.is_favourite else '☆ Favourite' }}
     </button>
     <a role="button" class="secondary outline" href="/generate?remix={{ o.id }}">Remix</a>
-    {% if o.kind != 'video' %}
+    {% if o.kind == 'image' %}
     <button type="button" class="secondary outline" hx-post="/outputs/{{ o.id }}/as-asset">Use as reference</button>
     {% endif %}
     <button type="button" class="secondary outline"
