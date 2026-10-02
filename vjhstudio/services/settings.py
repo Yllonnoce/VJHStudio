@@ -33,7 +33,7 @@ SPEC: dict[str, Spec] = {
     # the model each of the three newer Generate tabs opens on
     "defaults.audio_model": Spec(str, "runware:ace-step@v1.5-turbo"),
     "defaults.speech_model": Spec(str, "xai:tts@0"),
-    "defaults.model3d_model": Spec(str, "tencent:hunyuan-3d@3.1-rapid"),
+    "defaults.model3d_model": Spec(str, "tripo:v3.1@0"),
     "defaults.polish_model": Spec(str, ""),
     "defaults.output_format_image": Spec(str, "PNG", ("PNG", "JPG", "WEBP")),
     "defaults.output_format_video": Spec(str, "MP4", ("MP4", "WEBM")),

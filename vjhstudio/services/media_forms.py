@@ -18,7 +18,20 @@ from . import catalog, constraints
 PREFERRED = {
     "audio": "runware:ace-step@v1.5-turbo",
     "speech": "xai:tts@0",
-    "3d": "tencent:hunyuan-3d@3.1-rapid",
+    # Tripo, not the cheaper Hunyuan Rapid: the tab opens on "From a description", and
+    # Hunyuan Rapid's text-to-3D has been failing at the provider (TEXT_3D_WARNINGS)
+    "3d": "tripo:v3.1@0",
+}
+# Models whose text-to-3D path is known to fail at the provider, with what to tell the
+# person about to wait for it. Shown under the description box; the job is still allowed,
+# since an outage ends. Evidence for the entry is in tests/test_media_tasks.py.
+TEXT_3D_WARNINGS = {
+    "tencent:hunyuan-3d@3.1-rapid": (
+        "Heads-up: building from a description has been failing on this model. The job is "
+        "accepted, runs for about 16 minutes and ends in an error at the provider, and no "
+        "other Hunyuan job can start meanwhile. Building from an image works here; for a "
+        "description, Tripo 3D works."
+    ),
 }
 FORMATS = {
     "audio": media_schema.AUDIO_FORMATS,
@@ -218,6 +231,7 @@ def form_ctx(
         takes_text = takes_text and not (known and "positivePrompt" not in fields)
         ctx.update(
             takes_text=takes_text,
+            text_warning=TEXT_3D_WARNINGS.get(air, ""),
             takes_image=takes_image,
             # a model that does both gets a "From a description / From an image" choice;
             # only the chosen box is shown, and only it is sent (``parse``)

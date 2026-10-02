@@ -358,3 +358,15 @@ def test_every_picked_view_is_sent_to_a_model_that_takes_several():
     }
     assert T.max_images(RODIN) == 5 and T.max_images(HUNYUAN) == 1 and T.max_images(TRIPO) == 4
     assert T.max_images(BARE) == 1
+
+
+def test_hunyuan_rapid_text_failures_are_not_a_missing_parameter():
+    """Recorded so nobody "fixes" this again: on 2026-10-02 a text-to-3D request on
+    Hunyuan 3D Rapid failed five times out of five (accepted, "processing" for about 16
+    minutes, then Tencent's FailedOperation.InnerError), including once with
+    ``settings.geometryOnly``/``settings.pbr`` sent explicitly as every documented example
+    does. The identical request shape succeeded on Tripo in 3 minutes, and image-to-3D
+    on Hunyuan Rapid succeeded twice. The builder therefore adds nothing for this model;
+    the form warns instead (``media_forms.TEXT_3D_WARNINGS``)."""
+    t = T.build_3d_task(model3d(prompt="a brass telescope"), "u", {}, HUNYUAN)
+    assert "settings" not in t and t["positivePrompt"] == "a brass telescope"

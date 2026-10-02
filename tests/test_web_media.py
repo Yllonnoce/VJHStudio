@@ -209,7 +209,7 @@ async def test_default_models_are_the_cheap_sensible_ones(client, seeded):
     )
     assert f'<option value="{XAI}"' in (await client.get("/generate/speech")).text
     assert (
-        f'value="{HUNYUAN}" data-name="Hunyuan 3D Rapid" data-price="0.225" selected'
+        f'value="{TRIPO}" data-name="Tripo 3D v3.1" data-price="0.3" selected'
         in (await client.get("/generate/3d")).text
     )
 
@@ -1025,3 +1025,18 @@ async def test_the_3d_viewer_has_a_full_screen_button(client, seeded, app, fake)
     assert "data-fullscreen" not in (await client.get(f"/hx/outputs/{ids['audio']}")).text
     js = (await client.get("/static/js/app.js")).text
     assert "requestFullscreen" in js and "fullscreenchange" in js and "is-maximized" in js
+
+
+async def test_the_3d_tab_opens_on_a_model_whose_text_path_works_and_warns_about_one_that_fails(
+    client, seeded
+):
+    """Seen live: the tab opened on Hunyuan Rapid with "From a description" chosen, and
+    that exact combination failed every time after a 16-minute wait."""
+    page = (await client.get("/generate/3d")).text
+    assert f'value="{TRIPO}" data-name="Tripo 3D v3.1" data-price="0.3" selected' in page
+    assert "media-text-warning" not in page
+    hunyuan = await _params(client, "3d", HUNYUAN)
+    assert "media-text-warning" in hunyuan and "about 16 minutes" in hunyuan
+    assert (
+        "Building from an image works here" in hunyuan and 'name="prompt"' in hunyuan
+    )  # not blocked

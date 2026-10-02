@@ -119,6 +119,7 @@
     <textarea name="prompt" rows="3" maxlength="{{ p.prompt_max }}"
               placeholder="e.g. a weathered brass telescope on a wooden tripod">{{ v.get('prompt', '') }}</textarea>
   </label>
+  {% if p.text_warning %}<p class="error media-text-warning" role="note"><small>{{ p.text_warning }}</small></p>{% endif %}
   {% if p.has_negative %}
   {# part of the description: models refuse it next to images, so it hides with the text box #}
   <label>Avoid <small class="muted">(optional)</small>

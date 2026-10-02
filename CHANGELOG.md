@@ -50,6 +50,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- The 3D tab now opens on **Tripo 3D** instead of Hunyuan 3D Rapid. Building from a description on
+  Hunyuan Rapid has been failing at the provider (about 16 minutes, then an error); the form says
+  so when you pick that model. Building from an image on it still works.
+
 - An asset that a running 3D job is using can no longer be deleted from under it, and refusing a
   delete no longer replaces the asset's card with a line of raw text.
 
