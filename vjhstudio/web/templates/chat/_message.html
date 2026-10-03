@@ -1,0 +1,18 @@
+<article class="chat-msg chat-{{ m.role }}{% if m.error %} chat-failed{% elif m.role != "user" and not m.content %} chat-blank{% endif %}"{% if m.id %} id="chat-msg-{{ m.id }}"{% endif %}>
+  {% if m.role == "user" %}
+  {% if m.pictures %}
+  <div class="chat-pics">
+    {% for p in m.pictures %}{% if p.thumb_url %}<img src="{{ p.thumb_url }}" alt="{{ p.name }}" width="96" height="96" loading="lazy">{% else %}<span class="chip">picture removed</span>{% endif %}{% endfor %}
+  </div>
+  {% endif %}
+  <div class="chat-text">{{ m.content }}</div>
+  {% else %}
+  {% if m.content %}<div class="chat-body">{{ m.html }}</div>{% endif %}
+  {% if m.error %}<p class="error">{{ m.error }}</p>{% endif %}
+  <footer>
+    <small class="muted">{{ m.model_name }}{% if m.cost_label %} · {{ m.cost_label }}{% endif %}{% if m.stopped %} · stopped{% endif %}</small>
+    {% if m.content %}<button type="button" class="secondary outline btn-sm" data-chat-copy>Copy</button><textarea class="chat-raw" hidden>{{ m.content }}</textarea>{% endif %}
+    {% if m.retry %}<button type="button" class="btn-sm" data-chat-retry>Try again</button>{% endif %}
+  </footer>
+  {% endif %}
+</article>

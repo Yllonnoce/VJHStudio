@@ -949,6 +949,13 @@ document.addEventListener('htmx:historyRestore', function () { vjhEnhanceStepper
       try { localStorage.setItem(KEY, JSON.stringify(open)); } catch (e) { /* private window etc. */ }
     });
   });
+  // the count in the heading follows its list: a model added from the search, "show hidden"
+  document.body.addEventListener('htmx:afterSettle', () => {
+    folds.forEach((d) => {
+      const count = d.querySelector('summary .count');
+      if (count) count.textContent = '(' + d.querySelectorAll('tr[id^="model-"]').length + ')';
+    });
+  });
 })();
 
 // ── Pictures of 3D objects ─────────────────────────────────────────────────────────

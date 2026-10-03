@@ -1051,7 +1051,8 @@
    "creator": "anthropic",
    "architecture": "claude",
    "capabilities": [
-    "io:text-to-text"
+    "io:text-to-text",
+    "io:image-to-text"
    ],
    "price": {
     "unit": "per_1m_tokens",
@@ -1069,7 +1070,8 @@
    "creator": "google",
    "architecture": "gemini",
    "capabilities": [
-    "io:text-to-text"
+    "io:text-to-text",
+    "io:image-to-text"
    ],
    "price": {
     "unit": "per_1m_tokens",
@@ -1087,7 +1089,8 @@
    "creator": "openai",
    "architecture": "gpt",
    "capabilities": [
-    "io:text-to-text"
+    "io:text-to-text",
+    "io:image-to-text"
    ],
    "price": {
     "unit": "per_1m_tokens",
@@ -1105,13 +1108,33 @@
    "creator": "google",
    "architecture": "gemma",
    "capabilities": [
-    "io:text-to-text"
+    "io:text-to-text",
+    "io:image-to-text"
    ],
    "price": {
     "unit": "per_1m_tokens",
     "primary": 0.399,
     "price_in": 0.102,
     "price_out": 0.297,
+    "tiers": {}
+   }
+  },
+  {
+   "air": "anthropic:claude@haiku-4.5",
+   "slug": "anthropic-claude-haiku-4-5",
+   "name": "Claude Haiku 4.5",
+   "kind": "text",
+   "creator": "anthropic",
+   "architecture": "claude",
+   "capabilities": [
+    "io:text-to-text",
+    "io:image-to-text"
+   ],
+   "price": {
+    "unit": "per_1m_tokens",
+    "primary": 6.0,
+    "price_in": 1.0,
+    "price_out": 5.0,
     "tiers": {}
    }
   },

@@ -8,6 +8,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Chat.** A new **Chat** page for talking to RunWare's text models (Claude, GPT, Gemini and
+  others). Replies appear as they are written and can be stopped; conversations are saved in a
+  list you can rename and delete; models that can see pictures take pictures from Assets, the
+  Gallery or an upload; every reply shows its cost and counts in your spending. The model a new
+  conversation starts on is under **Settings**.
+- **Find more models now covers Music & SFX, Speech and 3D.** Pick the kind on the **Models** page
+  and search, or leave the box empty to list every model RunWare has of that kind. Models you
+  already have say **In your list**; the rest have an **Add** button (ElevenLabs' voices and music
+  model turn up this way).
+
 - **The Music & SFX, Speech and 3D tabs caught up with Image and Video.** They remember what you
   typed (each tab on its own, in that browser) and have a **Reset** button; every submit is filed
   in the **Prompts** library and can be loaded back into its tab; each has a default model under
@@ -50,6 +60,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Searching for Video or Text models looked in the wrong place.** A Video search returned image
+  models (and would have added them as video models); a Text search returned nothing.
+- The model count on a **Models** section heading now follows the list when you add a model or
+  tick **show hidden**.
 - The 3D tab now opens on **Tripo 3D** instead of Hunyuan 3D Rapid. Building from a description on
   Hunyuan Rapid has been failing at the provider (about 16 minutes, then an error); the form says
   so when you pick that model. Building from an image on it still works.

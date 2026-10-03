@@ -16,9 +16,10 @@
   <form hx-post="/hx/models/search" hx-target="#search-results" hx-swap="innerHTML">
     <div class="model-search">
       <input type="search" name="q" placeholder="Search RunWare models (e.g. realistic, anime)" aria-label="Search">
-      <select name="kind" aria-label="Kind"><option value="image">image</option><option value="video">video</option><option value="text">text</option></select>
+      <select name="kind" aria-label="Kind">{% for value, label in kind_labels.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select>
       <button type="submit">Search</button>
     </div>
+    <small class="muted">For Music &amp; SFX, Speech and 3D you can leave the box empty to see every model RunWare has.</small>
   </form>
   <div id="search-results"></div>
 </section>

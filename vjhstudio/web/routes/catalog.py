@@ -13,9 +13,6 @@ from .system import _local_only
 
 router = APIRouter()
 KINDS = catalog.KINDS
-# "Find more models" searches RunWare's checkpoint index, which only covers these three;
-# music, speech and 3D models arrive through Refresh prices instead.
-SEARCH_KINDS = ("image", "video", "text")
 
 
 _view = catalog.view  # one shape for /api/models, the row partials and the task builders
@@ -104,10 +101,23 @@ async def hx_search(request: Request, form: deps.Form):
             },
             422,
         )
-    if not q:
+    if kind not in KINDS:
+        kind = "image"
+    # image, video and text hold thousands of models and want a search term; the three
+    # small kinds can be listed whole
+    if not q and kind not in catalog.LISTABLE_KINDS:
         return deps.render(
             request, "catalog/_search_results.html", {"results": [], "kind": kind, "empty": True}
         )
+    if q and not 2 <= len(q) <= 48:  # RunWare's own limits on a search term
+        return deps.render(
+            request,
+            "catalog/_search_results.html",
+            {"error": "Search for 2 to 48 characters.", "results": [], "kind": kind},
+            422,
+        )
+    with db.session_scope(request.app.state.boot.session_factory) as s:
+        known = catalog.known_kinds(s)
     try:
         results = await catalog.search_live(
             request.app.state.client_factory,
@@ -115,6 +125,7 @@ async def hx_search(request: Request, form: deps.Form):
             request.app.state.setting("runware.transport"),
             q,
             kind,
+            known=known,
         )
     except catalog.SearchError as e:
         return deps.render(
@@ -124,14 +135,14 @@ async def hx_search(request: Request, form: deps.Form):
             422,
         )
     for r in results:
-        r["record_json"] = json.dumps({k: v for k, v in r.items() if k != "raw"})
+        r["record_json"] = json.dumps({k: v for k, v in r.items() if k not in ("raw", "known")})
     return deps.render(request, "catalog/_search_results.html", {"results": results, "kind": kind})
 
 
 @router.post("/models/add")
 def add_model(request: Request, form: deps.Form):
     kind = str(form.get("kind", "image"))
-    if kind not in SEARCH_KINDS:
+    if kind not in KINDS:
         return JSONResponse({"error": "bad kind"}, status_code=400)
     try:
         record = json.loads(str(form.get("record", "{}")))

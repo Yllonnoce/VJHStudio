@@ -7,6 +7,7 @@ from fastapi import APIRouter, Request
 
 from ... import config, db, netinfo, secrets
 from ...services import account, automation, catalog, maintenance
+from ...services import chat as chat_svc
 from ...services import settings as settings_svc
 from .. import deps
 from .system import _local_only, backups_context, updates_context
@@ -86,6 +87,8 @@ def _general_ctx(request: Request, saved: bool = False, error: str | None = None
         model_options = {k: catalog.list_models(s, k) for k in ("image", "video", "text")}
         # the three newer tabs only ever offer models they can drive
         model_options |= {k: catalog.list_generate_models(s, k) for k in ("audio", "speech", "3d")}
+        text = model_options["text"]
+        model_options["chat"] = [m for m in text if chat_svc.is_chat_model(m)]
         labels = {m.air: catalog.label(m) for k in model_options for m in model_options[k]}
     return {
         "spec": general_spec(),

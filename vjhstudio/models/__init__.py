@@ -3,6 +3,7 @@
 from .asset import Asset
 from .base import Base, utcnow
 from .catalog import CatalogModel
+from .chat import Chat, ChatMessage
 from .job import Job, JobStatus
 from .output import Output
 from .project import Project
@@ -23,4 +24,6 @@ __all__ = [
     "AppMeta",
     "Setting",
     "UsageEntry",
+    "Chat",
+    "ChatMessage",
 ]

@@ -168,10 +168,31 @@ Prices differ by model: a song or a 3D object is charged per result, some music 
 speech per thousand characters. The estimate under the form says which, and the real cost is
 shown on the result.
 
+## Chat
+
+Click **Chat** in the top menu to talk to one of RunWare's text models (Claude, GPT, Gemini and
+others). Pick a model, type a message and press **Send**. The reply appears as it is written;
+press **Stop** to cut it short.
+
+- Your conversations are saved in the list at the side. Use the pencil to rename one and the
+  cross to delete it.
+- **Attach picture** lets the model look at a picture from Assets or the Gallery, or one you
+  upload. It only shows for models that can see pictures.
+- **Instruction** is optional: a standing request for the whole conversation, such as "answer
+  briefly".
+- Every reply shows what it cost, and the top of the conversation shows the total. A long
+  conversation costs more per message, because the whole conversation is sent each time.
+- Choose the model a new conversation starts on under **Settings** (`defaults.chat_model`).
+
 ## Models
 
 Click **Models** in the top menu to see every model VJHStudio knows about, with its price and a
 few badges.
+
+**Find more models** at the top searches RunWare for models that are not in your list yet. Pick the
+kind (Image, Video, Text, Music & SFX, Speech or 3D), type a word and press **Search**, then press
+**Add** next to the one you want. For Music & SFX, Speech and 3D you can leave the box empty to see
+them all. Searching is free.
 
 Some models only accept certain image sizes or video lengths, and a few video models can only edit
 an existing video rather than make a new one. VJHStudio starts out knowing the common cases, but you

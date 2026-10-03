@@ -6,11 +6,14 @@
 <tr>
   <td><strong>{{ r.name }}</strong><br><small><code>{{ r.air }}</code>{% if r.provider %} · {{ r.provider }}{% endif %}{% if r.shortDescription %} · {{ r.shortDescription }}{% endif %}</small></td>
   <td>
+    {% if r.known %}<small class="muted">In your list</small>
+    {% else %}
     <form hx-post="/models/add" hx-target="#list-{{ kind }}" hx-swap="outerHTML">
       <input type="hidden" name="kind" value="{{ kind }}">
       <input type="hidden" name="record" value='{{ r.record_json }}'>
       <button type="submit">Add</button>
     </form>
+    {% endif %}
   </td>
 </tr>
 {% endfor %}

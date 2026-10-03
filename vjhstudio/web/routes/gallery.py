@@ -20,11 +20,6 @@ from ..urls import output_url, thumb_url
 
 router = APIRouter()
 
-# ``store_upload`` is keyed by MIME, outputs are named by extension: one inverse map
-# rather than a second list of image types that could drift from the asset library's.
-_MIME_BY_EXT = {ext: mime for mime, ext in assets_svc.ALLOWED_IMAGE.items()} | {
-    "jpeg": "image/jpeg"
-}
 # htmx takes an HX-Trigger with several events as JSON; the grid and the queue/
 # spend widgets listen for one each.
 _MOVED_EVENTS = json.dumps({"outputs-changed": True, "jobs-changed": True})
@@ -223,25 +218,8 @@ def output_as_asset(request: Request, output_id: int):
         o = outputs_svc.get(s, output_id)
         if o is None:
             raise HTTPException(status_code=404, detail="unknown output")
-        if o.kind != "image":
-            raise HTTPException(status_code=415, detail="only image outputs can be references")
-        mime = _MIME_BY_EXT.get(o.filename.rsplit(".", 1)[-1].lower())
-        if mime is None:
-            raise HTTPException(status_code=415, detail="unsupported output type")
         try:
-            path = outputs_svc.abs_path(app.state.paths, o, projects.root_override(s))
-            content = path.read_bytes()
-        except (LookupError, OSError) as e:
-            raise HTTPException(status_code=404, detail="output file is missing") from e
-        try:
-            asset, _created = assets_svc.store_upload(
-                s,
-                app.state.paths,
-                original_name=o.filename,
-                content=content,
-                mime=mime,
-                tags="from-output",
-            )
+            asset = assets_svc.import_output(s, app.state.paths, o, projects.root_override(s))
         except assets_svc.UploadError as e:
             raise HTTPException(status_code=e.status, detail=str(e)) from e
         target = f"/generate?ref=asset:{asset.id}&role=reference"

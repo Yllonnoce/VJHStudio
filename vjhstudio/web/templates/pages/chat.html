@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Chat · VJHStudio{% endblock %}
+{% block content %}
+{# chat.js drives this page: it reads /chat/send as a stream and moves the server-rendered
+   pieces into place. Nothing here uses hx- attributes, so nothing can inherit a target. #}
+<div class="chat-page" id="chat-page" data-chat-id="{{ chat.id if chat else '' }}"{% if has_pictures %} data-has-pictures="1"{% endif %}>
+  <aside class="chat-side">
+    <a href="/chat" role="button" class="chat-new">New chat</a>
+    <details class="chat-list-fold" open>
+      <summary>Conversations</summary>
+      {% include "chat/_list.html" %}
+    </details>
+  </aside>
+  <section class="chat-main">
+    <header class="chat-head">
+      <h1 id="chat-title">{{ chat.title if chat else "New chat" }}</h1>
+      <small class="muted">Total <span id="chat-total">{{ total or "$0.0000" }}</span></small>
+    </header>
+    <div id="chat-thread" class="chat-thread" aria-live="polite">{% include "chat/_thread.html" %}</div>
+    {% if not has_api_key %}{% include "generate/_no_key.html" %}{% endif %}
+    {% if models %}
+    <form id="chat-form" action="/chat/send" method="post" autocomplete="off">
+      <input type="hidden" name="chat_id" value="{{ chat.id if chat else '' }}">
+      <p id="chat-error" class="error" role="alert" hidden></p>
+      <div id="chat-chips" class="chat-chips"></div>
+      <textarea name="message" rows="1" placeholder="Type a message" title="Enter sends; Shift+Enter makes a new line" aria-label="Message"></textarea>
+      <div class="chat-controls">
+        <select name="model" aria-label="Model">
+          {% for m in models %}<option value="{{ m.air }}" data-vision="{{ 1 if m.vision else 0 }}"{% if m.air == model %} selected{% endif %}>{{ m.label }}</option>
+          {% endfor %}
+        </select>
+        <button type="button" id="chat-attach" class="secondary outline">Attach picture</button>
+        <button type="submit" id="chat-send">Send</button>
+        <button type="button" id="chat-stop" class="secondary" hidden>Stop</button>
+      </div>
+      <small id="chat-blind" class="muted" hidden>This model cannot see pictures, so the ones in this conversation are not shown to it.</small>
+      <div id="chat-picker" class="chat-picker" hidden></div>
+      <details class="chat-instruction"{% if chat and chat.system_prompt %} open{% endif %}>
+        <summary>Instruction</summary>
+        <textarea name="system_prompt" rows="2" aria-label="Instruction" placeholder="Optional: how the model should answer in this conversation, e.g. &quot;answer briefly&quot;">{{ chat.system_prompt if chat else "" }}</textarea>
+      </details>
+    </form>
+    {% else %}
+    <p class="muted">No chat models in your list. Open <a href="/models">Models</a> and press <strong>Refresh prices</strong>, or search for a Text model there.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

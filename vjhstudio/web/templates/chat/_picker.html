@@ -1,0 +1,25 @@
+{# Pictures to show the model. An asset is attached as it is; a Gallery picture is
+   imported into Assets first (chat.js posts /chat/attach-output/<id>). #}
+<label class="chat-upload">Upload a picture
+  <input type="file" id="chat-upload" accept="image/png,image/jpeg,image/webp" multiple>
+</label>
+<h4>Assets</h4>
+<div class="asset-picker-grid">
+  {% for a in assets %}
+  <button type="button" class="chat-pick" data-chat-asset="{{ a.id }}" data-thumb="{{ a.thumb_url or '' }}" data-name="{{ a.name }}" title="{{ a.name }}">
+    {% if a.thumb_url %}<img src="{{ a.thumb_url }}" alt="{{ a.name }}" loading="lazy" width="96" height="96">{% else %}<span class="chip">{{ a.name }}</span>{% endif %}
+  </button>
+  {% else %}
+  <p class="muted">No pictures in Assets yet.</p>
+  {% endfor %}
+</div>
+<h4>Gallery</h4>
+<div class="asset-picker-grid">
+  {% for o in outputs %}
+  <button type="button" class="chat-pick" data-chat-output="{{ o.id }}" data-thumb="{{ o.thumb_url or '' }}" data-name="{{ o.name }}" title="{{ o.name }}">
+    {% if o.thumb_url %}<img src="{{ o.thumb_url }}" alt="{{ o.name }}" loading="lazy" width="96" height="96">{% else %}<span class="chip">{{ o.name }}</span>{% endif %}
+  </button>
+  {% else %}
+  <p class="muted">No pictures in the Gallery yet.</p>
+  {% endfor %}
+</div>

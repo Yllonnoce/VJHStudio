@@ -38,6 +38,12 @@ class FakeRunware:
             return result
         return reply
 
+    async def stream(self, params: dict, options: Any = None) -> FakeStream:
+        """Scripted as ``{"pieces": [...], "cost": 0.001, "usage": {...}, "finish": "stop"}``;
+        an exception instead is raised by the call itself, and ``"error": exc`` inside the
+        dict is raised after the pieces (a stream that breaks half way)."""
+        return FakeStream(self._reply("stream", params), getattr(options, "cancel_event", None))
+
     async def account_management(self, params: dict, options: Any = None) -> list[dict]:
         return self._reply("account_management", params)
 
@@ -46,6 +52,41 @@ class FakeRunware:
 
     async def media_storage(self, params: dict, options: Any = None) -> list[dict]:
         return self._reply("media_storage", params)
+
+
+class FakeStream:
+    """Stand-in for the SDK's ``TextStream``: ``text_stream`` and ``result()``."""
+
+    def __init__(self, reply: dict, cancel_event: Any = None):
+        self.reply = reply
+        self.cancel_event = cancel_event
+        self.sent: list[str] = []
+
+    @property
+    def text_stream(self):
+        return self._pieces()
+
+    async def _pieces(self):
+        from runware import RunwareError
+
+        for piece in self.reply.get("pieces") or []:
+            if self.cancel_event is not None and self.cancel_event.is_set():
+                raise RunwareError("aborted", "Request aborted")
+            self.sent.append(piece)
+            yield piece
+        if self.reply.get("error") is not None:
+            raise self.reply["error"]
+
+    async def result(self):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            text="".join(self.sent),
+            reasoning_content="",
+            finish_reason=self.reply.get("finish", "stop"),
+            usage=self.reply.get("usage"),
+            cost=self.reply.get("cost"),
+        )
 
 
 def fake_factory(fake: FakeRunware):

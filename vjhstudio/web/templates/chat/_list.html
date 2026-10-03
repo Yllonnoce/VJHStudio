@@ -1,0 +1,11 @@
+<ul id="chat-list" class="chat-list">
+  {% for c in chats %}
+  <li>
+    <a href="/chat/{{ c.id }}"{% if c.id == current_id %} aria-current="page"{% endif %}>{{ c.title }}</a>
+    <button type="button" class="chat-tool" data-chat-rename="{{ c.id }}" data-title="{{ c.title }}" title="Rename" aria-label="Rename {{ c.title }}">&#9998;</button>
+    <button type="button" class="chat-tool" data-chat-delete="{{ c.id }}" data-title="{{ c.title }}" title="Delete" aria-label="Delete {{ c.title }}">&times;</button>
+  </li>
+  {% else %}
+  <li class="muted">No conversations yet.</li>
+  {% endfor %}
+</ul>

@@ -1,0 +1,6 @@
+{% for m in messages %}{% include "chat/_message.html" %}{% else %}
+<p class="muted chat-empty">Pick a model below and say something.</p>
+{% endfor %}
+{% if unanswered %}
+<p class="chat-unanswered muted">This message was not answered. <button type="button" class="btn-sm" data-chat-retry>Try again</button></p>
+{% endif %}

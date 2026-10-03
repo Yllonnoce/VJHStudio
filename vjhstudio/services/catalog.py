@@ -38,7 +38,8 @@ KIND_LABELS = {
     "speech": "Speech",
     "3d": "3D",
 }
-_SPEECH_NAME = re.compile(r"\btts\b|speech|\bdia\d", re.I)
+# "tts" has to stand alone, but an underscore counts as a break (`elevenlabs_tts`)
+_SPEECH_NAME = re.compile(r"(?<![a-z0-9])tts(?![a-z0-9])|speech|(?<![a-z])dia\d", re.I)
 _SPEECH_UNITS = {"character", "utf8Byte", "inputToken", "outputToken"}
 _UTILITY = (
     "controlnet-preprocess",
@@ -80,14 +81,17 @@ def audio_kind(item: dict, constraints_json: dict | None = None) -> str:
     `audio` category. The docs page is the authority once it has been read: a model
     that reads a text aloud takes ``speech.text``. Before that, the price says it (a
     voice is billed per character, byte or token; music per song or per second), and
-    failing that the name (TTS, Speech, Dia)."""
+    failing that the name (TTS, Speech, Dia). A `modelSearch` record has no price, and
+    some names say nothing ("Eleven v3"), so its architecture and tags are read too."""
     fields = constraints.media_fields(constraints_json)
     if fields:
         return "speech" if "speech.text" in fields else "audio"
     units = {r.get("unit") for r in (item.get("pricingRates") or []) if isinstance(r, dict)}
     if units & _SPEECH_UNITS:
         return "speech"
-    text = " ".join(str(item.get(k) or "") for k in ("name", "model", "air"))
+    tags = item.get("tags") if isinstance(item.get("tags"), list) else []
+    words = [item.get(k) for k in ("name", "model", "air", "architecture")] + tags
+    text = " ".join(str(w or "") for w in words)
     return "speech" if _SPEECH_NAME.search(text) else "audio"
 
 
@@ -400,41 +404,119 @@ class SearchError(Exception):
         self.error = error
 
 
-_SEARCH_CATEGORY = {"image": "checkpoint", "video": "checkpoint", "text": "checkpoint"}
+# RunWare's `modelSearch` category for each kind. Music and speech share `audio`; 3D
+# models have no category of their own and sit under `others` (which works, though it is
+# not on RunWare's list of supported values) beside background removers and upscalers.
+_SEARCH_CATEGORY = {
+    "image": "checkpoint",
+    "video": "video",
+    "text": "text",
+    "audio": "audio",
+    "speech": "audio",
+    "3d": "others",
+}
+# Kinds whose category holds other things too: the results are filtered afterwards, so
+# the whole category is read rather than one short page. They are small enough (tens of
+# models) to be listed with nothing typed.
+LISTABLE_KINDS = ("audio", "speech", "3d")
+_SEARCH_PAGE = 100
+_SEARCH_MAX_PAGES = 5
+
+
+def matches_kind(record: dict, kind: str, known_kind: str | None = None) -> bool:
+    """Whether a search result belongs under `kind`. A model already in the catalog is
+    what its row says it is (decided from its docs page and price, which a search
+    record does not carry)."""
+    if kind not in LISTABLE_KINDS:
+        return True
+    if known_kind:
+        return known_kind == kind
+    if kind == "3d":
+        return any(str(c).endswith("-to-3d") for c in record.get("capabilities") or [])
+    return audio_kind(record) == kind
+
+
+def _category_refused(exc: Exception) -> bool:
+    return "category" in str(getattr(exc, "message", "") or exc).lower()
+
+
+async def _search_pages(client, params: dict, whole: bool) -> list[dict]:
+    """One page of results, or (`whole`) every page up to a sane ceiling."""
+    found: list[dict] = []
+    for page in range(_SEARCH_MAX_PAGES if whole else 1):
+        if page:
+            params = {**params, "offset": page * _SEARCH_PAGE}
+        rows = await client.model_search(params)
+        batch = [r for row in rows or [] for r in row.get("results") or []]
+        found += batch
+        total = max((row.get("totalResults") or 0 for row in rows or []), default=0)
+        if not batch or (page + 1) * _SEARCH_PAGE >= total:
+            break
+    return found
 
 
 async def search_live(
-    client_factory, api_key: str, transport: str, query: str, kind: str, limit: int = 20
+    client_factory,
+    api_key: str,
+    transport: str,
+    query: str,
+    kind: str,
+    limit: int = 20,
+    known: dict[str, str] | None = None,
 ) -> list[dict]:
+    """Search RunWare for models of `kind`. `known` maps the AIRs already in the catalog
+    to their kind; those results come back with ``known`` set. An empty `query` lists the
+    whole category (RunWare refuses a search term shorter than two characters)."""
+    known = known or {}
+    whole = kind in LISTABLE_KINDS
     params = {
-        "search": query,
         "category": _SEARCH_CATEGORY.get(kind, "checkpoint"),
         "visibility": "public",
-        "limit": limit,
+        "limit": _SEARCH_PAGE if whole else limit,
     }
+    if query:
+        params["search"] = query
     try:
         async with client_factory(api_key, transport) as client:
-            rows = await client.model_search(params)
+            try:
+                found = await _search_pages(client, params, whole)
+            except Exception as e:  # noqa: BLE001
+                if not (kind == "3d" and _category_refused(e)):
+                    raise
+                params = {k: v for k, v in params.items() if k != "category"}
+                found = await _search_pages(client, params, whole)
     except Exception as e:  # noqa: BLE001
         raise SearchError(classify(e)) from e
     results: list[dict] = []
-    for row in rows or []:
-        for r in row.get("results") or []:
-            if r.get("air"):
-                results.append(
-                    {
-                        "air": r["air"],
-                        "name": r.get("name") or r["air"],
-                        "category": r.get("category"),
-                        "architecture": r.get("architecture"),
-                        "provider": r.get("provider"),
-                        "capabilities": r.get("capabilities") or [],
-                        "heroImage": r.get("heroImage"),
-                        "shortDescription": r.get("shortDescription"),
-                        "raw": r,
-                    }
-                )
+    for r in found:
+        if not r.get("air") or not matches_kind(r, kind, known.get(r["air"])):
+            continue
+        results.append(
+            {
+                "air": r["air"],
+                "name": r.get("name") or r["air"],
+                "category": r.get("category"),
+                "architecture": r.get("architecture"),
+                "provider": r.get("provider"),
+                "capabilities": r.get("capabilities") or [],
+                "tags": r.get("tags") or [],
+                "heroImage": r.get("heroImage"),
+                "shortDescription": r.get("shortDescription"),
+                "known": r["air"] in known,
+                "raw": r,
+            }
+        )
     return results
+
+
+def known_kinds(session: Session) -> dict[str, str]:
+    """AIR -> kind for every model in the catalog, hidden ones included."""
+    return {air: kind for air, kind in session.query(CatalogModel.air, CatalogModel.kind)}
+
+
+# what a found model is billed by, where the kind settles it (music, speech and 3D do not:
+# the unit arrives with the price, on the next Refresh prices)
+_SEARCH_UNIT = {"image": "per_image", "video": "per_second", "text": "per_1m_tokens"}
 
 
 def add_from_search(session: Session, record: dict, kind: str) -> CatalogModel:
@@ -456,9 +538,7 @@ def add_from_search(session: Session, record: dict, kind: str) -> CatalogModel:
             "capabilities": record.get("capabilities") or [],
             "hero_image_url": record.get("heroImage"),
             "price": {
-                "unit": {"image": "per_image", "video": "per_second", "text": "per_1m_tokens"}[
-                    kind
-                ],
+                "unit": _SEARCH_UNIT.get(kind),
                 "primary": None,
                 "tiers": {},
             },

@@ -35,6 +35,8 @@ SPEC: dict[str, Spec] = {
     "defaults.speech_model": Spec(str, "xai:tts@0"),
     "defaults.model3d_model": Spec(str, "tripo:v3.1@0"),
     "defaults.polish_model": Spec(str, ""),
+    # the model a new conversation on the Chat page opens on
+    "defaults.chat_model": Spec(str, "anthropic:claude@haiku-4.5"),
     "defaults.output_format_image": Spec(str, "PNG", ("PNG", "JPG", "WEBP")),
     "defaults.output_format_video": Spec(str, "MP4", ("MP4", "WEBM")),
     "defaults.negative_prompt": Spec(str, "blurry, low quality, watermark, text, deformed"),

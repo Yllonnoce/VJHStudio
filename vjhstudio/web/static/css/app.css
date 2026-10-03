@@ -776,3 +776,68 @@ button.gen-submit[type="submit"]{width:100%}
 }
 .media-upload{display:inline-block;width:auto;margin:.25rem .5rem .25rem 0;padding:.3rem .8rem;font-size:.85rem;cursor:pointer}
 .media-upload.is-busy{opacity:.6;pointer-events:none}
+
+/* ── Chat page ─────────────────────────────────────────────────────────────────────
+   Two columns: the conversations, and the one that is open. The composer sticks to the
+   bottom of the window so the page itself scrolls (no inner scroll box to fight with
+   a phone's keyboard). */
+.chat-page{display:grid;grid-template-columns:minmax(11rem,16rem) minmax(0,1fr);gap:1.25rem;align-items:start}
+.chat-side{position:sticky;top:calc(var(--vjh-header-h, 4.5rem) + 1rem);max-height:calc(100vh - var(--vjh-header-h, 4.5rem) - 2rem);overflow-y:auto}
+.chat-new{display:block;width:100%;margin-bottom:.75rem;text-align:center}
+.chat-list-fold>summary{font-size:.85rem;color:var(--sp-muted)}
+.chat-list{list-style:none;margin:0;padding:0}
+.chat-list li{display:flex;align-items:center;gap:.15rem;list-style:none;margin:0;padding:0}
+.chat-list a{flex:1 1 auto;min-width:0;padding:.35rem .5rem;border-radius:var(--sp-radius);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-decoration:none}
+.chat-list a[aria-current="page"]{background:var(--sp-surface-2);font-weight:600}
+.chat-tool{flex:0 0 auto;width:auto;margin:0;padding:.1rem .4rem;border:0;background:none;color:var(--sp-muted);font-size:.95rem;line-height:1.2}
+.chat-tool:hover{color:var(--sp-accent)}
+.chat-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:.25rem 1rem;margin-bottom:.5rem}
+.chat-head h1{margin:0;font-size:1.3rem;overflow-wrap:anywhere}
+.chat-thread{display:flex;flex-direction:column;gap:.75rem;min-height:30vh;padding-bottom:1rem}
+.chat-msg{margin:0;padding:.7rem .9rem;border:1px solid var(--sp-border);border-radius:var(--sp-radius);background:var(--sp-surface);max-width:100%;min-width:0;box-shadow:none}
+.chat-user{align-self:flex-end;max-width:min(85%,46rem);background:var(--sp-surface-2)}
+.chat-text,.chat-live{white-space:pre-wrap;overflow-wrap:anywhere}
+.chat-body{overflow-wrap:anywhere}
+.chat-body>:first-child{margin-top:0}
+.chat-body>:last-child{margin-bottom:0}
+.chat-body pre{overflow-x:auto;max-width:100%}
+.chat-body table{display:block;overflow-x:auto;max-width:100%}
+.chat-body h1{font-size:1.3rem}.chat-body h2{font-size:1.15rem}.chat-body h3{font-size:1.05rem}
+.chat-msg footer{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin:.5rem 0 0;padding:0;border:0;background:none}
+.chat-msg .error{margin:.25rem 0 0}
+.chat-pics{display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:.4rem}
+.chat-pics img{width:96px;height:96px;object-fit:cover;border-radius:var(--sp-radius)}
+.chat-pending .chat-live:empty::before{content:"…";color:var(--sp-muted)}
+#chat-form{position:sticky;bottom:0;margin:0;padding:.6rem 0 .4rem;background:var(--sp-bg);border-top:1px solid var(--sp-border)}
+#chat-form textarea{margin-bottom:.5rem;resize:vertical}
+.chat-controls{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}
+.chat-controls select{flex:1 1 12rem;min-width:0;margin:0}
+.chat-controls button{width:auto;margin:0}
+.chat-chips{display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:.4rem}
+.chat-chips:empty{display:none}
+.chat-chip{position:relative;display:inline-flex;align-items:center;gap:.3rem;padding:.15rem;border:1px solid var(--sp-border);border-radius:var(--sp-radius);background:var(--sp-surface-2);font-size:.85rem}
+.chat-chip img{width:48px;height:48px;object-fit:cover;border-radius:calc(var(--sp-radius) - 2px)}
+.chat-unpick{width:auto;margin:0;padding:0 .4rem;border:0;background:none;color:var(--sp-muted);font-size:1.1rem;line-height:1}
+.chat-picker{margin-top:.6rem;padding:.6rem;border:1px solid var(--sp-border);border-radius:var(--sp-radius);max-height:45vh;overflow-y:auto;background:var(--sp-surface)}
+.chat-picker h4{margin:.6rem 0 .3rem;font-size:.9rem}
+.chat-pick{width:auto;margin:0;padding:0;border:2px solid transparent;background:var(--sp-surface-2);cursor:pointer}
+.chat-pick:hover,.chat-pick:focus-visible{border-color:var(--sp-accent)}
+.chat-pick img{display:block;width:100%;height:96px;object-fit:cover}
+.chat-upload{display:inline-block;width:auto;margin:0;font-size:.85rem;cursor:pointer}
+.chat-upload.is-busy{opacity:.6;pointer-events:none}
+.chat-instruction{margin:.5rem 0 0}
+.chat-instruction>summary{font-size:.85rem;color:var(--sp-muted)}
+.chat-instruction textarea{margin:.4rem 0 0}
+.chat-page [hidden]{display:none!important}
+@media (max-width: 767px){
+  .chat-page{grid-template-columns:minmax(0,1fr);gap:.5rem}
+  .chat-side{position:static;max-height:none}
+  .chat-list{max-height:40vh;overflow-y:auto}
+  .chat-user{max-width:94%}
+  /* a phone has little height to spare under the header: a one-line box, the model on
+     its own row, then Attach and Send side by side */
+  #chat-form{padding-top:.4rem}
+  #chat-form textarea[name=message]{min-height:2.6rem;margin-bottom:.35rem}
+  .chat-controls select{flex:1 1 100%}
+  .chat-controls button{flex:1 1 0}
+}

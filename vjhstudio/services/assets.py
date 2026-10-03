@@ -193,6 +193,37 @@ def store_upload(
     return asset, True
 
 
+# ``store_upload`` is keyed by MIME, outputs are named by extension: one inverse map
+# rather than a second list of image types that could drift from ALLOWED_IMAGE.
+_OUTPUT_MIME = {ext: mime for mime, ext in ALLOWED_IMAGE.items()} | {"jpeg": "image/jpeg"}
+
+
+def import_output(session: Session, paths: Paths, output, outputs_dir: str = "") -> Asset:
+    """Copy an image from the Gallery into the asset library so it can be used as an
+    input. ``store_upload`` dedupes by content, so doing it twice reuses the row.
+    ``UploadError``: 415 for anything but a picture, 404 when its file is gone."""
+    from . import outputs as outputs_svc  # outputs imports this package's siblings
+
+    mime = _OUTPUT_MIME.get(output.filename.rsplit(".", 1)[-1].lower())
+    if output.kind != "image":
+        raise UploadError(415, "only image outputs can be references")
+    if mime is None:
+        raise UploadError(415, "unsupported output type")
+    try:
+        content = outputs_svc.abs_path(paths, output, outputs_dir).read_bytes()
+    except (LookupError, OSError) as e:
+        raise UploadError(404, "output file is missing") from e
+    asset, _created = store_upload(
+        session,
+        paths,
+        original_name=output.filename,
+        content=content,
+        mime=mime,
+        tags="from-output",
+    )
+    return asset
+
+
 def list_assets(
     session: Session,
     *,

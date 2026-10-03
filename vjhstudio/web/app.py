@@ -27,6 +27,7 @@ from .csrf import CrossSiteBlockMiddleware
 from .deps import STATIC_DIR
 from .routes import assets as assets_routes
 from .routes import catalog as catalog_routes
+from .routes import chat as chat_routes
 from .routes import files as files_routes
 from .routes import gallery as gallery_routes
 from .routes import generate as generate_routes
@@ -228,6 +229,7 @@ def create_app(
     app.state.update_task = None
     app.state.poster_task = None
     app.state.stop_posters = threading.Event()  # shutdown's only handle on that worker
+    app.state.chat_tasks = set()  # replies being written (routes/chat.py)
     app.state.harvest_task = None  # set by services.constraints.start_harvest
     app.state.mcp_server = None  # set below when mcp.enabled is on
     app.state.mcp_trace = None
@@ -289,6 +291,7 @@ def create_app(
     app.include_router(projects_routes.router)
     app.include_router(assets_routes.router)
     app.include_router(prompts_routes.router)
+    app.include_router(chat_routes.router)
 
     def mcp_session_factory():
         """The booted factory, looked up per call: the MCP server has to exist

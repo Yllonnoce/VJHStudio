@@ -84,7 +84,7 @@ async def test_only_the_links_the_macro_marks_carry_data_navlink(client):
     nav = _nav((await client.get("/")).text)
     hrefs = re.findall(r'<a href="([^"]+)"[^>]*\bdata-navlink\b', nav)
     assert hrefs == [
-        "/", "/generate", "/gallery", "/prompts", "/assets",
+        "/", "/generate", "/gallery", "/chat", "/prompts", "/assets",
         "/projects", "/models", "/settings", "/queue",
     ]  # fmt: skip
 
