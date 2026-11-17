@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import datetime as dt
 import subprocess
+import sys
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
@@ -171,3 +172,96 @@ def render(status: Status, version: str) -> str:
     for (lk, _, ll), (rk, _, rl) in zip(menu[:5], menu[5:], strict=True):
         lines.append(f"  {lk}  {ll.ljust(40)}{rk}  {rl}")
     return "\n".join(lines)
+
+
+# --- actions ----------------------------------------------------------------------
+
+
+@dataclass
+class Deps:
+    """Everything the menu touches, so the tests can swap each piece."""
+
+    run: Runner
+    url: str
+    version: str
+    answers: Callable[[str], bool]
+    check: Callable[[], dict]
+    ask: Callable[[str], str]
+    out: Callable[[str], None]
+    in_terminal: Callable[[list[str]], int]
+    open_browser: Callable[[str], object]
+
+
+def in_terminal(argv: list[str]) -> int:
+    """Run a command in this window, with its own output and keys, and come back
+    when it ends. Ctrl-C ends the command, not the menu."""
+    try:
+        child = subprocess.Popen(argv)  # noqa: S603
+    except OSError as e:
+        print(f"  could not run {argv[0]}: {e}")
+        return 127
+    while True:
+        try:
+            return child.wait()
+        except KeyboardInterrupt:
+            # the terminal sent Ctrl-C to the command as well; wait for it to finish
+            continue
+
+
+def _app_command(name: str) -> list[str]:
+    """`vjhstudio <name>` with the Python this menu is already running under."""
+    return [sys.executable, str(config.REPO_ROOT / "run.py"), name]
+
+
+def _systemctl(verb: str, deps: Deps, ask_after: str = "is-active") -> None:
+    """One systemctl verb and a line saying what came of it."""
+    _, said = deps.run([verb, UNIT])
+    deps.out(f"  {verb} {UNIT}: {said or deps.run([ask_after, UNIT])[1]}")
+
+
+def act(choice: str, status: Status, deps: Deps) -> None:
+    if choice in ("start", "stop", "restart"):
+        _systemctl(choice, deps)
+    elif choice == "login":
+        _systemctl("disable" if status.at_login else "enable", deps, ask_after="is-enabled")
+    elif choice == "log":
+        deps.in_terminal(["journalctl", "--user", "-u", UNIT, "-n", "60", "-f"])
+    elif choice == "browser":
+        deps.open_browser(status.url)
+        deps.out(f"  opened {status.url}")
+    elif choice == "update":
+        if deps.in_terminal(_app_command("update")) != 0:
+            deps.out("  the update did not finish; the server was left as it was")
+        elif status.active:
+            _systemctl("restart", deps)
+    elif choice == "backup":
+        deps.in_terminal(_app_command("backup"))
+
+
+NO_SYSTEMD = (
+    "This menu needs systemd, which this computer does not seem to have. "
+    "Start the app with ./start.sh instead."
+)
+
+
+def menu(deps: Deps) -> int:
+    """The table, a choice, the action, again."""
+    try:
+        while True:
+            status = gather(deps.run, deps.url, deps.answers, deps.check)
+            deps.out("")
+            deps.out(render(status, deps.version))
+            deps.out("")
+            try:
+                choice = parse_choice(deps.ask("> "))
+            except (EOFError, KeyboardInterrupt):
+                deps.out("")
+                return 0
+            if choice == "quit":
+                return 0
+            if choice in (None, "refresh"):
+                continue
+            act(choice, status, deps)
+    except NoSystemd:
+        deps.out(NO_SYSTEMD)
+        return 1

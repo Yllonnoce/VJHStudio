@@ -1,4 +1,4 @@
-"""CLI entry point: serve | migrate | update | backup | restore | thumbs | probe | mcp | version | doctor."""
+"""CLI entry point: serve | migrate | update | backup | restore | thumbs | probe | mcp | console | version | doctor."""
 
 from __future__ import annotations
 
@@ -483,6 +483,24 @@ def cmd_version(_args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_console(_args: argparse.Namespace) -> int:
+    from . import console
+
+    return console.menu(
+        console.Deps(
+            run=console.system_runner,
+            url=console.app_url(os.environ),
+            version=__version__,
+            answers=console.answers,
+            check=update.check_updates,
+            ask=input,
+            out=print,
+            in_terminal=console.in_terminal,
+            open_browser=webbrowser.open,
+        )
+    )
+
+
 def install_summary(paths: config.Paths) -> str:
     """One line for `doctor`: what the installer recorded, if anything did."""
     install_json = paths.data / "install.json"
@@ -574,6 +592,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser(
         "mcp", help="serve the MCP tools over stdio (for Goose, Claude Desktop ...)"
     ).set_defaults(func=cmd_mcp)
+    sub.add_parser(
+        "console", help="start, stop and restart the app from a menu (Linux)"
+    ).set_defaults(func=cmd_console)
     sub.add_parser("version", help="print version").set_defaults(func=cmd_version)
     sub.add_parser("doctor", help="print environment diagnostics").set_defaults(func=cmd_doctor)
     return p

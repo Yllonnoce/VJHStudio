@@ -541,3 +541,8 @@ def test_web_app_running_is_false_when_nothing_answers(monkeypatch):
     free = s.getsockname()[1]
     s.close()
     assert main.web_app_running(free) is False
+
+
+def test_console_command_is_registered():
+    args = main.build_parser().parse_args(["console"])
+    assert args.func is main.cmd_console

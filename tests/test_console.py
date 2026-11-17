@@ -210,3 +210,144 @@ def test_system_runner_returns_code_and_words(monkeypatch):
 
 def test_answers_is_false_when_nothing_listens():
     assert console.answers("http://127.0.0.1:9/") is False
+
+
+# --- actions and the menu loop ----------------------------------------------------
+
+
+class Kit:
+    """Deps with everything faked, plus what was called, run and printed."""
+
+    def __init__(
+        self,
+        replies=None,
+        answers=None,
+        ask_raises=None,
+        in_terminal_code=0,
+        run=None,
+    ):
+        fake_run, self.calls = fake(replies)
+        self.ran: list[list[str]] = []
+        self.printed: list[str] = []
+        self.opened: list[str] = []
+        pending = list(answers or [])
+
+        def ask(prompt: str) -> str:
+            if ask_raises is not None:
+                raise ask_raises()
+            if not pending:
+                raise EOFError
+            return pending.pop(0)
+
+        def in_terminal(argv: list[str]) -> int:
+            self.ran.append(list(argv))
+            return in_terminal_code
+
+        self.deps = console.Deps(
+            run=run or fake_run,
+            url=URL,
+            version="0.5.0",
+            answers=lambda u: False,
+            check=ok_check,
+            ask=ask,
+            out=self.printed.append,
+            in_terminal=in_terminal,
+            open_browser=self.opened.append,
+        )
+
+
+@pytest.mark.parametrize("choice", ["start", "stop", "restart"])
+def test_start_stop_restart_call_systemctl(choice):
+    k = Kit(replies={"is-active vjhstudio": (0, "active")})
+    console.act(choice, STOPPED, k.deps)
+    assert [choice, "vjhstudio"] in k.calls
+    # the RoadTales result line: two spaces, the verb, the unit, what came of it
+    assert f"  {choice} vjhstudio: active" in k.printed
+
+
+def test_login_toggle_enables_when_off_and_disables_when_on():
+    k = Kit()
+    console.act("login", STOPPED, k.deps)
+    assert ["enable", "vjhstudio"] in k.calls
+    k = Kit()
+    console.act("login", RUNNING, k.deps)
+    assert ["disable", "vjhstudio"] in k.calls
+
+
+def test_login_toggle_never_stops_or_starts_the_server():
+    k = Kit()
+    console.act("login", RUNNING, k.deps)
+    assert not any("--now" in c or c[0] in ("stop", "start", "restart") for c in k.calls)
+
+
+def test_log_follows_the_journal_in_this_terminal():
+    k = Kit()
+    console.act("log", RUNNING, k.deps)
+    assert k.ran == [["journalctl", "--user", "-u", "vjhstudio", "-n", "60", "-f"]]
+
+
+def test_update_restarts_only_a_running_server():
+    k = Kit()
+    console.act("update", RUNNING, k.deps)
+    assert k.ran[0][-1] == "update" and ["restart", "vjhstudio"] in k.calls
+    k = Kit()
+    console.act("update", STOPPED, k.deps)
+    assert k.ran[0][-1] == "update" and ["restart", "vjhstudio"] not in k.calls
+
+
+def test_failed_update_does_not_restart():
+    k = Kit(in_terminal_code=1)
+    console.act("update", RUNNING, k.deps)
+    assert ["restart", "vjhstudio"] not in k.calls
+
+
+def test_backup_runs_the_backup_command():
+    k = Kit()
+    console.act("backup", RUNNING, k.deps)
+    assert k.ran[0][-1] == "backup"
+    assert k.ran[0][-2].endswith("run.py")
+
+
+def test_browser_opens_the_app_url():
+    k = Kit()
+    console.act("browser", RUNNING, k.deps)
+    assert k.opened == [URL]
+
+
+def test_a_failing_systemctl_prints_its_message():
+    k = Kit(replies={"start vjhstudio": (5, "Failed to start vjhstudio.service: Unit not found.")})
+    console.act("start", STOPPED, k.deps)
+    assert any("Unit not found" in line for line in k.printed)
+
+
+@pytest.mark.parametrize("answers", [["q"], ["0"], []])  # [] is end of input
+def test_menu_quits_without_touching_the_service(answers):
+    k = Kit(answers=answers)
+    assert console.menu(k.deps) == 0
+    assert not any(c[0] in ("start", "stop", "restart", "enable", "disable") for c in k.calls)
+
+
+def test_menu_quits_on_ctrl_c_at_the_prompt():
+    k = Kit(ask_raises=KeyboardInterrupt)
+    assert console.menu(k.deps) == 0
+
+
+def test_menu_ignores_unknown_input_then_acts():
+    k = Kit(answers=["10", "x", "3", "q"])
+    assert console.menu(k.deps) == 0
+    assert k.calls.count(["restart", "vjhstudio"]) == 1
+
+
+def test_menu_shows_the_table_again_after_every_answer():
+    k = Kit(answers=["", "4", "q"])
+    console.menu(k.deps)
+    assert sum(1 for line in k.printed if line.startswith("VJHStudio 0.5.0")) == 3
+
+
+def test_menu_without_systemd_says_so_and_returns_1():
+    def no(args):
+        raise console.NoSystemd()
+
+    k = Kit(run=no)
+    assert console.menu(k.deps) == 1
+    assert any("systemd" in line for line in k.printed)
