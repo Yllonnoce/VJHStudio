@@ -162,9 +162,19 @@ def check_updates(repo: Path | None = None) -> dict:
     return out
 
 
+NO_UPSTREAM_RE = re.compile(r"no upstream configured for branch '([^']+)'")
+
+
 def _classify(text: str) -> str:
     if git_auth_needed(text):
         return GIT_LOGIN_HELP
+    local_branch = NO_UPSTREAM_RE.search(text)
+    if local_branch:
+        return (
+            f"This copy is on the branch '{local_branch.group(1)}', which is only on this "
+            "computer, so there is nothing to check it against. Push the branch, or "
+            "switch back to main, to get updates."
+        )
     return f"Could not check for updates: {text}".strip()
 
 

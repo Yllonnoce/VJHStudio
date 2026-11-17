@@ -614,3 +614,24 @@ def test_worker_does_not_restart_when_the_caller_owns_the_restart(paths, monkeyp
     assert update.start_update(paths, state, restart_on_restore=False) is True
     assert wait_until(lambda: not state.running)
     assert fired == []
+
+
+def test_check_on_a_branch_that_was_never_pushed_says_so_plainly(git_repo, monkeypatch):
+    """A local-only branch has nothing to compare against: git calls that fatal, but it
+    is the normal state of a development checkout, not a failure to explain."""
+    real = gitinfo.run_git
+
+    def fake(args, **kw):
+        if args[:2] == ["rev-list", "--count"]:
+            return subprocess.CompletedProcess(
+                args, 128, "", "fatal: no upstream configured for branch 'feat/console-menu'\n"
+            )
+        if args[:1] == ["fetch"]:
+            return subprocess.CompletedProcess(args, 0, "", "")
+        return real(args, **kw)
+
+    monkeypatch.setattr(gitinfo, "run_git", fake)
+    info = update.check_updates(repo=git_repo)
+    assert "feat/console-menu" in info["error"]
+    assert "fatal" not in info["error"] and "Could not check" not in info["error"]
+    assert "only on this computer" in info["error"]
