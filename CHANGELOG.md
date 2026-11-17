@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Linux: a console menu.** VJHStudio now runs in the background on Linux, and the desktop link
+  opens a small menu (`./console.sh`) that shows whether it is running and lets you start, stop
+  and restart it, follow the log, update, back up and switch start-at-login on or off. Closing
+  the window no longer stops the app. Existing installs get it by running `install.sh` again.
 - **Chat.** A new **Chat** page for talking to RunWare's text models (Claude, GPT, Gemini and
   others). Replies appear as they are written and can be stopped; conversations are saved in a
   list you can rename and delete; models that can see pictures take pictures from Assets, the

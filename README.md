@@ -109,6 +109,9 @@ The installer asks two questions: whether to start VJHStudio automatically when 
 whether to put a link on your desktop. Answering no to both is fine — you can always start it with
 start.sh / start.bat.
 
+On Linux, VJHStudio runs in the background, and the desktop link opens a small menu where you
+start, stop and restart it. Closing that window does not stop the app.
+
 You will see a lot of text scroll past while it sets itself up — that is normal, and you do not
 need to read it. This takes a few minutes the first time. When it is ready your web browser opens
 by itself at **http://127.0.0.1:8080**, and the terminal window stays open in the background.
@@ -221,8 +224,11 @@ Generate form remember the rule from then on.
 You do not have to repeat the install. To use the app again:
 
 - **Windows:** open the VJHStudio folder and double-click `start.bat`.
-- **macOS and Linux:** open a terminal, paste `cd ~/VJHStudio`, press Enter, then paste `./start.sh`
+- **macOS:** open a terminal, paste `cd ~/VJHStudio`, press Enter, then paste `./start.sh`
   and press Enter.
+- **Linux:** double-click the VJHStudio link on your desktop, press `1` (Start), then `6` to open it in
+  your browser. No link? Open a
+  terminal, paste `cd ~/VJHStudio`, press Enter, then paste `./console.sh` and press Enter.
 
 Your browser opens at http://127.0.0.1:8080 again.
 
@@ -408,7 +414,8 @@ terminal:
 uninstall.bat
 ```
 
-This stops the app, removes the start-at-login entry and the desktop link if you had them, and
+This stops the app, removes the start-at-login entry and the desktop link if you had them (on Linux
+also the background service), and
 removes the `.venv` folder it installed. Your `data` folder — your projects, prompts, images and
 videos — is kept.
 

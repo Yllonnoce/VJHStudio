@@ -246,9 +246,18 @@ NO_SYSTEMD = (
 
 def menu(deps: Deps) -> int:
     """The table, a choice, the action, again."""
+    # The update check asks the network, so it is asked once and remembered, not on
+    # every refresh; an update makes the answer stale.
+    remembered: list[dict] = []
+
+    def check() -> dict:
+        if not remembered:
+            remembered.append(deps.check())
+        return remembered[0]
+
     try:
         while True:
-            status = gather(deps.run, deps.url, deps.answers, deps.check)
+            status = gather(deps.run, deps.url, deps.answers, check)
             deps.out("")
             deps.out(render(status, deps.version))
             deps.out("")
@@ -262,6 +271,8 @@ def menu(deps: Deps) -> int:
             if choice in (None, "refresh"):
                 continue
             act(choice, status, deps)
+            if choice == "update":
+                remembered.clear()
     except NoSystemd:
         deps.out(NO_SYSTEMD)
         return 1

@@ -351,3 +351,20 @@ def test_menu_without_systemd_says_so_and_returns_1():
     k = Kit(run=no)
     assert console.menu(k.deps) == 1
     assert any("systemd" in line for line in k.printed)
+
+
+def test_menu_checks_for_updates_once_not_on_every_refresh():
+    """The check talks to the network; the table must not wait for it each time."""
+    k = Kit(answers=["", "4", "3", "q"])
+    seen = []
+    k.deps.check = lambda: seen.append(1) or ok_check()
+    console.menu(k.deps)
+    assert len(seen) == 1
+
+
+def test_menu_checks_for_updates_again_after_an_update():
+    k = Kit(answers=["7", "q"])
+    seen = []
+    k.deps.check = lambda: seen.append(1) or ok_check()
+    console.menu(k.deps)
+    assert len(seen) == 2

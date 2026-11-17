@@ -29,14 +29,14 @@ def test_all_four_scripts_exist():
 
 
 def test_no_powershell_in_any_shipped_script():
-    every = SCRIPTS + ("start.sh", "start.bat", "scripts/restart_helper.bat")
+    every = SCRIPTS + ("start.sh", "start.bat", "console.sh", "scripts/restart_helper.bat")
     for name in every:
         text = read(name).lower()
         assert "powershell" not in text, name
         assert ".ps1" not in text, name
 
 
-@pytest.mark.parametrize("name", ("install.sh", "uninstall.sh"))
+@pytest.mark.parametrize("name", ("install.sh", "uninstall.sh", "console.sh"))
 def test_shell_scripts_parse(name):
     if shutil.which("bash") is None:
         pytest.skip("bash is not available")
@@ -44,7 +44,7 @@ def test_shell_scripts_parse(name):
     assert done.returncode == 0, done.stderr.decode(errors="replace")
 
 
-@pytest.mark.parametrize("name", ("install.sh", "uninstall.sh"))
+@pytest.mark.parametrize("name", ("install.sh", "uninstall.sh", "console.sh"))
 def test_shell_scripts_are_executable(name):
     if sys.platform == "win32":
         pytest.skip("no executable bit on Windows")
@@ -173,3 +173,59 @@ def test_uninstall_sh_purge_honours_the_data_dir_env_var():
     text = read("uninstall.sh")
     assert "${VJHSTUDIO_DATA_DIR:-$DIR/data}" in text
     assert 'rm -rf "$DIR/data"' not in text
+
+
+# --- the Linux console menu: console.sh, the background service, the desktop link ---
+
+
+def test_console_sh_opens_the_menu_and_keeps_an_error_readable():
+    text = read("console.sh")
+    assert 'main "$@"' in text
+    assert "set -u" in text
+    assert "run.py console" in text
+    assert "--frozen" in text
+    assert "Press Enter to close" in text
+
+
+def test_install_sh_always_writes_the_service_on_linux_with_systemd():
+    text = read("install.sh")
+    assert "systemctl --user show-environment" in text  # the "is systemd here?" check
+    assert "systemctl --user enable --now vjhstudio" in text  # answered yes
+    assert "systemctl --user start vjhstudio" in text  # answered no: start it once
+    assert text.count("vjhstudio.service") == 1  # still written in one place
+    # the Linux service is written because systemd is there, not because of the answer
+    assert 'if [ "$SYSTEMD" = "yes" ]; then' in text
+    assert 'if [ "$SERVICE" = "yes" ] && [ "$OS" = "linux" ]' not in text
+
+
+def test_install_sh_desktop_link_opens_the_menu_when_systemd_is_there():
+    text = read("install.sh")
+    assert 'LINK_EXEC="$DIR/console.sh"' in text
+    assert 'LINK_EXEC="$DIR/start.sh"' in text  # without systemd: as before
+    assert 'Exec="$LINK_EXEC"' in text
+    assert text.count("[Desktop Entry]") == 1  # one link text, not two
+
+
+def test_install_sh_still_asks_only_the_two_questions():
+    assert read("install.sh").count("read -r -p") == 2
+
+
+def test_install_sh_never_runs_a_second_copy_next_to_the_service():
+    """With the service running in the background, ending the installer with
+    start.sh would start a second server."""
+    text = read("install.sh")
+    tail = text[text.index("# --- Step 10") :]
+    assert '[ "$SYSTEMD" = "yes" ]' in tail
+    assert tail.index('[ "$SYSTEMD" = "yes" ]') < tail.index("exec ./start.sh")
+
+
+def test_uninstall_sh_removes_the_linux_service_even_without_start_at_login():
+    """The service file now exists on every Linux install with systemd, so its removal
+    must not depend on the "service" answer written in install.json."""
+    text = read("uninstall.sh")
+    guard = 'if [ -f "${HOME:-}/.config/systemd/user/vjhstudio.service" ]; then'
+    assert guard in text
+    assert text.index(guard) < text.index("systemctl --user disable --now")
+    # and the macOS removal is the only thing left behind the SERVICE answer
+    block = text[text.index('if [ "$SERVICE" = "yes" ]') : text.index(guard)]
+    assert "launchctl unload" in block and "systemctl" not in block

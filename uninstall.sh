@@ -29,16 +29,17 @@ main() {
   # --- Step 2: remove the "start when I log in" entry --------------------------
   # This comes first on purpose: the system is told to restart VJHStudio whenever
   # it stops, so stopping it before removing this entry would just start it again.
-  if [ "$SERVICE" = "yes" ]; then
+  if [ "$SERVICE" = "yes" ] && [ "$(uname -s)" = "Darwin" ]; then
     echo "Removing the start-at-login entry..."
-    if [ "$(uname -s)" = "Darwin" ]; then
-      launchctl unload -w "${HOME:-}/Library/LaunchAgents/com.yllonnoce.vjhstudio.plist" 2>/dev/null
-      rm -f "${HOME:-}/Library/LaunchAgents/com.yllonnoce.vjhstudio.plist"
-    else
-      systemctl --user disable --now vjhstudio 2>/dev/null
-      rm -f "${HOME:-}/.config/systemd/user/vjhstudio.service"
-      systemctl --user daemon-reload 2>/dev/null
-    fi
+    launchctl unload -w "${HOME:-}/Library/LaunchAgents/com.yllonnoce.vjhstudio.plist" 2>/dev/null
+    rm -f "${HOME:-}/Library/LaunchAgents/com.yllonnoce.vjhstudio.plist"
+  fi
+  # Linux: the background service is there on every install, start-at-login or not.
+  if [ -f "${HOME:-}/.config/systemd/user/vjhstudio.service" ]; then
+    echo "Removing the background service..."
+    systemctl --user disable --now vjhstudio 2>/dev/null
+    rm -f "${HOME:-}/.config/systemd/user/vjhstudio.service"
+    systemctl --user daemon-reload 2>/dev/null
   fi
 
   # --- Step 3: ask the app to stop, then wait up to 10 seconds ----------------

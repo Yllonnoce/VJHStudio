@@ -6,7 +6,7 @@ main() {
   set -u
 
   # --- What you can change with flags (you normally need none of them) ---------
-  local DIR BRANCH START SERVICE DESKTOP OS UV TTY ANSWER
+  local DIR BRANCH START SERVICE DESKTOP OS UV TTY ANSWER SYSTEMD LINK_EXEC LINK_COMMENT
   DIR="${VJHSTUDIO_HOME:-${HOME:-}/VJHStudio}"  # where the app folder goes
   BRANCH="main"                                 # which version to download
   START="yes"                                   # start the app when we are done
@@ -124,8 +124,14 @@ main() {
     fi
   fi
 
-  # --- Step 7: start at login, if that was answered yes ------------------------
-  if [ "$SERVICE" = "yes" ] && [ "$OS" = "linux" ]; then
+  # --- Step 7: run in the background (Linux), and start at login if answered yes
+  # On Linux the app runs as a background service, so the shortcut can start,
+  # stop and restart it. That needs systemd, which most Linux systems have.
+  SYSTEMD="no"
+  if [ "$OS" = "linux" ] && systemctl --user show-environment >/dev/null 2>&1; then
+    SYSTEMD="yes"
+  fi
+  if [ "$SYSTEMD" = "yes" ]; then
     mkdir -p "${HOME:-}/.config/systemd/user"
     cat > "${HOME:-}/.config/systemd/user/vjhstudio.service" <<EOF
 [Unit]
@@ -139,9 +145,13 @@ Restart=always
 WantedBy=default.target
 EOF
     systemctl --user daemon-reload
-    systemctl --user enable --now vjhstudio
-    echo "Tip: to keep VJHStudio running while you are logged out, run once:"
-    echo "  sudo loginctl enable-linger $(id -un)"
+    if [ "$SERVICE" = "yes" ]; then
+      systemctl --user enable --now vjhstudio
+      echo "Tip: to keep VJHStudio running while you are logged out, run once:"
+      echo "  sudo loginctl enable-linger $(id -un)"
+    elif [ "$START" = "yes" ]; then
+      systemctl --user start vjhstudio
+    fi
   fi
   if [ "$SERVICE" = "yes" ] && [ "$OS" = "macos" ]; then
     mkdir -p "${HOME:-}/Library/LaunchAgents"
@@ -163,14 +173,22 @@ EOF
   fi
 
   # --- Step 8: the shortcut, if that was answered yes --------------------------
+  # With the background service the link opens a menu (start, stop, restart);
+  # without it the link starts the app in the window, as before.
+  LINK_EXEC="$DIR/start.sh"
+  LINK_COMMENT="Make pictures with VJHStudio"
+  if [ "$SYSTEMD" = "yes" ]; then
+    LINK_EXEC="$DIR/console.sh"
+    LINK_COMMENT="Start, stop and restart VJHStudio"
+  fi
   if [ "$DESKTOP" = "yes" ] && [ "$OS" = "linux" ]; then
     mkdir -p "${HOME:-}/.local/share/applications"
     cat > "${HOME:-}/.local/share/applications/vjhstudio.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=VJHStudio
-Comment=Make pictures with VJHStudio
-Exec="$DIR/start.sh"
+Comment=$LINK_COMMENT
+Exec="$LINK_EXEC"
 Path=$DIR
 Icon=$DIR/vjhstudio/web/static/img/favicon.svg
 Terminal=true
@@ -204,6 +222,17 @@ EOF
 
   # --- Step 10: done. Start the app unless it is already running as a service --
   echo "VJHStudio is installed in $DIR"
+  if [ "$SYSTEMD" = "yes" ]; then
+    # It runs in the background; starting it here too would make a second copy.
+    if [ "$SERVICE" = "yes" ] || [ "$START" = "yes" ]; then
+      echo "It is running. Open http://127.0.0.1:8080/ in your browser."
+    fi
+    echo "To start, stop or restart it, run: $DIR/console.sh"
+    if [ "$DESKTOP" = "yes" ]; then
+      echo "The VJHStudio shortcut on your Desktop opens the same menu."
+    fi
+    exit 0
+  fi
   if [ "$SERVICE" = "yes" ] || [ "$START" = "no" ]; then
     echo "Open http://127.0.0.1:8080/ in your browser."
     exit 0
