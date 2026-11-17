@@ -137,3 +137,35 @@ async def test_settings_says_how_other_devices_reach_it(client, app, monkeypatch
     app.state.host = "0.0.0.0"
     page = (await client.get("/settings")).text
     assert "http://192.168.1.24:" in page and "Anyone on your network" in page
+
+
+# --- "this computer only" behind a reverse proxy ---------------------------
+
+
+def test_own_address_knows_this_machine_from_another():
+    assert netinfo.is_own_address("127.0.0.1")
+    assert not netinfo.is_own_address("192.0.2.55")  # TEST-NET-1: nobody's address
+    assert not netinfo.is_own_address("not an address")
+    assert not netinfo.is_own_address("")
+    for mine in netinfo.lan_addresses():
+        assert netinfo.is_own_address(mine)
+
+
+def test_own_address_trusts_nothing_when_any_address_can_be_bound(monkeypatch):
+    """With net.ipv4.ip_nonlocal_bind on, binding proves nothing, so nothing passes."""
+
+    class AnythingBinds:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def bind(self, addr):
+            pass
+
+    monkeypatch.setattr(netinfo.socket, "socket", AnythingBinds)
+    assert not netinfo.is_own_address("10.0.0.77")

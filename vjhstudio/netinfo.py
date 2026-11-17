@@ -43,6 +43,36 @@ def lan_addresses() -> list[str]:
     return [a for a in dict.fromkeys(found) if a and not is_loopback(a) and a != "0.0.0.0"]  # noqa: S104
 
 
+NOBODYS_ADDRESS = "192.0.2.1"  # TEST-NET-1 (RFC 5737): never assigned to a real machine
+
+
+def _can_bind(host: str) -> bool:
+    try:
+        family, _, _, _, addr = socket.getaddrinfo(
+            host, 0, type=socket.SOCK_DGRAM, flags=socket.AI_NUMERICHOST
+        )[0]
+        with socket.socket(family, socket.SOCK_DGRAM) as s:
+            s.bind(addr)
+    except (OSError, ValueError, UnicodeError):
+        return False
+    return True
+
+
+def is_own_address(host: str) -> bool:
+    """True when ``host`` is an IP address of this machine, loopback or not.
+
+    A reverse proxy on the same machine (Nginx Proxy Manager) hands the app the
+    browser's address, and a browser on this computer that opened the proxy's URL
+    arrives as the machine's LAN address rather than 127.0.0.1. The OS only lets a
+    socket bind to an address it owns, on every interface, so binding is the test;
+    nothing is sent. Where the OS is set to allow binding any address
+    (``net.ipv4.ip_nonlocal_bind``) the test proves nothing and the answer is no."""
+    host = (host or "").strip()
+    if not host or not _can_bind(host):
+        return False
+    return not _can_bind(NOBODYS_ADDRESS)
+
+
 def network_urls(host: str, port: int) -> list[str]:
     """The URLs to type on another device, or ``[]`` when the app only answers on this
     computer. A specific non-loopback bind address is the one URL; a wildcard bind is

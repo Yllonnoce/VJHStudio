@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from starlette.datastructures import UploadFile
 
-from ... import db
+from ... import db, netinfo
 from ...models import utcnow
 from ...services import archive, gitinfo, update
 from ...services import restart as restart_svc
@@ -50,11 +50,22 @@ async def health(request: Request):
 
 
 def _local_only(request: Request) -> None:
-    """Refuse a non-loopback peer. Cross-site browser requests, which *are*
-    loopback, are handled earlier by web.csrf.CrossSiteBlockMiddleware."""
+    """Refuse a peer that is not this computer. Cross-site browser requests, which
+    *are* local, are handled earlier by web.csrf.CrossSiteBlockMiddleware.
+
+    A reverse proxy on this machine (Nginx Proxy Manager) forwards the browser's
+    address, so a browser here that opened the proxy's URL shows up as the machine's
+    own LAN address. That counts as local only while the app listens on loopback:
+    then every connection comes from a process on this machine, and a non-loopback
+    peer can only be one such a proxy reported. Listening on the network, a Docker
+    bridge or a NAT can make *any* outside client look like one of this machine's
+    addresses, so there only real loopback passes."""
     host = request.client.host if request.client else ""
-    if host not in ("127.0.0.1", "::1", "testclient"):
-        raise HTTPException(403, "local only")
+    if host in ("127.0.0.1", "::1", "testclient"):
+        return
+    if netinfo.is_loopback(request.app.state.host) and netinfo.is_own_address(host):
+        return
+    raise HTTPException(403, "local only")
 
 
 @router.post("/api/restart", status_code=202)
