@@ -43,7 +43,10 @@ def system_runner(args: list[str]) -> tuple[int, str]:
         raise NoSystemd() from e
     except subprocess.TimeoutExpired:
         return 1, "systemctl did not answer"
-    if "Failed to connect to bus" in (done.stderr or ""):
+    # "Failed to connect to bus: ..." (older systemd) or
+    # "Failed to connect to user scope bus via ..." (newer): no session to talk to
+    words = done.stderr or ""
+    if "Failed to connect to" in words and "bus" in words:
         raise NoSystemd()
     return done.returncode, (done.stdout or done.stderr or "").strip()
 
@@ -231,8 +234,10 @@ def act(choice: str, status: Status, deps: Deps) -> None:
         deps.out(f"  opened {status.url}")
     elif choice == "update":
         if deps.in_terminal(_app_command("update")) != 0:
-            deps.out("  the update did not finish; the server was left as it was")
-        elif status.active:
+            deps.out("  the update did not finish")
+        # Also after a failed update: it may have put the database back from its
+        # backup, and a server still running would be writing to the old one.
+        if status.active:
             _systemctl("restart", deps)
     elif choice == "backup":
         deps.in_terminal(_app_command("backup"))
@@ -256,6 +261,7 @@ def menu(deps: Deps) -> int:
         return remembered[0]
 
     try:
+        deps.out("  checking for updates…")
         while True:
             status = gather(deps.run, deps.url, deps.answers, check)
             deps.out("")
@@ -276,3 +282,7 @@ def menu(deps: Deps) -> int:
     except NoSystemd:
         deps.out(NO_SYSTEMD)
         return 1
+    except KeyboardInterrupt:
+        # Ctrl-C while the menu itself was busy: leave quietly, the server stays as it is
+        deps.out("")
+        return 0

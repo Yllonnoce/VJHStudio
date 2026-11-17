@@ -109,14 +109,14 @@ The installer asks two questions: whether to start VJHStudio automatically when 
 whether to put a link on your desktop. Answering no to both is fine — you can always start it with
 start.sh / start.bat.
 
-On Linux, VJHStudio runs in the background, and the desktop link opens a small menu where you
-start, stop and restart it. Closing that window does not stop the app.
-
 You will see a lot of text scroll past while it sets itself up — that is normal, and you do not
-need to read it. This takes a few minutes the first time. When it is ready your web browser opens
-by itself at **http://127.0.0.1:8080**, and the terminal window stays open in the background.
+need to read it. This takes a few minutes the first time.
 
-Keep that terminal window open. Closing it stops the app.
+- **Windows and macOS:** when it is ready your web browser opens by itself at
+  **http://127.0.0.1:8080**. Keep the terminal window open. Closing it stops the app.
+- **Linux:** when it is ready, open **http://127.0.0.1:8080** in your web browser. VJHStudio runs
+  in the background, so you can close the terminal. The desktop link opens a small menu where you
+  start, stop and restart it; closing that menu does not stop the app.
 
 ## First run
 
@@ -232,14 +232,16 @@ You do not have to repeat the install. To use the app again:
 
 Your browser opens at http://127.0.0.1:8080 again.
 
-To stop the app, close the terminal window, or click in it and press Ctrl+C.
+To stop the app on Windows or macOS, close the terminal window, or click in it and press Ctrl+C.
+On Linux, press `2` (Stop) in the menu.
 
 ### On your phone, tablet or another computer
 
 VJHStudio normally only answers on the computer it runs on. To open it from other devices on
 the same home network, start it with `--network`:
 
-- **Linux or macOS:** `./start.sh --network`
+- **macOS:** `./start.sh --network`
+- **Linux:** press `2` (Stop) in the menu first, then `./start.sh --network`
 - **Windows:** `start.bat --network`
 
 The window it starts in then shows the address to use, something like

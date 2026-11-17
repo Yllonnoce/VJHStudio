@@ -229,3 +229,19 @@ def test_uninstall_sh_removes_the_linux_service_even_without_start_at_login():
     # and the macOS removal is the only thing left behind the SERVICE answer
     block = text[text.index('if [ "$SERVICE" = "yes" ]') : text.index(guard)]
     assert "launchctl unload" in block and "systemctl" not in block
+
+
+def test_install_sh_says_so_when_start_at_login_cannot_be_set_up():
+    """Linux without systemd: start-at-login was answered yes but cannot be done. The
+    installer must say so and start the app the ordinary way, not point at a page
+    nothing serves."""
+    text = read("install.sh")
+    assert "Start at login needs systemd" in text
+    block = text[text.index("Start at login needs systemd") :][:200]
+    assert 'SERVICE="no"' in block
+
+
+def test_install_sh_service_waits_before_starting_again():
+    """start.sh exits at once when another copy already has the port; without a pause
+    systemd would start it again many times a second."""
+    assert "RestartSec=5" in read("install.sh")

@@ -295,10 +295,19 @@ def test_update_restarts_only_a_running_server():
     assert k.ran[0][-1] == "update" and ["restart", "vjhstudio"] not in k.calls
 
 
-def test_failed_update_does_not_restart():
+def test_failed_update_still_restarts_a_running_server():
+    """A failed update may have put the database back from its backup; a server left
+    running would keep writing to the old file. A restart is the only safe state."""
     k = Kit(in_terminal_code=1)
     console.act("update", RUNNING, k.deps)
-    assert ["restart", "vjhstudio"] not in k.calls
+    assert ["restart", "vjhstudio"] in k.calls
+    assert any("did not finish" in line for line in k.printed)
+
+
+def test_failed_update_leaves_a_stopped_server_stopped():
+    k = Kit(in_terminal_code=1)
+    console.act("update", STOPPED, k.deps)
+    assert not any(c[0] in ("start", "restart") for c in k.calls)
 
 
 def test_backup_runs_the_backup_command():
@@ -368,3 +377,46 @@ def test_menu_checks_for_updates_again_after_an_update():
     k.deps.check = lambda: seen.append(1) or ok_check()
     console.menu(k.deps)
     assert len(seen) == 2
+
+
+def test_system_runner_without_a_user_bus_in_newer_systemd_words(monkeypatch):
+    class Done:
+        returncode = 1
+        stdout = ""
+        stderr = (
+            "Failed to connect to user scope bus via local transport: No such file or directory"
+        )
+
+    monkeypatch.setattr(console.subprocess, "run", lambda *a, **k: Done())
+    with pytest.raises(console.NoSystemd):
+        console.system_runner(["is-active", "vjhstudio"])
+
+
+def test_menu_ctrl_c_while_it_is_busy_quits_quietly():
+    """Ctrl-C while the status is being read, or while systemd is working, must not
+    end in a Python traceback."""
+
+    def slow_check():
+        raise KeyboardInterrupt
+
+    k = Kit(answers=["q"])
+    k.deps.check = slow_check
+    assert console.menu(k.deps) == 0
+
+    def stuck(args):
+        if args[0] == "stop":
+            raise KeyboardInterrupt
+        return 0, ""
+
+    k = Kit(answers=["2", "q"], run=stuck)
+    assert console.menu(k.deps) == 0
+
+
+def test_menu_says_it_is_looking_before_the_first_slow_check():
+    k = Kit(answers=["q"])
+    order = []
+    k.deps.check = lambda: order.append("check") or ok_check()
+    k.deps.out = lambda line: order.append(line)
+    console.menu(k.deps)
+    assert order.index("check") > 0  # something was printed before the check ran
+    assert "checking" in order[0].lower()

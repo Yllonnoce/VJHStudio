@@ -131,6 +131,10 @@ main() {
   if [ "$OS" = "linux" ] && systemctl --user show-environment >/dev/null 2>&1; then
     SYSTEMD="yes"
   fi
+  if [ "$OS" = "linux" ] && [ "$SYSTEMD" = "no" ] && [ "$SERVICE" = "yes" ]; then
+    echo "Start at login needs systemd, which this computer does not have. Skipping it."
+    SERVICE="no"
+  fi
   if [ "$SYSTEMD" = "yes" ]; then
     mkdir -p "${HOME:-}/.config/systemd/user"
     cat > "${HOME:-}/.config/systemd/user/vjhstudio.service" <<EOF
@@ -140,6 +144,7 @@ Description=VJHStudio
 [Service]
 ExecStart="$DIR/start.sh" --no-browser
 Restart=always
+RestartSec=5
 
 [Install]
 WantedBy=default.target
